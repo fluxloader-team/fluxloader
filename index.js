@@ -1,14 +1,79 @@
 const puppeteer = require("puppeteer-core");
 const path = require("path");
 const { exec } = require("child_process");
+const fs = require("fs");
 const http = require("http");
 
 const DEBUG = true;
 const gameExecutable = "sandustrydemo.exe";
-const modLoaderPath = "./modloader.js";
+const logFilePath = "./app.log";
+const modLoaderTargetPath = "./modloader.js";
+const modsFolderPath = "./mods";
+const modsJsonPath = path.join(modsFolderPath, "mods.json");
+
+const writeLog = (message) => {
+  const timestamp = new Date().toISOString();
+  fs.appendFileSync(logFilePath, `[${timestamp}] ${message}\n`, "utf8");
+};
 
 const logDebug = (...args) => {
-  if (DEBUG) console.log("[DEBUG]", ...args);
+  const message = args.join(" ");
+  if (DEBUG) console.log("[DEBUG]", message);
+  writeLog("[DEBUG] " + message);
+};
+
+const logError = (...args) => {
+  const message = args.join(" ");
+  console.error("[ERROR]", message);
+  writeLog("[ERROR] " + message);
+};
+
+const ensureDirectoryExists = (dirPath) => {
+  if (!fs.existsSync(dirPath)) {
+    logDebug(`Creating directory: ${dirPath}`);
+    fs.mkdirSync(dirPath, { recursive: true });
+    logDebug(`Directory created: ${dirPath}`);
+  } else {
+    logDebug(`Directory already exists: ${dirPath}`);
+  }
+};
+
+const ensureModLoaderExists = async (sourcePath, targetPath) => {
+  try {
+    if (!fs.existsSync(targetPath)) {
+      logDebug(`File ${targetPath} does not exist. Creating it from the source...`);
+      let content;
+      if (process.pkg) {
+        sourcePath = path.join(__dirname, "assets/modloader.js");
+        content = fs.readFileSync(sourcePath, "utf8");
+      } else {
+        content = fs.readFileSync(sourcePath, "utf8");
+      }
+      fs.writeFileSync(targetPath, content, "utf8");
+      logDebug(`File ${targetPath} created successfully.`);
+    } else {
+      logDebug(`File ${targetPath} already exists.`);
+    }
+  } catch (error) {
+    logError(`Error ensuring modLoader file exists: ${error.message}`);
+    throw error;
+  }
+};
+
+const generateModsJson = async (modsFolder, modsJsonPath) => {
+  try {
+    logDebug(`Checking for .js files in mods folder: ${modsFolder}`);
+    const files = fs.readdirSync(modsFolder).filter((file) => file.endsWith(".js"));
+    const modNames = files.map((file) => path.basename(file, ".js"));
+    const jsonContent = JSON.stringify(modNames, null, 2);
+
+    logDebug(`Mod names extracted: ${modNames}`);
+    fs.writeFileSync(modsJsonPath, jsonContent, "utf8");
+    logDebug(`mods.json created at ${modsJsonPath} with content: ${jsonContent}`);
+  } catch (error) {
+    logError(`Error generating mods.json: ${error.message}`);
+    throw error;
+  }
 };
 
 const fetchJSON = (url) =>
@@ -22,7 +87,7 @@ const fetchJSON = (url) =>
         });
       });
       req.on("error", (err) => {
-        logDebug(`Error fetching JSON from ${url}:`, err.message);
+        logError(`Error fetching JSON from ${url}:`, err.message);
         reject(err);
       });
     });
@@ -44,12 +109,21 @@ const fetchWithRetry = async (url, retries = 5, delay = 5000) => {
 
 (async () => {
   try {
+    fs.writeFileSync(logFilePath, "", "utf8");
+
     const debugPort = 9222;
+    const modLoaderSourcePath = path.resolve(__dirname, "assets/modloader.js");
+
+    await ensureModLoaderExists(modLoaderSourcePath, modLoaderTargetPath);
+
+    ensureDirectoryExists(modsFolderPath);
+
+    await generateModsJson(modsFolderPath, modsJsonPath);
 
     logDebug(`Starting game executable: ${gameExecutable} with debug port ${debugPort}`);
     exec(`"${gameExecutable}" --remote-debugging-port=${debugPort}`, (err) => {
       if (err) {
-        console.error(`Failed to start the game executable: ${err.message}`);
+        logError(`Failed to start the game executable: ${err.message}`);
         return;
       }
     });
@@ -69,14 +143,14 @@ const fetchWithRetry = async (url, retries = 5, delay = 5000) => {
     if (pages.length === 0) throw new Error("No open pages found.");
 
     const mainPage = pages[0];
-    const modLoaderFullPath = `file://${path.resolve(modLoaderPath)}`;
+    const modLoaderFullPath = `file://${path.resolve(modLoaderTargetPath)}`;
     logDebug(`Resolved mod loader path: ${modLoaderFullPath}`);
 
     logDebug("Injecting mod loader script...");
     await mainPage.addScriptTag({ url: modLoaderFullPath });
     logDebug("Mod loader script injected successfully.");
   } catch (error) {
-    console.error("Error:", error.message);
+    logError("Error:", error.message);
     logDebug("Stack trace:", error.stack);
   }
 })();

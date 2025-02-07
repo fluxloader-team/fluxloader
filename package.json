@@ -7,6 +7,11 @@
     "puppeteer-core": "^20.0.0"
   },
   "pkg": {
-    "scripts": ["./index.js"]
+    "pkg": {
+      "scripts": ["./index.js"],
+      "assets": ["assets/modloader.js"]
+    }
+
+
   }
 }
