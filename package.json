@@ -1,0 +1,12 @@
+{
+  "name": "mod-loader",
+  "version": "1.0.0",
+  "main": "index.js",
+  "bin": "index.js",
+  "dependencies": {
+    "puppeteer-core": "^20.0.0"
+  },
+  "pkg": {
+    "scripts": ["./index.js"]
+  }
+}
