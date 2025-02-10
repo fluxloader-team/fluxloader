@@ -6,7 +6,7 @@ const http = require("http");
 const readline = require("readline");
 const util = require("util");
 
-const DEBUG = true;
+const enableDebug = false;
 const debugPort = 9222;
 const gameExecutable = "sandustrydemo.exe";
 const logFilePath = "./app.log";
@@ -20,41 +20,24 @@ globalThis.debug = {
   activeRequest:{}
 }
 
-const writeLog = (message) => {
+function writeLog(message) {
   const timestamp = new Date().toISOString();
   fs.appendFileSync(logFilePath, `[${timestamp}] ${message}\n`, "utf8");
 };
 
-const logDebug = (...args) => {
+function logDebug(...args) {
   const message = args.join(" ");
-  if (DEBUG) console.log("[DEBUG]", message);
+  if (enableDebug) console.log("[DEBUG]", message);
   writeLog("[DEBUG] " + message);
 };
 
-const logError = (...args) => {
+function logError(...args) {
   const message = args.join(" ");
   console.log("[ERROR]", message);
   writeLog("[ERROR] " + message);
 };
 
-process.on("uncaughtException", (error) => {
-  //logError("Uncaught exception:", error.stack || error.message);
-  //tryConnect()
-});
-
-process.on("unhandledRejection", (reason, promise) => {
-  //logError(`Unhandled rejection at: ${promise}, reason: ${reason}`);
-  //tryConnect()
-});
-
-const ensureGameExists = (gamePath) => {
-  if (!fs.existsSync(gamePath)) {
-    logError(`Game executable not found: ${gamePath}`);
-    process.exit(1);
-  }
-}
-
-const ensureDirectoryExists = (dirPath) => {
+function ensureDirectoryExists(dirPath) {
   if (!fs.existsSync(dirPath)) {
     logDebug(`Creating directory: ${dirPath}`);
     fs.mkdirSync(dirPath, { recursive: true });
@@ -64,7 +47,7 @@ const ensureDirectoryExists = (dirPath) => {
   }
 };
 
-const ensureModLoaderExists = async (sourcePath, targetPath) => {
+async function ensureModLoaderExists(sourcePath, targetPath) {
   try {
     if (!fs.existsSync(targetPath)) {
       logDebug(`File ${targetPath} does not exist. Creating it from the source...`);
@@ -81,15 +64,17 @@ const ensureModLoaderExists = async (sourcePath, targetPath) => {
   }
 };
 
-const generateModsJson = async (modsFolder, modsJsonPath) => {
+async function generateModsJson(modsFolder, modsJsonPath) {
   try {
     logDebug(`Checking for .js files in mods folder: ${modsFolder}`);
     const files = fs.readdirSync(modsFolder).filter((file) => file.endsWith(".js"));
+    
     const modNames = files.map((file) => path.basename(file, ".js"));
-    const jsonContent = JSON.stringify(modNames, null, 2);
-
     logDebug(`Mod names extracted: ${modNames}`);
+
+    const jsonContent = JSON.stringify(modNames, null, 2);
     fs.writeFileSync(modsJsonPath, jsonContent, "utf8");
+
     logDebug(`mods.json created at ${modsJsonPath} with content: ${jsonContent}`);
   } catch (error) {
     logError(`Error generating mods.json: ${error.message}`);
@@ -97,7 +82,7 @@ const generateModsJson = async (modsFolder, modsJsonPath) => {
   }
 };
 
-const fetchJSON = (url) => {
+function fetchJSON(url) {
   return new Promise((resolve, reject) => {
     const req = http.get(url, (res) => {
       let data = "";
@@ -114,7 +99,7 @@ const fetchJSON = (url) => {
   });
 };
 
-const fetchWithRetry = async (url, retries = 200, delay = 100) => {
+async function fetchWithRetry(url, retries = 200, delay = 100) {
   for (let i = 0; i < retries; i++) {
     logDebug(`Attempting to fetch ${url} (retry ${i + 1}/${retries})`);
     try {
@@ -132,7 +117,10 @@ const fetchWithRetry = async (url, retries = 200, delay = 100) => {
 async function init() {
   fs.writeFileSync(logFilePath, "", "utf8");
   
-  ensureGameExists(gameExecutable);
+  if (!fs.existsSync(gameExecutable)) {
+    logError(`Game executable not found: ${gameExecutable}`);
+    process.exit(1);
+  }
 
   await ensureModLoaderExists(modLoaderSourcePath, modLoaderTargetPath);
 
@@ -141,6 +129,7 @@ async function init() {
   await generateModsJson(modsFolderPath, modsJsonPath);
 
   logDebug(`Starting game executable: ${gameExecutable} with debug port ${debugPort}`);
+
   const cmd = `"${gameExecutable}" --remote-debugging-port=${debugPort} --enable-logging --enable-features=NetworkService`;
   exec(cmd, (err) => {
     if (err) {
@@ -252,12 +241,10 @@ async function injectModloader() {
   } catch(e) {
     //loadEvent();
     logError(e)
-  }},1000)
-
-
+  }}, 1000)
 }
 
-const evaluateCommand = (command) => {
+function evaluateCommand(command) {
   try {
     const result = eval(command);
     console.log("[RESULT]:", util.inspect(result, { depth: 3, colors: true }));
@@ -266,9 +253,9 @@ const evaluateCommand = (command) => {
   }
 };
 
-// Debug CLI
-const startDebugConsole = () => {
-  if (!DEBUG) return;
+function startDebugConsole() {
+  if (!enableDebug) return;
+
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -282,7 +269,7 @@ const startDebugConsole = () => {
     const command = line.trim();
     if (command === "exit") {
       console.log("Exiting debugger...");
-      //rl.close();
+      rl.close();
     } else {
       evaluateCommand(command);
     }
@@ -294,24 +281,8 @@ const startDebugConsole = () => {
   });
 };
 
-async function tryStartAndConnect() {
-  if (globalThis.browser == null || globalThis.browser == undefined) {
-    try {
-      await init();
-      await tryConnect();
-      startDebugConsole();
-    }
-    catch(error) {
-      logDebug(`tryStartAndConnect Caught an Error\n---------------------------\n${error.stack}\n---------------------------`);
-      setTimeout(async () => {
-        tryStartAndConnect();
-      }, 1000);
-    }
-  }
-}
-
-setTimeout(async () => {
-  //await globalThis.mainPage.reload({waitUntil: "domcontentloaded"});
-},2000)
-
-tryStartAndConnect();
+(async () => {
+  await init();
+  await tryConnect();
+  startDebugConsole();
+})();
