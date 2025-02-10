@@ -23,19 +23,25 @@ globalThis.debug = {
 function writeLog(message) {
   const timestamp = new Date().toISOString();
   fs.appendFileSync(logFilePath, `[${timestamp}] ${message}\n`, "utf8");
-};
+}
 
 function logDebug(...args) {
   const message = args.join(" ");
   if (enableDebug) console.log("[DEBUG]", message);
   writeLog("[DEBUG] " + message);
-};
+}
 
 function logError(...args) {
   const message = args.join(" ");
   console.log("[ERROR]", message);
   writeLog("[ERROR] " + message);
-};
+}
+
+function log(...args) {
+  const message = args.join(" ");
+  console.log("[LOG]", message);
+  writeLog("[LOG] " + message);
+}
 
 function ensureDirectoryExists(dirPath) {
   if (!fs.existsSync(dirPath)) {
@@ -45,7 +51,7 @@ function ensureDirectoryExists(dirPath) {
   } else {
     logDebug(`Directory already exists: ${dirPath}`);
   }
-};
+}
 
 async function ensureModLoaderExists(sourcePath, targetPath) {
   try {
@@ -62,7 +68,7 @@ async function ensureModLoaderExists(sourcePath, targetPath) {
     logError(`Error ensuring modLoader file exists: ${error.message}`);
     throw error;
   }
-};
+}
 
 async function generateModsJson(modsFolder, modsJsonPath) {
   try {
@@ -71,7 +77,7 @@ async function generateModsJson(modsFolder, modsJsonPath) {
     
     const modNames = files.map((file) => path.basename(file, ".js"));
     logDebug(`Mod names extracted: ${modNames}`);
-
+    log("Found mods: ", modNames.join(", "))
     const jsonContent = JSON.stringify(modNames, null, 2);
     fs.writeFileSync(modsJsonPath, jsonContent, "utf8");
 
@@ -80,7 +86,7 @@ async function generateModsJson(modsFolder, modsJsonPath) {
     logError(`Error generating mods.json: ${error.message}`);
     throw error;
   }
-};
+}
 
 function fetchJSON(url) {
   return new Promise((resolve, reject) => {
@@ -97,7 +103,7 @@ function fetchJSON(url) {
       reject(err);
     });
   });
-};
+}
 
 async function fetchWithRetry(url, retries = 200, delay = 100) {
   for (let i = 0; i < retries; i++) {
@@ -112,16 +118,16 @@ async function fetchWithRetry(url, retries = 200, delay = 100) {
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
-};
+}
 
 async function init() {
   fs.writeFileSync(logFilePath, "", "utf8");
-  
+
   if (!fs.existsSync(gameExecutable)) {
     logError(`Game executable not found: ${gameExecutable}`);
     process.exit(1);
   }
-
+  log("Generating Mods")
   await ensureModLoaderExists(modLoaderSourcePath, modLoaderTargetPath);
 
   ensureDirectoryExists(modsFolderPath);
@@ -129,7 +135,7 @@ async function init() {
   await generateModsJson(modsFolderPath, modsJsonPath);
 
   logDebug(`Starting game executable: ${gameExecutable} with debug port ${debugPort}`);
-
+  log("Starting Sandustry")
   const cmd = `"${gameExecutable}" --remote-debugging-port=${debugPort} --enable-logging --enable-features=NetworkService`;
   exec(cmd, (err) => {
     if (err) {
@@ -232,15 +238,20 @@ async function interceptRequests(page, patterns) {
 }
 
 async function injectModloader() {
+  log("Starting Modloader Injection")
   setTimeout( async () => {try{
     const modLoaderFullPath = `file://${path.resolve(modLoaderTargetPath)}`;
     logDebug(`Resolved mod loader path: ${modLoaderFullPath}`);
     logDebug("Injecting mod loader script...");
     await globalThis.mainPage.addScriptTag({url: modLoaderFullPath});
-    logDebug("Mod loader script injected successfully.");
+    log("Modloader script injected successfully.");
   } catch(e) {
-    //loadEvent();
     logError(e)
+    log("Modloader injection failed. send error log to modding channel. Exiting...");
+    setTimeout(() => {
+      process.exit(0);
+    },5000)
+
   }}, 1000)
 }
 
@@ -251,7 +262,7 @@ function evaluateCommand(command) {
   } catch (error) {
     console.log("[ERROR]:", error.message);
   }
-};
+}
 
 function startDebugConsole() {
   if (!enableDebug) return;
@@ -262,13 +273,13 @@ function startDebugConsole() {
     prompt: "DEBUG> ",
   });
 
-  console.log("Interactive Debugger started. Type commands to interact with the app.");
+  log("Interactive Debugger started. Type commands to interact with the app.");
   rl.prompt();
 
   rl.on("line", (line) => {
     const command = line.trim();
     if (command === "exit") {
-      console.log("Exiting debugger...");
+      log("Exiting debugger...");
       rl.close();
     } else {
       evaluateCommand(command);
@@ -277,9 +288,9 @@ function startDebugConsole() {
   });
 
   rl.on("close", () => {
-    console.log("Debugger closed.");
+    log("Debugger closed.");
   });
-};
+}
 
 (async () => {
   await init();
