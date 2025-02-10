@@ -1,0 +1,16 @@
+stages:
+  - build
+
+build-windows:
+  tags:
+    - linux
+  image: node:18
+  stage: build
+  before_script:
+    - apt-get update && apt-get install -y wine
+  script:
+    - npm install
+    - npx pkg . --targets win --output dist/mod-loader.exe
+  artifacts:
+    paths:
+      - dist/mod-loader.exe
