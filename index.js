@@ -8,7 +8,8 @@ const util = require("util");
 
 const DEBUG = true;
 const debugPort = 9222;
-const gameExecutable = "sandustrydemo.exe";
+// const gameExecutable = "sandustrydemo.exe";
+const gameExecutable = "C:/Program Files (x86)/Steam/steamapps/common/Sandustry Demo/sandustrydemo.exe";
 const logFilePath = "./app.log";
 const modLoaderSourcePath = "./assets/modloader.js";
 const modLoaderTargetPath = "./modloader.js";
@@ -222,28 +223,23 @@ async function interceptRequests(page, patterns) {
 
     const contentTypeHeader = Object.keys(responseHeaders).find(k => k.toLowerCase() === 'content-type');
     let _, contentType = responseHeaders[contentTypeHeader];
-    logDebug(`Content type: ${contentType}`)
 
-    const bodyData =  Buffer.from(response.body, "base64").toString("utf8").replace(`debug:{active:!1`, `debug:{active:1`);
-    // logDebug(`Body data: ${bodyData}`);
+    let bodyData = Buffer.from(response.body, 'base64').toString("utf8");
+    bodyData = bodyData.replace(`debug:{active:!1`, `debug:{active:1`);
   
     const newHeaders = [
       'Content-Length: ' + bodyData.length,
       'Content-Type: ' + contentType
     ];
 
-    logDebug(`Continuing interception ${interceptionId}`);
+    const rawResponse = Buffer.from('HTTP/1.1 200 OK' + '\r\n' + newHeaders.join('\r\n') + '\r\n\r\n' + bodyData).toString('base64');
 
-    client.send('Network.continueInterceptedRequest', {
-      interceptionId,
-      rawResponse: Buffer.from('HTTP/1.1 200 OK' + '\r\n' + newHeaders.join('\r\n') + '\r\n\r\n' + bodyData, "utf8")
-    });
+    logDebug(`Continuing interception ${interceptionId} with modified response...`);
+    client.send('Network.continueInterceptedRequest', { interceptionId, rawResponse });
 
-    logDebug(`Continued interception ${interceptionId}`);
+    logDebug(`Interception continued ${interceptionId}`);
   });
 }
-
-//globalThis.bundlejs = bundlejs.replace(`debug:{active:!1`, `debug:{active:1`)
 
 async function loadEvent() {
   setTimeout( async () => {try{
