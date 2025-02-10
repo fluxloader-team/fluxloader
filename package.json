@@ -8,6 +8,6 @@
   },
   "pkg": {
     "scripts": ["./index.js"],
-    "assets": ["assets/modloader.js"]
+    "assets": ["assets/modloader.js", "assets/modloader-config.json"]
   }
 }
