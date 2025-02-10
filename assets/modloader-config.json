@@ -1,0 +1,9 @@
+{
+    "paths": {
+        "executable": "./sandustrydemo.exe",
+        "log": "./modloader.log",
+        "mods": "./mods"
+    },
+    "enableDebug": false,
+    "debugPort": 9222
+}

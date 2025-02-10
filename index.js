@@ -6,14 +6,10 @@ const http = require("http");
 const readline = require("readline");
 const util = require("util");
 
-const enableDebug = false;
-const debugPort = 9222;
-const gameExecutable = "sandustrydemo.exe";
-const logFilePath = "./app.log";
+const configSourcePath = "./assets/modloader-config.json";
+const configTargetPath = "./modloader-config.json";
 const modLoaderSourcePath = "./assets/modloader.js";
 const modLoaderTargetPath = "./modloader.js";
-const modsFolderPath = "./mods";
-const modsJsonPath = path.join(modsFolderPath, "mods.json");
 
 globalThis.bundlejs = "";
 globalThis.debug = {
@@ -21,13 +17,14 @@ globalThis.debug = {
 }
 
 function writeLog(message) {
+  if (!Object.hasOwn(globalThis, "config")) return;
   const timestamp = new Date().toISOString();
-  fs.appendFileSync(logFilePath, `[${timestamp}] ${message}\n`, "utf8");
-}
+  fs.appendFileSync(config.paths.log, `[${timestamp}] ${message}\n`, "utf8");
+};
 
 function logDebug(...args) {
   const message = args.join(" ");
-  if (enableDebug) console.log("[DEBUG]", message);
+  if (config.enableDebug) console.log("[DEBUG]", message);
   writeLog("[DEBUG] " + message);
 }
 
@@ -53,31 +50,94 @@ function ensureDirectoryExists(dirPath) {
   }
 }
 
-async function ensureModLoaderExists(sourcePath, targetPath) {
+async function readAndVerifyConfig(sourcePath, targetPath) {
   try {
+    sourcePath = path.resolve(__dirname, sourcePath);
+    let sourceContent = fs.readFileSync(sourcePath, "utf8");
+    const sourceData = JSON.parse(sourceContent);
+
     if (!fs.existsSync(targetPath)) {
-      logDebug(`File ${targetPath} does not exist. Creating it from the source...`);
-      sourcePath = path.resolve(__dirname, sourcePath);
-      let content = fs.readFileSync(sourcePath, "utf8");
-      fs.writeFileSync(targetPath, content, "utf8");
-      logDebug(`File ${targetPath} created successfully.`);
-    } else {
-      logDebug(`File ${targetPath} already exists.`);
+        fs.writeFileSync(targetPath, sourceContent, "utf8");
+        globalThis.config = sourceData;
+        return;
     }
+
+    const targetContent = fs.readFileSync(targetPath, "utf8");
+    const targetData = JSON.parse(targetContent);
+    
+    let modified = false;
+    function traverse(source, target) {
+      // If target doesn't have a property source has, then add it
+      for (const key in source) {
+        if (typeof source[key] === "object" && source[key] !== null) {
+          if (!Object.hasOwn(target, key)) {
+            target[key] = {};
+            modified = true;
+          }
+          traverse(source[key], target[key]);
+        } else {
+          if (!Object.hasOwn(target, key)) {
+            target[key] = source[key];
+            modified = true;
+          }
+        }
+      }
+
+      // If target has a property source doesn't have, then remove it
+      for (const key in target) {
+        if (!Object.hasOwn(source, key)) {
+          delete target[key];
+          modified = true;
+        }
+      }
+    }
+
+    traverse(sourceData, targetData);
+
+    globalThis.config = targetData;
+
+    if (!modified) {
+      logDebug(`Config file is up-to-date.`);
+      return;
+    } else {
+      const targetContentUpdated = JSON.stringify(targetData, null, 2);
+      fs.writeFileSync(targetPath, targetContentUpdated, "utf8");
+      logDebug(`Config ${targetPath} updated successfully.`);
+    }
+  
   } catch (error) {
-    logError(`Error ensuring modLoader file exists: ${error.message}`);
+    logError(`Could not read / verify config file: ${error.message}`);
     throw error;
   }
 }
 
-async function generateModsJson(modsFolder, modsJsonPath) {
+async function createLocalModLoader(sourcePath, targetPath) {
   try {
+    logDebug(`Creating modloader file at ${targetPath} from source...`);
+    sourcePath = path.resolve(__dirname, sourcePath);
+    let content = fs.readFileSync(sourcePath, "utf8");
+    fs.writeFileSync(targetPath, content, "utf8");
+    logDebug(`Modloader file ${targetPath} created successfully.`);
+  } catch (error) {
+    logError(`Error creating modLoader file: ${error.message}`);
+    throw error;
+  }
+}
+
+async function generateModsJson(modsFolder) {
+  try {
+    const modsJsonPath = path.join(modsFolder, "mods.json");
+
     logDebug(`Checking for .js files in mods folder: ${modsFolder}`);
     const files = fs.readdirSync(modsFolder).filter((file) => file.endsWith(".js"));
     
     const modNames = files.map((file) => path.basename(file, ".js"));
     logDebug(`Mod names extracted: ${modNames}`);
-    log("Found mods: ", modNames.join(", "))
+    if (modNames.length === 0) {
+      logDebug(`No mods found in ${modsFolder}`);
+    } else {
+      log("Found mods: ", modNames.join(", "))
+    }
     const jsonContent = JSON.stringify(modNames, null, 2);
     fs.writeFileSync(modsJsonPath, jsonContent, "utf8");
 
@@ -121,22 +181,25 @@ async function fetchWithRetry(url, retries = 200, delay = 100) {
 }
 
 async function init() {
-  fs.writeFileSync(logFilePath, "", "utf8");
+  await readAndVerifyConfig(configSourcePath, configTargetPath);
 
-  if (!fs.existsSync(gameExecutable)) {
-    logError(`Game executable not found: ${gameExecutable}`);
+  fs.writeFileSync(config.paths.log, "", "utf8");
+  
+  if (!fs.existsSync(config.paths.executable)) {
+    logError(`Game executable not found: ${config.paths.executable}`);
     process.exit(1);
   }
-  log("Generating Mods")
-  await ensureModLoaderExists(modLoaderSourcePath, modLoaderTargetPath);
 
-  ensureDirectoryExists(modsFolderPath);
+  log("Generating Mods");
+  await createLocalModLoader(modLoaderSourcePath, modLoaderTargetPath);
 
-  await generateModsJson(modsFolderPath, modsJsonPath);
+  ensureDirectoryExists(config.paths.mods);
 
-  logDebug(`Starting game executable: ${gameExecutable} with debug port ${debugPort}`);
+  await generateModsJson(config.paths.mods);
+
+  logDebug(`Starting game executable: ${config.paths.executable} with debug port ${config.debugPort}`);
   log("Starting Sandustry")
-  const cmd = `"${gameExecutable}" --remote-debugging-port=${debugPort} --enable-logging --enable-features=NetworkService`;
+  const cmd = `"${config.paths.executable}" --remote-debugging-port=${config.debugPort} --enable-logging --enable-features=NetworkService`;
   exec(cmd, (err) => {
     if (err) {
       logError(`Failed to start the game executable: ${err.message}`);
@@ -146,7 +209,7 @@ async function init() {
 }
 
 async function tryConnect() {
-  globalThis.url = `http://127.0.0.1:${debugPort}/json/version`;
+  globalThis.url = `http://127.0.0.1:${config.debugPort}/json/version`;
 
   logDebug(`Fetching WebSocket debugger URL from ${globalThis.url}`);
   globalThis.webSocketDebuggerUrl = await fetchWithRetry(globalThis.url);
@@ -238,13 +301,13 @@ async function interceptRequests(page, patterns) {
 }
 
 async function injectModloader() {
-  log("Starting Modloader Injection")
+  log("Starting Modloader Injection...")
   setTimeout( async () => {try{
     const modLoaderFullPath = `file://${path.resolve(modLoaderTargetPath)}`;
     logDebug(`Resolved mod loader path: ${modLoaderFullPath}`);
     logDebug("Injecting mod loader script...");
     await globalThis.mainPage.addScriptTag({url: modLoaderFullPath});
-    log("Modloader script injected successfully.");
+    log("Modloader script injected successfully");
   } catch(e) {
     logError(e)
     log("Modloader injection failed. send error log to modding channel. Exiting...");
@@ -265,7 +328,7 @@ function evaluateCommand(command) {
 }
 
 function startDebugConsole() {
-  if (!enableDebug) return;
+  if (!config.enableDebug) return;
 
   const rl = readline.createInterface({
     input: process.stdin,
