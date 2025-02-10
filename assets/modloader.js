@@ -1,16 +1,4 @@
 (async function () {
-    setTimeout(function () {
-        try{
-            window.__debug.state
-        }catch (e){
-            document.location.reload();
-        }
-    },1000)
-
-
-
-
-
     const modsFolder = "../../mods/";
     const modsConfigFile = "mods.json";
 

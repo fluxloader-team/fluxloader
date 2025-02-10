@@ -13,6 +13,9 @@ const logFilePath = "./app.log";
 const modLoaderTargetPath = "./modloader.js";
 const modsFolderPath = "./mods";
 const modsJsonPath = path.join(modsFolderPath, "mods.json");
+globalThis.debug ={
+  activeRequest:{}
+}
 
 const writeLog = (message) => {
   const timestamp = new Date().toISOString();
@@ -133,7 +136,7 @@ async function init() {
   await generateModsJson(modsFolderPath, modsJsonPath);
 
   logDebug(`Starting game executable: ${gameExecutable} with debug port ${debugPort}`);
-  exec(`"${gameExecutable}" --remote-debugging-port=${debugPort} --enable-logging --enable-features=NetworkService,NetworkServiceInProcess --disable-web-security --allow-file-access-from-files --disable-features=OutOfBlinkCors`, (err) => {
+  exec(`"${gameExecutable}" --remote-debugging-port=${debugPort} --enable-logging --enable-features=NetworkService`, (err) => {
     if (err) {
       logError(`Failed to start the game executable: ${err.message}`);
       return;
@@ -147,15 +150,13 @@ async function tryConnect(){
   globalThis.webSocketDebuggerUrl = await fetchWithRetry(globalThis.url);
 
   logDebug("Connecting Puppeteer with disabled viewport constraints...");
+
   globalThis.browser = await puppeteer.connect({
     browserWSEndpoint: webSocketDebuggerUrl,
     defaultViewport: null,
-    headless: false,
 
   });
-  try{
-    globalThis.browser.off("*")
-  }catch(e){}
+
   globalThis.browser.on("disconnected", () => {
     try{
       process.exit(0)
@@ -179,31 +180,39 @@ async function tryConnect(){
   if (pages.length === 0) throw new Error("No open pages found.");
 
   globalThis.mainPage = pages[0];
-  //await globalThis.mainPage.setRequestInterception(true);
-  try{
-    globalThis.mainPage.off("*")
-  }catch(e){}
-  globalThis.mainPage.on("*", (event) => {
-    try{
-      logDebug("mainPage event:" + JSON.stringify(event));
-    }catch(e){
-      logError(e)
-    }
+  globalThis.mainPage._client.on("Network.requestWillBeSent", (request) => {})
+  setTimeout( async () => {
+    //await globalThis.mainPage.setRequestInterception(true);
+    setTimeout( async () => {
+      //await mainPage.reload();
+      setTimeout( async () => {
 
-  })
+        globalThis.mainPage.on("*", (event) => {
+          try{
+            logDebug("mainPage event:" + JSON.stringify(event));
+          }catch(e){
+            logError(e)
+          }
 
-  globalThis.mainPage.on("close", () =>{
-    try{
-      //tryConnect();
-    }catch(e){
-      logError(e)
-    }
+        })
 
-  });
-  globalThis.mainPage.on("request", requestEvent)
-  globalThis.mainPage.on('framenavigated', framenavigatedEvent);
+        globalThis.mainPage.on("close", () =>{
+          try{
+            //tryConnect();
+          }catch(e){
+            logError(e)
+          }
 
-  globalThis.mainPage.on("requestfinished", requestfinishedEvent)
+        });
+
+        globalThis.mainPage.on("request", requestEvent)
+        globalThis.mainPage.on('framenavigated', framenavigatedEvent);
+
+        globalThis.mainPage.on("requestfinished", requestfinishedEvent)
+      },1000)
+    },1000)
+    },1000)
+
 
   //globalThis.mainPage.on("load",loadEvent)
 }
@@ -211,49 +220,52 @@ async function tryConnect(){
 
 async function requestEvent(request){
   try{
+    globalThis.debug.activeRequest = request;
     logDebug(`Request: ${request.url()}`)
-    if (request.url().includes("js/bundle.js") && globalThis.bundlejs != "" && request.method() !== 'OPTIONS') {
+    if (request.url().includes("js/bundle.js") && request.method() !== 'OPTIONS') {
+      globalThis.bundlejs = bundlejs.replace(`debug:{active:!1`, `debug:{active:1`)
+      logDebug(`Request bundlejs: ${globalThis.bundlejs.includes("debug:{active:1")}`)
       request.respond({
         status: 200,
         contentType: "application/javascript",
         body: globalThis.bundlejs
       });
-      await loadEvent()
-    }else if (request.url().includes("js/bundle.js") && request.method() !== 'OPTIONS'){
-      await loadEvent()
-    }{request.continue()
+      setTimeout( async () => {await loadEvent()},1000)
+    }else{
+      request.continue();
     }
     logDebug(`Request end: ${request.url()}`)
   }catch(e){
     logError(e)
   }
 }
-
 async function requestfinishedEvent(request){
   try{
-    logDebug(`Request finished: ${request.url()}`)
-    if (request.url().includes("js/bundle.js") && request.method() !== 'OPTIONS') {
-      var response = await request.response()
+    globalThis.debug.activeRequest = request;
+    logDebug(`requestfinishedEvent: ${request.url()}`)
+    if (request.url().includes("js/bundle.js") && globalThis.bundlejs == "" && request.method() !== 'OPTIONS') {
+      var response = request.response()
       var responseBody;
       if (request.redirectChain().length === 0) {
         responseBody = await response.buffer();
       }
       globalThis.bundlejs = responseBody?.toString()
       globalThis.bundlejs = bundlejs.replace(`debug:{active:!1`, `debug:{active:1`)
-      await loadEvent()
+      logDebug(`requestfinishedEvent bundlejs: ${globalThis.bundlejs}`)
+      //setTimeout( async () => {await globalThis.mainPage.reload({waitUntil: "domcontentloaded"});},1000)
+
     }
-    else{
-      request.continue()
-    }
-    logDebug(`Request finished end: ${request.url()}`)
+    request.continue();
+    logDebug(`requestfinishedEvent end: ${request.url()}`)
   }catch(e){
+    if (request.isInterceptResolutionHandled()) return;
+    request.continue();
     logError(e)
   }
-
 }
 async function framenavigatedEvent(frame){
   logDebug(`Frame navigated to: ${frame.url()}`);
-  await tryConnect()
+  //await tryConnect()
 }
 
 async function loadEvent(){
@@ -327,5 +339,5 @@ setInterval(async () => {
 },1000)
 
 setTimeout(async () => {
-  await loadEvent()
+  //await globalThis.mainPage.reload({waitUntil: "domcontentloaded"});
 },2000)
