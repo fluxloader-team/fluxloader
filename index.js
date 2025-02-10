@@ -8,8 +8,7 @@ const util = require("util");
 
 const DEBUG = true;
 const debugPort = 9222;
-// const gameExecutable = "sandustrydemo.exe";
-const gameExecutable = "C:/Program Files (x86)/Steam/steamapps/common/Sandustry Demo/sandustrydemo.exe";
+const gameExecutable = "sandustrydemo.exe";
 const logFilePath = "./app.log";
 const modLoaderSourcePath = "./assets/modloader.js";
 const modLoaderTargetPath = "./modloader.js";
@@ -238,19 +237,19 @@ async function interceptRequests(page, patterns) {
     client.send('Network.continueInterceptedRequest', { interceptionId, rawResponse });
 
     logDebug(`Interception continued ${interceptionId}`);
+
+    injectModloader();
   });
 }
 
-async function loadEvent() {
+async function injectModloader() {
   setTimeout( async () => {try{
     const modLoaderFullPath = `file://${path.resolve(modLoaderTargetPath)}`;
     logDebug(`Resolved mod loader path: ${modLoaderFullPath}`);
-
     logDebug("Injecting mod loader script...");
-
     await globalThis.mainPage.addScriptTag({url: modLoaderFullPath});
     logDebug("Mod loader script injected successfully.");
-  }catch(e){
+  } catch(e) {
     //loadEvent();
     logError(e)
   }},1000)
