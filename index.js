@@ -6,14 +6,17 @@ const http = require("http");
 const readline = require("readline");
 const util = require("util");
 
-globalThis.bundlejs = "";
 const DEBUG = true;
+const debugPort = 9222;
 const gameExecutable = "sandustrydemo.exe";
 const logFilePath = "./app.log";
+const modLoaderSourcePath = "./assets/modloader.js";
 const modLoaderTargetPath = "./modloader.js";
 const modsFolderPath = "./mods";
 const modsJsonPath = path.join(modsFolderPath, "mods.json");
-globalThis.debug ={
+
+globalThis.bundlejs = "";
+globalThis.debug = {
   activeRequest:{}
 }
 
@@ -44,6 +47,12 @@ process.on("unhandledRejection", (reason, promise) => {
   //tryConnect()
 });
 
+const ensureGameExists = (gamePath) => {
+  if (!fs.existsSync(gamePath)) {
+    logError(`Game executable not found: ${gamePath}`);
+    process.exit(1);
+  }
+}
 
 const ensureDirectoryExists = (dirPath) => {
   if (!fs.existsSync(dirPath)) {
@@ -59,13 +68,8 @@ const ensureModLoaderExists = async (sourcePath, targetPath) => {
   try {
     if (!fs.existsSync(targetPath)) {
       logDebug(`File ${targetPath} does not exist. Creating it from the source...`);
-      let content;
-      if (process.pkg) {
-        sourcePath = path.join(__dirname, "assets/modloader.js");
-        content = fs.readFileSync(sourcePath, "utf8");
-      } else {
-        content = fs.readFileSync(sourcePath, "utf8");
-      }
+      sourcePath = path.resolve(__dirname, sourcePath);
+      let content = fs.readFileSync(sourcePath, "utf8");
       fs.writeFileSync(targetPath, content, "utf8");
       logDebug(`File ${targetPath} created successfully.`);
     } else {
@@ -93,21 +97,22 @@ const generateModsJson = async (modsFolder, modsJsonPath) => {
   }
 };
 
-const fetchJSON = (url) =>
-    new Promise((resolve, reject) => {
-      const req = http.get(url, (res) => {
-        let data = "";
-        res.on("data", (chunk) => (data += chunk));
-        res.on("end", () => {
-          logDebug(`Fetched JSON from ${url}:`, data);
-          resolve(JSON.parse(data));
-        });
-      });
-      req.on("error", (err) => {
-        logError(`Error fetching JSON from ${url}:`, err.message);
-        reject(err);
+const fetchJSON = (url) => {
+  return new Promise((resolve, reject) => {
+    const req = http.get(url, (res) => {
+      let data = "";
+      res.on("data", (chunk) => (data += chunk));
+      res.on("end", () => {
+        logDebug(`Fetched JSON from ${url}:`, data);
+        resolve(JSON.parse(data));
       });
     });
+    req.on("error", (err) => {
+      logError(`Error fetching JSON from ${url}:`, err.message);
+      reject(err);
+    });
+  });
+};
 
 const fetchWithRetry = async (url, retries = 200, delay = 100) => {
   for (let i = 0; i < retries; i++) {
@@ -123,11 +128,11 @@ const fetchWithRetry = async (url, retries = 200, delay = 100) => {
     }
   }
 };
+
 async function init() {
   fs.writeFileSync(logFilePath, "", "utf8");
-
-  globalThis.debugPort = 9222;
-  globalThis.modLoaderSourcePath = path.resolve(__dirname, "assets/modloader.js");
+  
+  ensureGameExists(gameExecutable);
 
   await ensureModLoaderExists(modLoaderSourcePath, modLoaderTargetPath);
 
@@ -136,21 +141,22 @@ async function init() {
   await generateModsJson(modsFolderPath, modsJsonPath);
 
   logDebug(`Starting game executable: ${gameExecutable} with debug port ${debugPort}`);
-  exec(`"${gameExecutable}" --remote-debugging-port=${debugPort} --enable-logging --enable-features=NetworkService`, (err) => {
+  const cmd = `"${gameExecutable}" --remote-debugging-port=${debugPort} --enable-logging --enable-features=NetworkService`;
+  exec(cmd, (err) => {
     if (err) {
       logError(`Failed to start the game executable: ${err.message}`);
       return;
     }
   });
-
 }
-async function tryConnect(){
+
+async function tryConnect() {
   globalThis.url = `http://127.0.0.1:${debugPort}/json/version`;
+
   logDebug(`Fetching WebSocket debugger URL from ${globalThis.url}`);
   globalThis.webSocketDebuggerUrl = await fetchWithRetry(globalThis.url);
 
   logDebug("Connecting Puppeteer with disabled viewport constraints...");
-
   globalThis.browser = await puppeteer.connect({
     browserWSEndpoint: webSocketDebuggerUrl,
     defaultViewport: null,
@@ -158,21 +164,15 @@ async function tryConnect(){
   });
 
   globalThis.browser.on("disconnected", () => {
-    try{
-      process.exit(0)
-      //tryConnect();
-    }catch(e){
-      logError(e)
-    }
+    process.exit(0);
+  });
 
-  })
   globalThis.browser.on("*", (event) => {
     try{
       logDebug("Browser event:" + JSON.stringify(event));
-    }catch(e){
-      logError(e)
+    } catch(e) {
+      logError(e);
     }
-
   })
 
   globalThis.pages = await browser.pages();
@@ -180,31 +180,30 @@ async function tryConnect(){
   if (pages.length === 0) throw new Error("No open pages found.");
 
   globalThis.mainPage = pages[0];
-  await interceptRequests(globalThis.mainPage,["*js/bundle.js"])
+
+  globalThis.mainPage.on("close", () =>{
+    logDebug("Page closed");
+  });
+
+  globalThis.mainPage.on('framenavigated', async (frame) => {
+    logDebug(`Frame navigated to: ${frame.url()}`);
+  });
+  
+  globalThis.mainPage.on("load", async () => {
+    logDebug("Page loaded");
+  });
+
+  await interceptRequests(globalThis.mainPage, ["*js/bundle.js"]);
+
   setTimeout( async () => {
-    //await globalThis.mainPage.setRequestInterception(true);
-    setTimeout( async () => {
-      //await mainPage.reload();
-      setTimeout( async () => {
-        globalThis.mainPage.on("close", () =>{
-          try{
-            //tryConnect();
-          }catch(e){
-            logError(e)
-          }
+    await mainPage.reload();
+  }, 500);
 
-        });
-
-        globalThis.mainPage.on('framenavigated', framenavigatedEvent);
-      },1000)
-    },1000)
-    },1000)
-
-
-  //globalThis.mainPage.on("load",loadEvent)
 }
 
 async function interceptRequests(page, patterns) {
+  logDebug(`Intercepting requests for patterns: ${patterns.join(", ")}`);
+
   const client = await page.target().createCDPSession();
 
   await client.send('Network.enable');
@@ -219,34 +218,34 @@ async function interceptRequests(page, patterns) {
     logDebug(`Intercepted ${request.url} {interception id: ${interceptionId}}`);
 
     const response = await client.send('Network.getResponseBodyForInterception',{ interceptionId });
-    logDebug(`Response body for ${request.url}:`, response.body);
+    // logDebug(`Response body for ${request.url}:`, response.body);
+
     const contentTypeHeader = Object.keys(responseHeaders).find(k => k.toLowerCase() === 'content-type');
-    let newBody, contentType = responseHeaders[contentTypeHeader];
+    let _, contentType = responseHeaders[contentTypeHeader];
     logDebug(`Content type: ${contentType}`)
+
     const bodyData =  Buffer.from(response.body, "base64").toString("utf8").replace(`debug:{active:!1`, `debug:{active:1`);
-    logDebug(`Body data: ${bodyData}`)
+    // logDebug(`Body data: ${bodyData}`);
+  
     const newHeaders = [
       'Content-Length: ' + bodyData.length,
       'Content-Type: ' + contentType
     ];
 
-    logDebug(`Continuing interception ${interceptionId}`)
+    logDebug(`Continuing interception ${interceptionId}`);
+
     client.send('Network.continueInterceptedRequest', {
       interceptionId,
       rawResponse: Buffer.from('HTTP/1.1 200 OK' + '\r\n' + newHeaders.join('\r\n') + '\r\n\r\n' + bodyData, "utf8")
     });
-    logDebug(`Continued interception ${interceptionId}`)
+
+    logDebug(`Continued interception ${interceptionId}`);
   });
 }
 
+//globalThis.bundlejs = bundlejs.replace(`debug:{active:!1`, `debug:{active:1`)
 
-      //globalThis.bundlejs = bundlejs.replace(`debug:{active:!1`, `debug:{active:1`)
-async function framenavigatedEvent(frame){
-  logDebug(`Frame navigated to: ${frame.url()}`);
-  //await tryConnect()
-}
-
-async function loadEvent(){
+async function loadEvent() {
   setTimeout( async () => {try{
     const modLoaderFullPath = `file://${path.resolve(modLoaderTargetPath)}`;
     logDebug(`Resolved mod loader path: ${modLoaderFullPath}`);
@@ -262,11 +261,6 @@ async function loadEvent(){
 
 
 }
-
-setTimeout( async () => {
-  startDebugConsole();
-},100);
-
 
 const evaluateCommand = (command) => {
   try {
@@ -305,17 +299,24 @@ const startDebugConsole = () => {
   });
 };
 
-setInterval(async () => {
-  if(globalThis.browser == null || globalThis.browser == undefined){
+async function tryStartAndConnect() {
+  if (globalThis.browser == null || globalThis.browser == undefined) {
     try {
       await init();
       await tryConnect();
-    }catch(error){
-      await logError("Error:", error.message);
-      await logDebug("Stack trace:", error.stack);
-    }}
-},1000)
+      startDebugConsole();
+    }
+    catch(error) {
+      logDebug(`tryStartAndConnect Caught an Error\n---------------------------\n${error.stack}\n---------------------------`);
+      setTimeout(async () => {
+        tryStartAndConnect();
+      }, 1000);
+    }
+  }
+}
 
 setTimeout(async () => {
   //await globalThis.mainPage.reload({waitUntil: "domcontentloaded"});
 },2000)
+
+tryStartAndConnect();
