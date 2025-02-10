@@ -180,21 +180,12 @@ async function tryConnect(){
   if (pages.length === 0) throw new Error("No open pages found.");
 
   globalThis.mainPage = pages[0];
+  await interceptRequests(globalThis.mainPage,["*js/bundle.js"])
   setTimeout( async () => {
     //await globalThis.mainPage.setRequestInterception(true);
     setTimeout( async () => {
       //await mainPage.reload();
       setTimeout( async () => {
-
-        globalThis.mainPage.on("*", (event) => {
-          try{
-            logDebug("mainPage event:" + JSON.stringify(event));
-          }catch(e){
-            logError(e)
-          }
-
-        })
-
         globalThis.mainPage.on("close", () =>{
           try{
             //tryConnect();
@@ -204,10 +195,7 @@ async function tryConnect(){
 
         });
 
-        globalThis.mainPage.on("request", requestEvent)
         globalThis.mainPage.on('framenavigated', framenavigatedEvent);
-
-        globalThis.mainPage.on("requestfinished", requestfinishedEvent)
       },1000)
     },1000)
     },1000)
@@ -216,52 +204,43 @@ async function tryConnect(){
   //globalThis.mainPage.on("load",loadEvent)
 }
 
+async function interceptRequests(page, patterns) {
+  const client = await page.target().createCDPSession();
 
-async function requestEvent(request){
-  try{
-    globalThis.debug.activeRequest = request;
-    logDebug(`Request: ${request.url()}`)
-    if (request.url().includes("js/bundle.js") && request.method() !== 'OPTIONS') {
-      globalThis.bundlejs = bundlejs.replace(`debug:{active:!1`, `debug:{active:1`)
-      logDebug(`Request bundlejs: ${globalThis.bundlejs.includes("debug:{active:1")}`)
-      request.respond({
-        status: 200,
-        contentType: "application/javascript",
-        body: globalThis.bundlejs
-      });
-      setTimeout( async () => {await loadEvent()},1000)
-    }else{
-      request.continue();
-    }
-    logDebug(`Request end: ${request.url()}`)
-  }catch(e){
-    logError(e)
-  }
-}
-async function requestfinishedEvent(request){
-  try{
-    globalThis.debug.activeRequest = request;
-    logDebug(`requestfinishedEvent: ${request.url()}`)
-    if (request.url().includes("js/bundle.js") && globalThis.bundlejs == "" && request.method() !== 'OPTIONS') {
-      var response = request.response()
-      var responseBody;
-      if (request.redirectChain().length === 0) {
-        responseBody = await response.buffer();
-      }
-      globalThis.bundlejs = responseBody?.toString()
-      globalThis.bundlejs = bundlejs.replace(`debug:{active:!1`, `debug:{active:1`)
-      logDebug(`requestfinishedEvent bundlejs: ${globalThis.bundlejs}`)
-      //setTimeout( async () => {await globalThis.mainPage.reload({waitUntil: "domcontentloaded"});},1000)
+  await client.send('Network.enable');
 
-    }
-    request.continue();
-    logDebug(`requestfinishedEvent end: ${request.url()}`)
-  }catch(e){
-    if (request.isInterceptResolutionHandled()) return;
-    request.continue();
-    logError(e)
-  }
+  await client.send('Network.setRequestInterception', {
+    patterns: patterns.map(pattern => ({
+      urlPattern: pattern, resourceType: 'Script', interceptionStage: 'HeadersReceived'
+    }))
+  });
+
+  client.on('Network.requestIntercepted', async ({ interceptionId, request, responseHeaders, resourceType }) => {
+    logDebug(`Intercepted ${request.url} {interception id: ${interceptionId}}`);
+
+    const response = await client.send('Network.getResponseBodyForInterception',{ interceptionId });
+    logDebug(`Response body for ${request.url}:`, response.body);
+    const contentTypeHeader = Object.keys(responseHeaders).find(k => k.toLowerCase() === 'content-type');
+    let newBody, contentType = responseHeaders[contentTypeHeader];
+    logDebug(`Content type: ${contentType}`)
+    const bodyData =  Buffer.from(response.body, "base64").toString("utf8").replace(`debug:{active:!1`, `debug:{active:1`);
+    logDebug(`Body data: ${bodyData}`)
+    const newHeaders = [
+      'Content-Length: ' + bodyData.length,
+      'Content-Type: ' + contentType
+    ];
+
+    logDebug(`Continuing interception ${interceptionId}`)
+    client.send('Network.continueInterceptedRequest', {
+      interceptionId,
+      rawResponse: Buffer.from('HTTP/1.1 200 OK' + '\r\n' + newHeaders.join('\r\n') + '\r\n\r\n' + bodyData, "utf8")
+    });
+    logDebug(`Continued interception ${interceptionId}`)
+  });
 }
+
+
+      //globalThis.bundlejs = bundlejs.replace(`debug:{active:!1`, `debug:{active:1`)
 async function framenavigatedEvent(frame){
   logDebug(`Frame navigated to: ${frame.url()}`);
   //await tryConnect()
