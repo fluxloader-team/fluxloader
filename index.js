@@ -180,7 +180,6 @@ async function tryConnect(){
   if (pages.length === 0) throw new Error("No open pages found.");
 
   globalThis.mainPage = pages[0];
-  globalThis.mainPage._client.on("Network.requestWillBeSent", (request) => {})
   setTimeout( async () => {
     //await globalThis.mainPage.setRequestInterception(true);
     setTimeout( async () => {
