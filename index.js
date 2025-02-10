@@ -3,7 +3,10 @@ const path = require("path");
 const { exec } = require("child_process");
 const fs = require("fs");
 const http = require("http");
+const readline = require("readline");
+const util = require("util");
 
+globalThis.bundlejs = "";
 const DEBUG = true;
 const gameExecutable = "sandustrydemo.exe";
 const logFilePath = "./app.log";
@@ -24,9 +27,20 @@ const logDebug = (...args) => {
 
 const logError = (...args) => {
   const message = args.join(" ");
-  console.error("[ERROR]", message);
+  console.log("[ERROR]", message);
   writeLog("[ERROR] " + message);
 };
+
+process.on("uncaughtException", (error) => {
+  //logError("Uncaught exception:", error.stack || error.message);
+  //tryConnect()
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  //logError(`Unhandled rejection at: ${promise}, reason: ${reason}`);
+  //tryConnect()
+});
+
 
 const ensureDirectoryExists = (dirPath) => {
   if (!fs.existsSync(dirPath)) {
@@ -92,7 +106,7 @@ const fetchJSON = (url) =>
       });
     });
 
-const fetchWithRetry = async (url, retries = 5, delay = 5000) => {
+const fetchWithRetry = async (url, retries = 200, delay = 100) => {
   for (let i = 0; i < retries; i++) {
     logDebug(`Attempting to fetch ${url} (retry ${i + 1}/${retries})`);
     try {
@@ -106,51 +120,212 @@ const fetchWithRetry = async (url, retries = 5, delay = 5000) => {
     }
   }
 };
+async function init() {
+  fs.writeFileSync(logFilePath, "", "utf8");
 
-(async () => {
-  try {
-    fs.writeFileSync(logFilePath, "", "utf8");
+  globalThis.debugPort = 9222;
+  globalThis.modLoaderSourcePath = path.resolve(__dirname, "assets/modloader.js");
 
-    const debugPort = 9222;
-    const modLoaderSourcePath = path.resolve(__dirname, "assets/modloader.js");
+  await ensureModLoaderExists(modLoaderSourcePath, modLoaderTargetPath);
 
-    await ensureModLoaderExists(modLoaderSourcePath, modLoaderTargetPath);
+  ensureDirectoryExists(modsFolderPath);
 
-    ensureDirectoryExists(modsFolderPath);
+  await generateModsJson(modsFolderPath, modsJsonPath);
 
-    await generateModsJson(modsFolderPath, modsJsonPath);
+  logDebug(`Starting game executable: ${gameExecutable} with debug port ${debugPort}`);
+  exec(`"${gameExecutable}" --remote-debugging-port=${debugPort} --enable-logging --enable-features=NetworkService,NetworkServiceInProcess --disable-web-security --allow-file-access-from-files --disable-features=OutOfBlinkCors`, (err) => {
+    if (err) {
+      logError(`Failed to start the game executable: ${err.message}`);
+      return;
+    }
+  });
 
-    logDebug(`Starting game executable: ${gameExecutable} with debug port ${debugPort}`);
-    exec(`"${gameExecutable}" --remote-debugging-port=${debugPort}`, (err) => {
-      if (err) {
-        logError(`Failed to start the game executable: ${err.message}`);
-        return;
+}
+async function tryConnect(){
+  globalThis.url = `http://127.0.0.1:${debugPort}/json/version`;
+  logDebug(`Fetching WebSocket debugger URL from ${globalThis.url}`);
+  globalThis.webSocketDebuggerUrl = await fetchWithRetry(globalThis.url);
+
+  logDebug("Connecting Puppeteer with disabled viewport constraints...");
+  globalThis.browser = await puppeteer.connect({
+    browserWSEndpoint: webSocketDebuggerUrl,
+    defaultViewport: null,
+    headless: false,
+
+  });
+  try{
+    globalThis.browser.off("*")
+  }catch(e){}
+  globalThis.browser.on("disconnected", () => {
+    try{
+      process.exit(0)
+      //tryConnect();
+    }catch(e){
+      logError(e)
+    }
+
+  })
+  globalThis.browser.on("*", (event) => {
+    try{
+      logDebug("Browser event:" + JSON.stringify(event));
+    }catch(e){
+      logError(e)
+    }
+
+  })
+
+  globalThis.pages = await browser.pages();
+  logDebug(`Pages found: ${pages.length}`);
+  if (pages.length === 0) throw new Error("No open pages found.");
+
+  globalThis.mainPage = pages[0];
+  //await globalThis.mainPage.setRequestInterception(true);
+  try{
+    globalThis.mainPage.off("*")
+  }catch(e){}
+  globalThis.mainPage.on("*", (event) => {
+    try{
+      logDebug("mainPage event:" + JSON.stringify(event));
+    }catch(e){
+      logError(e)
+    }
+
+  })
+
+  globalThis.mainPage.on("close", () =>{
+    try{
+      //tryConnect();
+    }catch(e){
+      logError(e)
+    }
+
+  });
+  globalThis.mainPage.on("request", requestEvent)
+  globalThis.mainPage.on('framenavigated', framenavigatedEvent);
+
+  globalThis.mainPage.on("requestfinished", requestfinishedEvent)
+
+  //globalThis.mainPage.on("load",loadEvent)
+}
+
+
+async function requestEvent(request){
+  try{
+    logDebug(`Request: ${request.url()}`)
+    if (request.url().includes("js/bundle.js") && globalThis.bundlejs != "" && request.method() !== 'OPTIONS') {
+      request.respond({
+        status: 200,
+        contentType: "application/javascript",
+        body: globalThis.bundlejs
+      });
+      await loadEvent()
+    }else if (request.url().includes("js/bundle.js") && request.method() !== 'OPTIONS'){
+      await loadEvent()
+    }{request.continue()
+    }
+    logDebug(`Request end: ${request.url()}`)
+  }catch(e){
+    logError(e)
+  }
+}
+
+async function requestfinishedEvent(request){
+  try{
+    logDebug(`Request finished: ${request.url()}`)
+    if (request.url().includes("js/bundle.js") && request.method() !== 'OPTIONS') {
+      var response = await request.response()
+      var responseBody;
+      if (request.redirectChain().length === 0) {
+        responseBody = await response.buffer();
       }
-    });
+      globalThis.bundlejs = responseBody?.toString()
+      globalThis.bundlejs = bundlejs.replace(`debug:{active:!1`, `debug:{active:1`)
+      await loadEvent()
+    }
+    else{
+      request.continue()
+    }
+    logDebug(`Request finished end: ${request.url()}`)
+  }catch(e){
+    logError(e)
+  }
 
-    const url = `http://127.0.0.1:${debugPort}/json/version`;
-    logDebug(`Fetching WebSocket debugger URL from ${url}`);
-    const webSocketDebuggerUrl = await fetchWithRetry(url);
+}
+async function framenavigatedEvent(frame){
+  logDebug(`Frame navigated to: ${frame.url()}`);
+  await tryConnect()
+}
 
-    logDebug("Connecting Puppeteer with disabled viewport constraints...");
-    const browser = await puppeteer.connect({
-      browserWSEndpoint: webSocketDebuggerUrl,
-      defaultViewport: null,
-    });
-
-    const pages = await browser.pages();
-    logDebug(`Pages found: ${pages.length}`);
-    if (pages.length === 0) throw new Error("No open pages found.");
-
-    const mainPage = pages[0];
+async function loadEvent(){
+  setTimeout( async () => {try{
     const modLoaderFullPath = `file://${path.resolve(modLoaderTargetPath)}`;
     logDebug(`Resolved mod loader path: ${modLoaderFullPath}`);
 
     logDebug("Injecting mod loader script...");
-    await mainPage.addScriptTag({ url: modLoaderFullPath });
+
+    await globalThis.mainPage.addScriptTag({url: modLoaderFullPath});
     logDebug("Mod loader script injected successfully.");
+  }catch(e){
+    //loadEvent();
+    logError(e)
+  }},1000)
+
+
+}
+
+setTimeout( async () => {
+  startDebugConsole();
+},100);
+
+
+const evaluateCommand = (command) => {
+  try {
+    const result = eval(command);
+    console.log("[RESULT]:", util.inspect(result, { depth: 3, colors: true }));
   } catch (error) {
-    logError("Error:", error.message);
-    logDebug("Stack trace:", error.stack);
+    console.log("[ERROR]:", error.message);
   }
-})();
+};
+
+// Debug CLI
+const startDebugConsole = () => {
+  if (!DEBUG) return;
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    prompt: "DEBUG> ",
+  });
+
+  console.log("Interactive Debugger started. Type commands to interact with the app.");
+  rl.prompt();
+
+  rl.on("line", (line) => {
+    const command = line.trim();
+    if (command === "exit") {
+      console.log("Exiting debugger...");
+      //rl.close();
+    } else {
+      evaluateCommand(command);
+    }
+    rl.prompt();
+  });
+
+  rl.on("close", () => {
+    console.log("Debugger closed.");
+  });
+};
+
+setInterval(async () => {
+  if(globalThis.browser == null || globalThis.browser == undefined){
+    try {
+      await init();
+      await tryConnect();
+    }catch(error){
+      await logError("Error:", error.message);
+      await logDebug("Stack trace:", error.stack);
+    }}
+},1000)
+
+setTimeout(async () => {
+  await loadEvent()
+},2000)
