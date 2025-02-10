@@ -200,7 +200,7 @@ async function init() {
   logDebug(`Starting game executable: ${config.paths.executable} with debug port ${config.debugPort}`);
   log("Starting Sandustry")
   const cmd = `"${config.paths.executable}" --remote-debugging-port=${config.debugPort} --enable-logging --enable-features=NetworkService`;
-  exec(cmd, (err) => {
+  globalThis.gameProcess = exec(cmd, (err) => {
     if (err) {
       logError(`Failed to start the game executable: ${err.message}`);
       return;
@@ -218,7 +218,6 @@ async function tryConnect() {
   globalThis.browser = await puppeteer.connect({
     browserWSEndpoint: webSocketDebuggerUrl,
     defaultViewport: null,
-
   });
 
   globalThis.browser.on("disconnected", () => {
@@ -239,43 +238,44 @@ async function tryConnect() {
 
   globalThis.mainPage = pages[0];
 
-  globalThis.mainPage.on("close", () =>{
+  mainPage.on("close", () =>{
     logDebug("Page closed");
   });
 
-  globalThis.mainPage.on('framenavigated', async (frame) => {
+  mainPage.on('framenavigated', async (frame) => {
     logDebug(`Frame navigated to: ${frame.url()}`);
   });
   
-  globalThis.mainPage.on("load", async () => {
+  mainPage.on("load", async () => {
     logDebug("Page loaded");
+    if (globalThis.config.openDevTools) {
+      globalThis.cdpClient.send("Runtime.evaluate", { expression: "electron.openDevTools();" });
+    }
   });
 
-  await interceptRequests(globalThis.mainPage, ["*js/bundle.js"]);
+  globalThis.cdpClient = await mainPage.target().createCDPSession();
+  cdpClient.send('Network.enable');
+
+  await interceptRequests(["*js/bundle.js"]);
 
   setTimeout( async () => {
     await mainPage.reload();
   }, 500);
-
 }
 
-async function interceptRequests(page, patterns) {
+async function interceptRequests(patterns) {
   logDebug(`Intercepting requests for patterns: ${patterns.join(", ")}`);
 
-  const client = await page.target().createCDPSession();
-
-  await client.send('Network.enable');
-
-  await client.send('Network.setRequestInterception', {
+  await cdpClient.send('Network.setRequestInterception', {
     patterns: patterns.map(pattern => ({
       urlPattern: pattern, resourceType: 'Script', interceptionStage: 'HeadersReceived'
     }))
   });
 
-  client.on('Network.requestIntercepted', async ({ interceptionId, request, responseHeaders, resourceType }) => {
+  cdpClient.on('Network.requestIntercepted', async ({ interceptionId, request, responseHeaders, resourceType }) => {
     logDebug(`Intercepted ${request.url} {interception id: ${interceptionId}}`);
 
-    const response = await client.send('Network.getResponseBodyForInterception',{ interceptionId });
+    const response = await cdpClient.send('Network.getResponseBodyForInterception',{ interceptionId });
     // logDebug(`Response body for ${request.url}:`, response.body);
 
     const contentTypeHeader = Object.keys(responseHeaders).find(k => k.toLowerCase() === 'content-type');
@@ -292,7 +292,7 @@ async function interceptRequests(page, patterns) {
     const rawResponse = Buffer.from('HTTP/1.1 200 OK' + '\r\n' + newHeaders.join('\r\n') + '\r\n\r\n' + bodyData).toString('base64');
 
     logDebug(`Continuing interception ${interceptionId} with modified response...`);
-    client.send('Network.continueInterceptedRequest', { interceptionId, rawResponse });
+    cdpClient.send('Network.continueInterceptedRequest', { interceptionId, rawResponse });
 
     logDebug(`Interception continued ${interceptionId}`);
 
@@ -355,7 +355,20 @@ function startDebugConsole() {
   });
 }
 
+function unexpectedClose() {
+  logError("Unexpected close. Exiting...");
+  if (browser) browser.close();
+  if (gameProcess) gameProcess.kill();
+  process.exit(1);
+}
+
 (async () => {
+  process.on("uncaughtException", () => unexpectedClose());
+  process.on("unhandledRejection", () => unexpectedClose());
+  process.on("SIGINT", () => unexpectedClose());
+  process.on("SIGTERM", () => unexpectedClose());
+  process.on("SIGHUP", () => unexpectedClose());
+
   await init();
   await tryConnect();
   startDebugConsole();
