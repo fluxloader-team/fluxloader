@@ -81,9 +81,11 @@
                 mod[functionName]();
             } catch (err) {
                 console.error(`Error executing ${functionName} for mod '${mod.modinfo.name}': `, err);
-                console.error(`Deactivating mod due to error '${mod.modinfo.name}'.`);
-                activeMods = activeMods.filter((m) => m.name !== mod.name);
-                tryExecuteModFunction(mod, "deinitialize");
+                if (functionName != "deinitialize") {
+                    console.error(`Deactivating mod due to error '${mod.modinfo.name}'.`);
+                    activeMods = activeMods.filter((m) => m.name !== mod.name);
+                    tryExecuteModFunction(mod, "deinitialize");
+                }
             }
         } else {
             console.warn(`No function '${functionName}' found for mod '${mod.modinfo.name}'.`);
