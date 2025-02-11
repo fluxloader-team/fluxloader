@@ -242,7 +242,6 @@ async function connectToGame() {
   globalThis.pages = await browser.pages();
   logDebug(`Pages found: ${pages.length}`);
   if (pages.length === 0) throw new Error("No open pages found.");
-
   globalThis.mainPage = pages[0];
 
   mainPage.on("close", () =>{
@@ -262,10 +261,11 @@ async function connectToGame() {
 
   await initializeInterceptions();
   await mainPage.reload();
-  await injectModloader();
 }
 
 async function initializeInterceptions() {
+  logDebug("Initializing interceptions...");
+
   globalThis.cdpClient = await mainPage.target().createCDPSession();
   cdpClient.send("Network.enable");
 
@@ -286,6 +286,7 @@ async function initializeInterceptions() {
       bodyData = Buffer.from(response.body, "base64").toString("utf8");
       bodyData = bodyData.replace(`debug:{active:!1`, `debug:{active:1`);
       contentType = "text/javascript";
+      injectModloader();
     }
     
     else if (request.url.includes("modloader-api/modloader")) {
