@@ -8,8 +8,7 @@ const util = require("util");
 
 const configSourcePath = "./assets/modloader-config.json";
 const configTargetPath = "./modloader-config.json";
-const modLoaderSourcePath = "./assets/modloader.js";
-const modLoaderTargetPath = "./modloader.js";
+const modLoaderPath = "./assets/modloader.js";
 const modsPath = "./mods";
 
 function writeLog(message) {
@@ -76,7 +75,7 @@ async function readAndVerifyConfig(sourcePath, targetPath) {
     
     let modified = false;
     function traverse(source, target) {
-      // If target doesn't have a property source has, then add it
+      // If target doesn"t have a property source has, then add it
       for (const key in source) {
         if (typeof source[key] === "object" && source[key] !== null) {
           if (!Object.hasOwn(target, key)) {
@@ -92,7 +91,7 @@ async function readAndVerifyConfig(sourcePath, targetPath) {
         }
       }
 
-      // If target has a property source doesn't have, then remove it
+      // If target has a property source doesn"t have, then remove it
       for (const key in target) {
         if (!Object.hasOwn(source, key)) {
           delete target[key];
@@ -117,15 +116,14 @@ async function readAndVerifyConfig(sourcePath, targetPath) {
   }
 }
 
-async function createLocalModLoader(sourcePath, targetPath) {
+async function loadModLoader(modloaderPath) {
   try {
-    logDebug(`Creating modloader file at ${targetPath} from source...`);
-    sourcePath = resolvePathToAsset(sourcePath);
-    let content = fs.readFileSync(sourcePath, "utf8");
-    fs.writeFileSync(targetPath, content, "utf8");
-    logDebug(`Modloader file ${targetPath} created successfully.`);
+    logDebug(`Loading modloader file at ${modloaderPath} from source...`);
+    modloaderPath = resolvePathToAsset(modloaderPath);
+    globalThis.modloaderContent = fs.readFileSync(modloaderPath, "utf8");
+    logDebug(`Modloader file ${modloaderPath} read successfully.`);
   } catch (error) {
-    logError(`Error creating modLoader file: ${error.message}`);
+    logError(`Error reading modLoader file: ${error.message}`);
     throw error;
   }
 }
@@ -195,8 +193,9 @@ async function initializeModloader() {
     process.exit(1);
   }
 
-  log("Generating Mods");
-  await createLocalModLoader(modLoaderSourcePath, modLoaderTargetPath);
+  await loadModLoader(modLoaderPath);
+
+  log("Loading Mods");
 
   const fullModsPath = resolvePathRelativeToExecutable(modsPath);
 
@@ -250,7 +249,7 @@ async function connectToGame() {
     logDebug("Page closed");
   });
 
-  mainPage.on('framenavigated', async (frame) => {
+  mainPage.on("framenavigated", async (frame) => {
     logDebug(`Frame navigated to: ${frame.url()}`);
   });
   
@@ -261,69 +260,58 @@ async function connectToGame() {
     }
   });
 
-  globalThis.cdpClient = await mainPage.target().createCDPSession();
-  cdpClient.send('Network.enable');
-
-  await interceptRequests(["*js/bundle.js"]);
-
-  setTimeout( async () => {
-    await mainPage.reload();
-  }, 500);
+  await initializeInterceptions();
+  await mainPage.reload();
+  await injectModloader();
 }
 
-async function interceptRequests(patterns) {
-  logDebug(`Intercepting requests for patterns: ${patterns.join(", ")}`);
+async function initializeInterceptions() {
+  globalThis.cdpClient = await mainPage.target().createCDPSession();
+  cdpClient.send("Network.enable");
 
-  await cdpClient.send('Network.setRequestInterception', {
+  const patterns = [ "**/bundle.js", "**/modloader-api/*" ];
+  await cdpClient.send("Network.setRequestInterception", {
     patterns: patterns.map(pattern => ({
-      urlPattern: pattern, resourceType: 'Script', interceptionStage: 'HeadersReceived'
+      urlPattern: pattern, resourceType: "Script", interceptionStage: "HeadersReceived"
     }))
   });
 
-  cdpClient.on('Network.requestIntercepted', async ({ interceptionId, request, responseHeaders, resourceType }) => {
-    logDebug(`Intercepted ${request.url} {interception id: ${interceptionId}}`);
+  await cdpClient.on("Network.requestIntercepted", async ({ interceptionId, request, responseHeaders, resourceType }) => {
+    log(`Intercepted ${request.url} {interception id: ${interceptionId}}`);
+    let bodyData = null;
+    let contentType = null;
 
-    const response = await cdpClient.send('Network.getResponseBodyForInterception',{ interceptionId });
-    // logDebug(`Response body for ${request.url}:`, response.body);
+    if (request.url.includes("bundle.js")) {
+      const response = await cdpClient.send("Network.getResponseBodyForInterception",{ interceptionId });
+      bodyData = Buffer.from(response.body, "base64").toString("utf8");
+      bodyData = bodyData.replace(`debug:{active:!1`, `debug:{active:1`);
+      contentType = "text/javascript";
+    }
+    
+    else if (request.url.includes("modloader-api/modloader")) {
+      bodyData = globalThis.modloaderContent;
+      contentType = "text/javascript";
+    }
 
-    const contentTypeHeader = Object.keys(responseHeaders).find(k => k.toLowerCase() === 'content-type');
-    let _, contentType = responseHeaders[contentTypeHeader];
-
-    let bodyData = Buffer.from(response.body, 'base64').toString("utf8");
-    bodyData = bodyData.replace(`debug:{active:!1`, `debug:{active:1`);
-  
-    const newHeaders = [
-      'Content-Length: ' + bodyData.length,
-      'Content-Type: ' + contentType
-    ];
-
-    const rawResponse = Buffer.from('HTTP/1.1 200 OK' + '\r\n' + newHeaders.join('\r\n') + '\r\n\r\n' + bodyData).toString('base64');
-
-    logDebug(`Continuing interception ${interceptionId} with modified response...`);
-    cdpClient.send('Network.continueInterceptedRequest', { interceptionId, rawResponse });
-
-    logDebug(`Interception continued ${interceptionId}`);
-
-    injectModloader();
+    const newHeaders = [ "Content-Length: " + bodyData.length, "Content-Type: " + contentType ];
+    const rawResponse = Buffer.from("HTTP/1.1 200 OK" + "\r\n" + newHeaders.join("\r\n") + "\r\n\r\n" + bodyData).toString("base64");
+    cdpClient.send("Network.continueInterceptedRequest", { interceptionId, rawResponse });
   });
 }
 
 async function injectModloader() {
-  log("Starting Modloader Injection...")
-  setTimeout( async () => {try{
-    const modLoaderFullPath = `file://${path.resolve(modLoaderTargetPath)}`;
-    logDebug(`Resolved mod loader path: ${modLoaderFullPath}`);
-    logDebug("Injecting mod loader script...");
-    await globalThis.mainPage.addScriptTag({url: modLoaderFullPath});
-    log("Modloader script injected successfully");
+  log("Starting Modloader Injection...");
+  try {
+    const url = "modloader-api/modloader";
+    await globalThis.mainPage.addScriptTag({ url });
+    log(`Modloader script injected successfully at ${url}`);
   } catch(e) {
-    logError(e)
+    logError(e);
     log("Modloader injection failed. send error log to modding channel. Exiting...");
     setTimeout(() => {
       process.exit(0);
-    },5000)
-
-  }}, 1000)
+    }, 5000);
+  }
 }
 
 function evaluateCommand(command) {
