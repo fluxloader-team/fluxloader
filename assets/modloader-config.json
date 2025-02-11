@@ -1,8 +1,7 @@
 {
     "paths": {
         "executable": "./sandustrydemo.exe",
-        "log": "./modloader.log",
-        "mods": "./mods"
+        "log": "./modloader.log"
     },
     "enableDebug": false,
     "openDevTools": false,
