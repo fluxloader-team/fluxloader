@@ -12,11 +12,6 @@ const modLoaderSourcePath = "./assets/modloader.js";
 const modLoaderTargetPath = "./modloader.js";
 const modsPath = "./mods";
 
-globalThis.bundlejs = "";
-globalThis.debug = {
-  activeRequest:{}
-}
-
 function writeLog(message) {
   if (!Object.hasOwn(globalThis, "config")) return;
   const timestamp = new Date().toISOString();
@@ -24,8 +19,9 @@ function writeLog(message) {
 };
 
 function logDebug(...args) {
+  if (!Object.hasOwn(globalThis, "config")) return;
   const message = args.join(" ");
-  if (config.enableDebug) console.log("[DEBUG]", message);
+  if (config.debug.log) console.log("[DEBUG]", message);
   writeLog("[DEBUG] " + message);
 }
 
@@ -52,10 +48,13 @@ function ensureDirectoryExists(dirPath) {
 }
 
 function resolvePathToAsset(assetPath) {
+  // When ran with exe this is C:/Snapshot/mod-loader/...
+  // When ran with node this is relative to ./index.js
   return path.resolve(__dirname, assetPath);
 }
 
 function resolvePathRelativeToExecutable(executablePath) {
+  // Resolve path relative to sandustrydemo.exe based on config
   return path.resolve(path.dirname(config.paths.executable), executablePath);
 }
 
@@ -103,18 +102,15 @@ async function readAndVerifyConfig(sourcePath, targetPath) {
     }
 
     traverse(sourceData, targetData);
-
     globalThis.config = targetData;
 
     if (!modified) {
       logDebug(`Config file is up-to-date.`);
-      return;
     } else {
       const targetContentUpdated = JSON.stringify(targetData, null, 2);
       fs.writeFileSync(targetPath, targetContentUpdated, "utf8");
       logDebug(`Config ${targetPath} updated successfully.`);
     }
-  
   } catch (error) {
     logError(`Could not read / verify config file: ${error.message}`);
     throw error;
@@ -140,9 +136,7 @@ async function generateModsJson(modsFolder) {
 
     logDebug(`Checking for .js files in mods folder: ${modsFolder}`);
     const files = fs.readdirSync(modsFolder).filter((file) => file.endsWith(".js"));
-    
     const modNames = files.map((file) => path.basename(file, ".js"));
-    logDebug(`Mod names extracted: ${modNames}`);
     if (modNames.length === 0) {
       logDebug(`No mods found in ${modsFolder}`);
     } else {
@@ -150,7 +144,6 @@ async function generateModsJson(modsFolder) {
     }
     const jsonContent = JSON.stringify(modNames, null, 2);
     fs.writeFileSync(modsJsonPath, jsonContent, "utf8");
-
     logDebug(`mods.json created at ${modsJsonPath} with content: ${jsonContent}`);
   } catch (error) {
     logError(`Error generating mods.json: ${error.message}`);
@@ -158,7 +151,7 @@ async function generateModsJson(modsFolder) {
   }
 }
 
-function fetchJSON(url) {
+function fetchJSON(url, silentError=false) {
   return new Promise((resolve, reject) => {
     const req = http.get(url, (res) => {
       let data = "";
@@ -169,28 +162,30 @@ function fetchJSON(url) {
       });
     });
     req.on("error", (err) => {
-      logError(`Error fetching JSON from ${url}:`, err.message);
+      if (!silentError) logError(`Error fetching JSON from ${url}:`, err.message);
       reject(err);
     });
   });
 }
 
-async function fetchWithRetry(url, retries = 200, delay = 100) {
+async function fetchJSONWithRetry(url, retries = 200, delay = 100) {
   for (let i = 0; i < retries; i++) {
     logDebug(`Attempting to fetch ${url} (retry ${i + 1}/${retries})`);
     try {
-      const { webSocketDebuggerUrl } = await fetchJSON(url);
-      logDebug(`Debugger WebSocket URL: ${webSocketDebuggerUrl}`);
-      return webSocketDebuggerUrl;
+      const res = await fetchJSON(url, silentError=true);
+      logDebug(`Fetch attempt ${i + 1} successful.`);
+      return res;
     } catch (err) {
       logDebug(`Fetch attempt ${i + 1} failed:`, err.message);
       if (i === retries - 1) throw err;
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
+  logError(`Failed to fetch JSON from ${url} after ${retries} retries.`);
+  throw new Error(`Failed to fetch JSON from ${url} after ${retries} retries.`);
 }
 
-async function init() {
+async function initializeModloader() {
   await readAndVerifyConfig(configSourcePath, configTargetPath);
 
   fs.writeFileSync(config.paths.log, "", "utf8");
@@ -209,9 +204,9 @@ async function init() {
 
   await generateModsJson(fullModsPath);
 
-  logDebug(`Starting game executable: ${config.paths.executable} with debug port ${config.debugPort}`);
+  logDebug(`Starting game executable: ${config.paths.executable} with debug port ${config.debug.port}`);
   log("Starting Sandustry")
-  const cmd = `"${config.paths.executable}" --remote-debugging-port=${config.debugPort} --enable-logging --enable-features=NetworkService`;
+  const cmd = `"${config.paths.executable}" --remote-debugging-port=${config.debug.port} --enable-logging --enable-features=NetworkService`;
   globalThis.gameProcess = exec(cmd, (err) => {
     if (err) {
       logError(`Failed to start the game executable: ${err.message}`);
@@ -220,11 +215,12 @@ async function init() {
   });
 }
 
-async function tryConnect() {
-  globalThis.url = `http://127.0.0.1:${config.debugPort}/json/version`;
+async function connectToGame() {
+  globalThis.url = `http://127.0.0.1:${config.debug.port}/json/version`;
 
   logDebug(`Fetching WebSocket debugger URL from ${globalThis.url}`);
-  globalThis.webSocketDebuggerUrl = await fetchWithRetry(globalThis.url);
+  const res = await fetchJSONWithRetry(globalThis.url);
+  globalThis.webSocketDebuggerUrl = res.webSocketDebuggerUrl;
 
   logDebug("Connecting Puppeteer with disabled viewport constraints...");
   globalThis.browser = await puppeteer.connect({
@@ -260,7 +256,7 @@ async function tryConnect() {
   
   mainPage.on("load", async () => {
     logDebug("Page loaded");
-    if (globalThis.config.openDevTools) {
+    if (globalThis.config.debug.devTools) {
       globalThis.cdpClient.send("Runtime.evaluate", { expression: "electron.openDevTools();" });
     }
   });
@@ -340,7 +336,7 @@ function evaluateCommand(command) {
 }
 
 function startDebugConsole() {
-  if (!config.enableDebug) return;
+  if (!config.debug.console) return;
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -369,8 +365,8 @@ function startDebugConsole() {
 
 function unexpectedClose() {
   logError("Unexpected close. Exiting...");
-  if (browser) browser.close();
-  if (gameProcess) gameProcess.kill();
+  if (Object.hasOwn(globalThis, "browser")) browser.close();
+  if (Object.hasOwn(globalThis, "gameProcess")) gameProcess.kill();
   process.exit(1);
 }
 
@@ -381,7 +377,7 @@ function unexpectedClose() {
   process.on("SIGTERM", () => unexpectedClose());
   process.on("SIGHUP", () => unexpectedClose());
 
-  await init();
-  await tryConnect();
+  await initializeModloader();
+  await connectToGame();
   startDebugConsole();
 })();

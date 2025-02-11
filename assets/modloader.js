@@ -110,6 +110,7 @@
             globalThis.gameInstance = window.__debug;
         }
 
+        console.log("Game state loaded, starting mod execution.");
         const scene = gameInstance.state.store.scene.active;
 
         if (scene == 1) {
