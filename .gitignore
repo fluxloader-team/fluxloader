@@ -7,5 +7,4 @@ package-lock.json
 /modloader.js
 /modloader.log
 /modloader-config.json
-/mods
 **/*.exe

@@ -10,6 +10,7 @@ const configSourcePath = "./assets/modloader-config.json";
 const configTargetPath = "./modloader-config.json";
 const modLoaderSourcePath = "./assets/modloader.js";
 const modLoaderTargetPath = "./modloader.js";
+const modsPath = "./mods";
 
 globalThis.bundlejs = "";
 globalThis.debug = {
@@ -50,9 +51,18 @@ function ensureDirectoryExists(dirPath) {
   }
 }
 
+function resolvePathToAsset(assetPath) {
+  return path.resolve(__dirname, assetPath);
+}
+
+function resolvePathRelativeToExecutable(executablePath) {
+  return path.resolve(path.dirname(config.paths.executable), executablePath);
+}
+
+// It is very important to not do anything that needs globalThis.config before this function!!!
 async function readAndVerifyConfig(sourcePath, targetPath) {
   try {
-    sourcePath = path.resolve(__dirname, sourcePath);
+    sourcePath = resolvePathToAsset(sourcePath);
     let sourceContent = fs.readFileSync(sourcePath, "utf8");
     const sourceData = JSON.parse(sourceContent);
 
@@ -114,7 +124,7 @@ async function readAndVerifyConfig(sourcePath, targetPath) {
 async function createLocalModLoader(sourcePath, targetPath) {
   try {
     logDebug(`Creating modloader file at ${targetPath} from source...`);
-    sourcePath = path.resolve(__dirname, sourcePath);
+    sourcePath = resolvePathToAsset(sourcePath);
     let content = fs.readFileSync(sourcePath, "utf8");
     fs.writeFileSync(targetPath, content, "utf8");
     logDebug(`Modloader file ${targetPath} created successfully.`);
@@ -136,7 +146,7 @@ async function generateModsJson(modsFolder) {
     if (modNames.length === 0) {
       logDebug(`No mods found in ${modsFolder}`);
     } else {
-      log("Found mods: ", modNames.join(", "))
+      log(`Found ${modNames.length} mod(s): [ ${modNames.join(", ")} ]`)
     }
     const jsonContent = JSON.stringify(modNames, null, 2);
     fs.writeFileSync(modsJsonPath, jsonContent, "utf8");
@@ -193,9 +203,11 @@ async function init() {
   log("Generating Mods");
   await createLocalModLoader(modLoaderSourcePath, modLoaderTargetPath);
 
-  ensureDirectoryExists(config.paths.mods);
+  const fullModsPath = resolvePathRelativeToExecutable(modsPath);
 
-  await generateModsJson(config.paths.mods);
+  ensureDirectoryExists(fullModsPath);
+
+  await generateModsJson(fullModsPath);
 
   logDebug(`Starting game executable: ${config.paths.executable} with debug port ${config.debugPort}`);
   log("Starting Sandustry")
