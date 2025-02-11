@@ -75,7 +75,7 @@ async function readAndVerifyConfig(sourcePath, targetPath) {
     
     let modified = false;
     function traverse(source, target) {
-      // If target doesn"t have a property source has, then add it
+      // If target doesn't have a property source has, then add it
       for (const key in source) {
         if (typeof source[key] === "object" && source[key] !== null) {
           if (!Object.hasOwn(target, key)) {
@@ -91,7 +91,7 @@ async function readAndVerifyConfig(sourcePath, targetPath) {
         }
       }
 
-      // If target has a property source doesn"t have, then remove it
+      // If target has a property source doesn't have, then remove it
       for (const key in target) {
         if (!Object.hasOwn(source, key)) {
           delete target[key];
