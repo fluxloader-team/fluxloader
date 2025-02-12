@@ -83,7 +83,7 @@ Alternatively you could intercept requests to certain files. This could allow yo
 
 ```js
 exports.api = {
-    "*.png": {
+    ".png": {
     requiresBaseResponse: true,
         getFinalResponse: async ({  interceptionId, request, baseResponse, responseHeaders, resourceType }) => {
             log(`Intercepted PNG request: ${request.url}`);
