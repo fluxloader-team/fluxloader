@@ -1,7 +1,5 @@
 # Sandustry Modloader
 
----
-
 Sandustry modloader is a open source tool which allows for easy access to modifying Sandustry with user defined JavaScript mods.
 
 There is support for patches to overwrite sections of the games `bundle.js`, arbitrary JavaScript code execution that can make use of `gameInstance` exposed by the game, and custom API endpoints for interception of network requests and serverside execution of JavaScript.
