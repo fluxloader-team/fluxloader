@@ -25,7 +25,7 @@ This should be enough for them to work!
 
 ## Creating Mods
 
-Some examples are provided here [here](https://git.rendezvous.dev/shadowcomputer/sandustry-modloader/-/tree/main/examples?ref_type=heads), showing how to use the patches, the **api** endpoints, and perform arbitrary code execution.
+Some examples are provided [here](https://git.rendezvous.dev/shadowcomputer/sandustry-modloader/-/tree/main/examples?ref_type=heads), showing how to use the patches, the **api** endpoints, and perform arbitrary code execution.
 
 Patches allow you to overwrite sections of the bundle.js. Currently we support **process** and **regex** type patches and can be be defined under `exports.patches = []`.
 
