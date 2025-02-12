@@ -134,7 +134,7 @@ function resolvePathToAsset(assetPath) {
   return path.resolve(__dirname, assetPath);
 }
 
-function resolvePathRelativeToExecutable(executablePath) {
+globalThis.resolvePathRelativeToExecutable = function (executablePath) {
   // Resolve path relative to sandustrydemo.exe based on config
   return path.resolve(path.dirname(config.paths.executable), executablePath);
 }
