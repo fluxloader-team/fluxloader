@@ -29,14 +29,14 @@
       globalThis.gameInstance = window.__debug;
     }
 
-    console.log("Game state loaded, starting mod execution.");
     const scene = gameInstance.state.store.scene.active;
+    console.log(`Game state loaded with scene ${scene}, starting mod execution.`);
 
     if (scene == 1) {
       for (const mod of globalThis.activeMods) {
         await tryExecuteModFunction(mod, "onMenuLoaded");
       }
-    } else if (scene == 3) {
+    } else if (scene == 2 || scene == 3) {
       for (const mod of globalThis.activeMods) {
         await tryExecuteModFunction(mod, "onGameLoaded");
       }
