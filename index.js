@@ -77,8 +77,18 @@ function applyBundlePatches(data) {
   return data;
 }
 
+function canLogConsole(level) {
+  if (!Object.hasOwn(globalThis, "config")) return false;
+  if (!config.logging.logToConsole) return false;
+  const levels = ["debug", "info", "error"];
+  const levelIndex = levels.indexOf(level);
+  const configIndex = levels.indexOf(config.logging.consoleLogLevel);
+  return levelIndex >= configIndex;
+}
+
 function writeLog(message) {
   if (!Object.hasOwn(globalThis, "config")) return;
+  if (!config.logging.logToFile) return;
   const timestamp = new Date().toISOString();
   fs.appendFileSync(config.paths.log, `[${timestamp}] ${message}\n`, "utf8");
 };
@@ -86,19 +96,21 @@ function writeLog(message) {
 function logDebug(...args) {
   if (!Object.hasOwn(globalThis, "config")) return;
   const message = args.join(" ");
-  if (config.debug.log) console.log("[DEBUG]", message);
+  if (canLogConsole("debug")) console.log("[DEBUG]", message);
   writeLog("[DEBUG] " + message);
 }
 
 function logError(...args) {
+  if (!Object.hasOwn(globalThis, "config")) return;
   const message = args.join(" ");
-  console.log("[ERROR]", message);
+  if (canLogConsole("error")) console.log("[ERROR]", message);
   writeLog("[ERROR] " + message);
 }
 
 function log(...args) {
+  if (!Object.hasOwn(globalThis, "config")) return;
   const message = args.join(" ");
-  console.log("[LOG]", message);
+  if (canLogConsole("info")) console.log("[LOG]", message);
   writeLog("[LOG] " + message);
 }
 
@@ -312,7 +324,9 @@ async function fetchJSONWithRetry(url, retries = 200, delay = 100) {
 async function initializeModloader() {
   await readAndVerifyConfig(configSourcePath, configTargetPath);
 
-  fs.writeFileSync(config.paths.log, "", "utf8");
+  if (config.logging.logToFile) {
+    fs.writeFileSync(config.paths.log, "", "utf8");
+  }
   
   if (!fs.existsSync(config.paths.executable)) {
     logError(`Game executable not found: ${config.paths.executable}`);
@@ -324,8 +338,8 @@ async function initializeModloader() {
   await loadAndValidateAllMods(modsPath);
 
   log(`Starting sandustry: ${config.paths.executable}`)
-  logDebug(`Starting sandustry: ${config.paths.executable} with debug port ${config.debug.port}`);
-  const cmd = `"${config.paths.executable}" --remote-debugging-port=${config.debug.port} --enable-logging --enable-features=NetworkService`;
+  logDebug(`Starting sandustry: ${config.paths.executable} with debug port ${config.debug.exeDebugPort}`);
+  const cmd = `"${config.paths.executable}" --remote-debugging-port=${config.debug.exeDebugPort} --enable-logging --enable-features=NetworkService`;
   globalThis.gameProcess = exec(cmd, (err) => {
     if (err) {
       logError(`Failed to start the game executable: ${err.message}`);
@@ -335,7 +349,7 @@ async function initializeModloader() {
 }
 
 async function connectToGame() {
-  globalThis.url = `http://127.0.0.1:${config.debug.port}/json/version`;
+  globalThis.url = `http://127.0.0.1:${config.debug.exeDebugPort}/json/version`;
 
   logDebug(`Fetching WebSocket debugger URL from ${globalThis.url}`);
   const res = await fetchJSONWithRetry(globalThis.url);
@@ -374,7 +388,7 @@ async function connectToGame() {
   
   mainPage.on("load", async () => {
     logDebug("Page loaded");
-    if (globalThis.config.debug.devTools) {
+    if (globalThis.config.debug.openWebDevTools) {
       globalThis.cdpClient.send("Runtime.evaluate", { expression: "electron.openDevTools();" });
     }
   });
@@ -482,7 +496,7 @@ function evaluateCommand(command) {
 }
 
 function startDebugConsole() {
-  if (!config.debug.console) return;
+  if (!config.debug.interactiveConsole) return;
 
   const rl = readline.createInterface({
     input: process.stdin,

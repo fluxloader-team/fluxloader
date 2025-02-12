@@ -1,12 +1,16 @@
 {
-    "paths": {
-        "executable": "C:/Program Files (x86)/Steam/steamapps/common/Sandustry Demo/sandustrydemo.exe",
-        "log": "./modloader.log"
-    },
-    "debug": {
-        "log": false,
-        "console": false,
-        "devTools": false,
-        "port": 9222
-    }
+  "paths": {
+    "executable": "C:/Program Files (x86)/Steam/steamapps/common/Sandustry Demo/sandustrydemo.exe",
+    "log": "./modloader.log"
+  },
+  "logging": {
+    "consoleLogLevel": "info",
+    "logToFile": true,
+    "logToConsole": true
+  },
+  "debug": {
+    "interactiveConsole": false,
+    "exeDebugPort": 9222,
+    "openWebDevTools": true
+  }
 }
