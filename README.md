@@ -10,7 +10,7 @@ If you need further help ask **@shadowdev** or **@tomster12** in the Sandustry d
 
 To install the modloader download `mod-loader.exe` from one of the following links:
 
-- **Stable Releases**: https://git.rendezvous.dev/shadowcomputer/sandustry-modloader/-/releases
+- **Latest Stable Release**: https://git.rendezvous.dev/shadowcomputer/sandustry-modloader/-/releases/permalink/latest
 - **Latest Dev Builds**: https://git.rendezvous.dev/shadowcomputer/sandustry-modloader/-/artifacts
 
 Then place the exe alongside `sandustrydemo.exe` in your steam install location:
