@@ -5,14 +5,35 @@ exports.modinfo = {
     modauthor: "tomster12",
 };
 
-exports.onMenuLoaded = function () {
+exports.patches = [
+    {
+        "type": "process",
+        func: (data) => {
+            console.log("test-mod: process patch");
+            return data;
+        }
+    }
+];
+
+exports.api = {
+    "test/mod": {
+        requiresBaseResponse: false,
+        getFinalResponse: async ({ interceptionId, request, responseHeaders, response,resourceType }) => {
+            let bodyData = "Hello World!";
+            let contentType = "text/plain";
+            return { bodyData, contentType };
+        }
+    }
+}
+
+exports.onMenuLoaded = async function () {
     console.log("test-mod: menu loaded");
+    console.log("test-mod: fetching test/mod...");
+    const res = await fetch("test/mod");
+    const text = await res.text();
+    console.log(`test-mod: test/mod response: ${text}`);
 };
 
 exports.onGameLoaded = function () {
     console.log(`test-mod: game loaded, game version: ${gameInstance.state.store.version}`);
-};
-
-exports.deinitialize = function () {
-    console.log("test-mod: deinitialized");
 };

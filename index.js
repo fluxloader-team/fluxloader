@@ -11,6 +11,72 @@ const configTargetPath = "./modloader-config.json";
 const modLoaderPath = "./assets/modloader.js";
 const modsPath = "./mods";
 
+globalThis.bundlePatches = [
+  {
+    "type": "regex",
+    "pattern": "debug:{active:!1",
+    "replace": "debug:{active:1",
+    "expectedMatches": 1
+  }
+];
+
+globalThis.intercepts = {
+  "bundle.js": {
+    requiresBaseResponse: true,
+    getFinalResponse: async ({ baseResponse }) => {
+      log(`Intercepted bundle.js and applying ${globalThis.bundlePatches.length} patch(es)...`);
+      let bodyData = Buffer.from(baseResponse.body, "base64").toString("utf8");
+      bodyData = applyBundlePatches(bodyData);
+      setTimeout(() => { injectModloader(); }, 200);
+      return { bodyData, contentType: "text/javascript" };
+    }
+  },
+  "modloader-api/modloader": {
+    requiresBaseResponse: false,
+    getFinalResponse: async (_) => {
+      let bodyData = globalThis.modloaderContent;
+      return { bodyData, contentType: "text/javascript" };
+    }
+  },
+  "modloader-api/active-mod-paths": {
+    requiresBaseResponse: false,
+    getFinalResponse: async (_) => {
+      const modPaths = globalThis.loadedMods.map(({ path }) => path);
+      let bodyData = JSON.stringify(modPaths, null, 2);
+      return { bodyData, contentType: "application/json" };
+    }
+  }
+}
+
+function applyBundlePatches(data) {
+  for (const patch of globalThis.bundlePatches) {
+    // Replace instances of "pattern" with "replace" in data and expect "expectedMatches" matches
+    if (patch.type === "regex") {
+      const regex = new RegExp(patch.pattern, "g");
+      const matches = data.match(regex);
+      if (matches && matches.length === patch.expectedMatches) {
+        data = data.replace(regex, patch.replace);
+        logDebug(`Applied regex patch: "${patch.pattern}" -> "${patch.replace}", ${matches.length} match(s).`);
+      }
+      else {
+        logDebug(`Failed to apply regex patch: "${patch.pattern}" -> "${patch.replace}", ${matches ? matches.length : 0} / ${patch.expectedMatches} match(s).`);
+      }
+    }
+    
+    // Process data with "func" from the patch
+    else if (patch.type === "process") {
+      try {
+        data = patch.func(data);
+        logDebug(`Applied process patch.`);
+      } catch (error) {
+        logDebug(`Failed to apply process patch: ${error.message}`);
+      }
+    }
+  }
+
+  return data;
+}
+
 function writeLog(message) {
   if (!Object.hasOwn(globalThis, "config")) return;
   const timestamp = new Date().toISOString();
@@ -128,23 +194,83 @@ async function loadModLoader(modloaderPath) {
   }
 }
 
-async function generateModsJson(modsFolder) {
+async function loadMod(modPath) {
   try {
-    const modsJsonPath = path.join(modsFolder, "mods.json");
+    logDebug(`Loading mod file: ${modPath}`);
+    const modContent = fs.readFileSync(modPath, "utf8");
+    const modExports = {};
+    const modWrapper = new Function("exports", modContent);
+    modWrapper(modExports);
+    return modExports;
+  } catch (err) {
+    logDebug(`Error loading mod '${modPath}': `, err);
+    return null;
+  }
+}
 
-    logDebug(`Checking for .js files in mods folder: ${modsFolder}`);
-    const files = fs.readdirSync(modsFolder).filter((file) => file.endsWith(".js"));
+function validateMod(mod) {
+  // Ensure mod has required modinfo
+  if (!mod.modinfo || !mod.modinfo.name || !mod.modinfo.version) {
+      console.error(`Invalid mod info for mod: ${mod.modinfo?.name || "unknown"}`);
+      return false;
+  }
+
+  // Check that dependencies are met
+  const dependencies = mod.modinfo?.dependencies || [];
+  for (const dependency of dependencies) {
+      const [depName, depVersion] = Object.entries(dependency)[0];
+      const loadedMod = globalThis.loadedMods.find((m) => m.modinfo.name === depName);
+      if (!loadedMod) {
+          console.error(`Missing dependency '${depName}' for mod '${mod.modinfo.name}'.`);
+          return false;
+      }
+      if (loadedMod.modinfo.version !== depVersion) {
+          console.error(
+              `Version mismatch for dependency '${depName}' in mod '${mod.modinfo.name}'. Expected: ${depVersion}, Found: ${loadedMod.modinfo.version}`
+          );
+          return false;
+      }
+  }
+  return true;
+}
+
+async function loadAndValidateAllMods(modsPath) {
+  try {
+    modsPath = resolvePathRelativeToExecutable(modsPath);
+    ensureDirectoryExists(modsPath);
+  
+    logDebug(`Checking for .js mods in folder: ${modsPath}`);
+    const files = fs.readdirSync(modsPath).filter((file) => file.endsWith(".js"));
     const modNames = files.map((file) => path.basename(file, ".js"));
-    if (modNames.length === 0) {
-      logDebug(`No mods found in ${modsFolder}`);
-    } else {
-      log(`Found ${modNames.length} mod(s): [ ${modNames.join(", ")} ]`)
+    
+    globalThis.loadedMods = [];
+    for (const modName of modNames) {
+      const modPath = path.join(modsPath, `${modName}.js`);
+      const modExports = await loadMod(modPath);
+      if (modExports && validateMod(modExports)) {
+        
+        if (modExports.api) {
+          Object.keys(modExports.api).forEach(key => {
+            globalThis.intercepts[key] = modExports.api[key];
+            log(`Mod "${modName}" added API endpoint: ${key}`);
+          })
+        }
+
+        if(modExports.patches) {
+          globalThis.bundlePatches = globalThis.bundlePatches.concat(modExports.patches);
+          for (const patch of modExports.patches) {
+            log(`Mod "${modName}" added patch: ${patch.type}`);
+          }
+        }
+
+        globalThis.loadedMods.push({ path: modPath, exports: modExports });
+      }
     }
-    const jsonContent = JSON.stringify(modNames, null, 2);
-    fs.writeFileSync(modsJsonPath, jsonContent, "utf8");
-    logDebug(`mods.json created at ${modsJsonPath} with content: ${jsonContent}`);
+  
+    log(`Validated ${globalThis.loadedMods.length} mod(s): [ ${globalThis.loadedMods.map((m) => m.exports.modinfo.name).join(", ")} ]`);
+
   } catch (error) {
-    logError(`Error generating mods.json: ${error.message}`);
+    logError(`Error loading and validating mods: ${error.message}`);
     throw error;
   }
 }
@@ -193,18 +319,12 @@ async function initializeModloader() {
     process.exit(1);
   }
 
+  log("Loading Mods...");
   await loadModLoader(modLoaderPath);
+  await loadAndValidateAllMods(modsPath);
 
-  log("Loading Mods");
-
-  const fullModsPath = resolvePathRelativeToExecutable(modsPath);
-
-  ensureDirectoryExists(fullModsPath);
-
-  await generateModsJson(fullModsPath);
-
-  logDebug(`Starting game executable: ${config.paths.executable} with debug port ${config.debug.port}`);
-  log("Starting Sandustry")
+  log(`Starting sandustry: ${config.paths.executable}`)
+  logDebug(`Starting sandustry: ${config.paths.executable} with debug port ${config.debug.port}`);
   const cmd = `"${config.paths.executable}" --remote-debugging-port=${config.debug.port} --enable-logging --enable-features=NetworkService`;
   globalThis.gameProcess = exec(cmd, (err) => {
     if (err) {
@@ -264,51 +384,88 @@ async function connectToGame() {
 }
 
 async function initializeInterceptions() {
-  logDebug("Initializing interceptions...");
+  try{
+    globalThis.cdpClient = await mainPage.target().createCDPSession();
 
-  globalThis.cdpClient = await mainPage.target().createCDPSession();
-  cdpClient.send("Network.enable");
+    const interceptPatterns = Object.keys(globalThis.intercepts);
 
-  const patterns = [ "**/bundle.js", "**/modloader-api/*" ];
-  await cdpClient.send("Network.setRequestInterception", {
-    patterns: patterns.map(pattern => ({
-      urlPattern: pattern, resourceType: "Script", interceptionStage: "HeadersReceived"
-    }))
-  });
+    var matchPatterns = []
+    interceptPatterns.forEach(pattern => {
+      if (globalThis.intercepts[pattern].requiresBaseResponse) {
+        matchPatterns.push({urlPattern: "**" + pattern + "*", requestStage: "Response"})
+      } else {
+        matchPatterns.push({urlPattern: "**" + pattern + "*", requestStage: "Request"})
+      }
+    });
 
-  await cdpClient.on("Network.requestIntercepted", async ({ interceptionId, request, responseHeaders, resourceType }) => {
-    log(`Intercepted ${request.url} {interception id: ${interceptionId}}`);
-    let bodyData = null;
-    let contentType = null;
+    await cdpClient.send("Fetch.enable", {
+      patterns:matchPatterns
+    });
 
-    if (request.url.includes("bundle.js")) {
-      const response = await cdpClient.send("Network.getResponseBodyForInterception",{ interceptionId });
-      bodyData = Buffer.from(response.body, "base64").toString("utf8");
-      bodyData = bodyData.replace(`debug:{active:!1`, `debug:{active:1`);
-      contentType = "text/javascript";
-      injectModloader();
-    }
-    
-    else if (request.url.includes("modloader-api/modloader")) {
-      bodyData = globalThis.modloaderContent;
-      contentType = "text/javascript";
+    function getMatchingIntercept(url) {
+      try {
+        const matchingPattern = interceptPatterns.find(pattern => url.match(pattern));
+        return globalThis.intercepts[matchingPattern];
+      } catch(e) {
+        return false
+      }
     }
 
-    const newHeaders = [ "Content-Length: " + bodyData.length, "Content-Type: " + contentType ];
-    const rawResponse = Buffer.from("HTTP/1.1 200 OK" + "\r\n" + newHeaders.join("\r\n") + "\r\n\r\n" + bodyData).toString("base64");
-    cdpClient.send("Network.continueInterceptedRequest", { interceptionId, rawResponse });
-  });
+    await cdpClient.on("Fetch.requestPaused", async ({ requestId, request, frameId,resourceType,responseErrorReason,responseStatusCode,responseStatusText,responseHeaders,networkId,redirectedRequestId }) => {
+      var interceptionId = requestId;
+      logDebug(`Intercepted ${request.url} {interception id: ${interceptionId}}`);
+
+      var matchingIntercept = getMatchingIntercept(request.url.toLowerCase());
+
+      if (!matchingIntercept) {
+        await cdpClient.send("Fetch.continueRequest", { requestId: interceptionId });
+        return;
+      }
+
+      let baseResponse = null;
+      if (matchingIntercept.requiresBaseResponse) {
+        baseResponse = await cdpClient.send("Fetch.getResponseBody", { requestId: interceptionId });
+      }
+
+      const response = await matchingIntercept.getFinalResponse({ interceptionId, request, baseResponse, responseHeaders, resourceType });
+  
+      try {
+        if (!responseHeaders) {
+          responseHeaders = [
+            { name: "Content-Length", value: response.bodyData.length.toString() },
+            { name: "Content-Type", value: response.contentType }
+          ];
+        } else {
+          responseHeaders = responseHeaders.map(({name, value}) => {
+            if (name.toLowerCase() === "content-length") value = response.bodyData.length.toString();
+            else if (name.toLowerCase() === "content-type") value = response.contentType;
+            return {name, value};
+          });
+        }
+      } catch (e) {
+        logDebug(JSON.stringify(responseHeaders))
+        logError(e);
+      }
+
+      logDebug(`Fulfilling request ${interceptionId} with response length ${response.bodyData.length} and content type ${response.contentType}`);
+
+      const body = Buffer.from(response.bodyData).toString("base64");
+      await cdpClient.send("Fetch.fulfillRequest", {requestId: interceptionId, responseCode: 200, responseHeaders, body });
+    });
+  } catch(e) {
+    logError(e);
+  }
 }
 
 async function injectModloader() {
-  log("Starting Modloader Injection...");
+  logDebug("Starting Modloader Injection...");
   try {
     const url = "modloader-api/modloader";
     await globalThis.mainPage.addScriptTag({ url });
     log(`Modloader script injected successfully at ${url}`);
   } catch(e) {
     logError(e);
-    log("Modloader injection failed. send error log to modding channel. Exiting...");
+    logError("Modloader injection failed. send error log to modding channel. Exiting...");
     setTimeout(() => {
       process.exit(0);
     }, 5000);
@@ -360,11 +517,26 @@ function unexpectedClose() {
 }
 
 (async () => {
-  process.on("uncaughtException", () => unexpectedClose());
-  process.on("unhandledRejection", () => unexpectedClose());
-  process.on("SIGINT", () => unexpectedClose());
-  process.on("SIGTERM", () => unexpectedClose());
-  process.on("SIGHUP", () => unexpectedClose());
+  process.on("uncaughtException", (e) => {
+    logError("Uncaught Exception:", e.message);
+    unexpectedClose();
+  });
+  process.on("unhandledRejection", (e) => {
+    logError("Unhandled Rejection:", e.message);
+    unexpectedClose();
+  });
+  process.on("SIGINT", () => {
+    logError("SIGINT received.");
+    unexpectedClose();
+  });
+  process.on("SIGTERM", () => {
+    logError("SIGTERM received.");
+    unexpectedClose();
+  });
+  process.on("SIGHUP", () => {
+    logError("SIGHUP received.");
+    unexpectedClose();
+  });
 
   await initializeModloader();
   await connectToGame();
