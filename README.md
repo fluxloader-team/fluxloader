@@ -67,9 +67,9 @@ exports.api = {
     "test/mod": {
         requiresBaseResponse: false,
         getFinalResponse: async ({ interceptionId, request, responseHeaders, response,resourceType }) => {
-            let bodyData = "Hello World!";
+            let body = "Hello World!";
             let contentType = "text/plain";
-            return { bodyData, contentType };
+            return { body, contentType };
         }
     }
 }
