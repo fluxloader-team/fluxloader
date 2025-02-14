@@ -110,6 +110,11 @@ function applyBundlePatches(data) {
 globalThis.modConfig = {
   get: async (modName) =>{
     try {
+      modName = modName.replace(/(?:\\+|\/+)|(^|\/)\.+(\/|$)|[?"<>|:*]|(^\/+|\/+$)/g, (match, p1, p2, p3) => {
+        if (p1 || p3) return ''; // Remove leading or trailing slashes or dot sequences
+        if (p2) return '/';      // Remove directory traversal segments (e.g., `.` or `..`)
+        return '/';              // Normalize slashes
+      });
       var body;
       if(fs.existsSync(`${modConfigPath}/${modName}.json`)) {
         body = fs.readFileSync(`${modConfigPath}/${modName}.json`, "utf8");
@@ -124,6 +129,11 @@ globalThis.modConfig = {
   },
   set: async (modName, config) =>{
     try {
+      modName = modName.replace(/(?:\\+|\/+)|(^|\/)\.+(\/|$)|[?"<>|:*]|(^\/+|\/+$)/g, (match, p1, p2, p3) => {
+        if (p1 || p3) return ''; // Remove leading or trailing slashes or dot sequences
+        if (p2) return '/';      // Remove directory traversal segments (e.g., `.` or `..`)
+        return '/';              // Normalize slashes
+      });
       fs.writeFileSync(`${modConfigPath}/${modName}.json`, JSON.stringify(config), "utf8");
       return true
 
