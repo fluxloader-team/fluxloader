@@ -117,9 +117,9 @@ globalThis.modConfig = {
       });
       var body;
       if(fs.existsSync(`${modConfigPath}/${modName}.json`)) {
-        body = fs.readFileSync(`${modConfigPath}/${modName}.json`, "utf8");
+        body = JSON.parse(fs.readFileSync(`${modConfigPath}/${modName}.json`, "utf8"));
       }else{
-        body = "{}"
+        body = {}
       }
       return body
     } catch (error) {
