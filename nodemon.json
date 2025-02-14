@@ -1,0 +1,5 @@
+{
+  "ext": "ts,json",
+  "exec": "npm run start",
+  "ignore": ["./examples/*"]
+}

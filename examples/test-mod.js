@@ -7,30 +7,36 @@ exports.modinfo = {
 
 exports.patches = [
   {
-    "type": "process",
+    type: "process",
     func: (data) => {
       console.log("test-mod: process patch");
       return data;
-    }
+    },
   },
   {
-    "type": "regex",
-    "pattern": 'description:"Unlocks Conveyor Belts and Launchers.",cost:50',
-    "replace": 'description:"Unlocks Conveyor Belts and Launchers.",cost:1',
-    "expectedMatches": 1
-  }
+    type: "regex",
+    pattern: 'description:"Unlocks Conveyor Belts and Launchers.",cost:50',
+    replace: 'description:"Unlocks Conveyor Belts and Launchers.",cost:1',
+    expectedMatches: 1,
+  },
 ];
 
 exports.api = {
   "test/mod": {
     requiresBaseResponse: false,
-    getFinalResponse: async ({ interceptionId, request, responseHeaders, response,resourceType }) => {
+    getFinalResponse: async ({
+      interceptionId,
+      request,
+      responseHeaders,
+      response,
+      resourceType,
+    }) => {
       let bodyData = "Hello World!";
       let contentType = "text/plain";
-      return { bodyData, contentType };
-    }
-  }
-}
+      return { body: bodyData, contentType };
+    },
+  },
+};
 
 exports.onMenuLoaded = async function () {
   console.log("test-mod: menu loaded");
@@ -41,5 +47,7 @@ exports.onMenuLoaded = async function () {
 };
 
 exports.onGameLoaded = function () {
-  console.log(`test-mod: game loaded, game version: ${gameInstance.state.store.version}`);
+  console.log(
+    `test-mod: game loaded, game version: ${gameInstance.state.store.version}`
+  );
 };

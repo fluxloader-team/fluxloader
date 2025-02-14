@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "es5",
+    "module": "commonjs",
+    "esModuleInterop": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "strict": true,
+    "typeRoots": ["./types"]
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.d.ts",
+    "game-types.d.ts",
+    "utility/type-definitions.js"
+  ]
+}

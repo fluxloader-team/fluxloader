@@ -3,11 +3,26 @@
   "version": "1.0.0",
   "main": "index.js",
   "bin": "index.js",
+  "scripts": {
+    "build": "npx pkg . --targets win --output dist/mod-loader.exe",
+    "dev": "nodemon",
+    "start": "ts-node src/index.ts"
+  },
   "dependencies": {
-    "puppeteer-core": "^20.0.0"
+    "dotenv": "^16.4.7",
+    "puppeteer-core": "^20.0.0",
+    "ts-node": "^10.9.2"
   },
   "pkg": {
-    "scripts": ["./index.js"],
-    "assets": ["assets/modloader.js", "assets/modloader-config.json"]
+    "scripts": [
+      "./index.js"
+    ],
+    "assets": [
+      "assets/modloader.js",
+      "assets/modloader-config.json"
+    ]
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
   }
 }

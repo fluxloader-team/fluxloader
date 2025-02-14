@@ -1,0 +1,4 @@
+{
+  "ext": "ts,js,mjs,cjs,json",
+  "exec": "node build.js"
+}

@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2024",
+    "module": "NodeNext",
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "strict": true,
+    "lib": ["ESNext"],
+    "typeRoots": ["./types", "./node_modules/@types"],
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/game-types.d.ts"],
+  "exclude": ["./examples"]
+}
