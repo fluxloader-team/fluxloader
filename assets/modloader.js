@@ -1,4 +1,49 @@
 (async function () {
+  globalThis.modConfig = {
+    get: async (modName) =>{
+      try {
+        const data = {
+          modName: modName,
+        }
+        const response = await fetch('modloader-api/config', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(data),
+        });
+
+        if (!response.ok) {
+          return false;
+        }
+
+        return await response.json();
+      } catch (error) {
+        return null;
+      }
+
+    },
+    set: async (modName, config) =>{
+      try {
+        const data = {
+          modName: modName,
+          config: config,
+        }
+        const response = await fetch('modloader-api/config', {
+          method: 'SET',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(data),
+        });
+
+        return response.ok;
+
+      } catch (error) {
+        return false;
+      }
+    }
+  }
   async function tryExecuteModFunction(mod, functionName) {
     if (Object.prototype.hasOwnProperty.call(mod, functionName)) {
       try {
@@ -73,50 +118,4 @@
   console.log(`Mods loaded: [${globalThis.activeMods.map((m) => m.modinfo.name).join(", ")}]`);
 
   await executeModFunctions();
-
-  globalThis.modConfig = {
-    get: async (modName) =>{
-      try {
-        const data = {
-          modName: modName,
-        }
-        const response = await fetch('modloader-api/config', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(data),
-        });
-
-        if (!response.ok) {
-          return false;
-        }
-
-        return await response.json();
-      } catch (error) {
-        return null;
-      }
-
-    },
-    set: async (modName, config) =>{
-      try {
-        const data = {
-          modName: modName,
-          config: config,
-        }
-        const response = await fetch('modloader-api/config', {
-          method: 'SET',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(data),
-        });
-
-        return response.ok;
-
-      } catch (error) {
-        return false;
-      }
-    }
-  }
 })();
