@@ -11,6 +11,7 @@ const configSourcePath = "./assets/modloader-config.json";
 const configTargetPath = "./modloader-config.json";
 const modLoaderPath = "./assets/modloader.js";
 const modsPath = "./mods";
+const modConfigPath = "./mods/config"
 
 globalThis.bundlePatches = [
   {
@@ -46,6 +47,32 @@ globalThis.intercepts = {
     getFinalResponse: async (_) => {
       const modPaths = globalThis.loadedMods.map(({ path }) => path);
       let body = JSON.stringify(modPaths, null, 2);
+      body = Buffer.from(body).toString("base64");
+      return { body, contentType: "application/json" };
+    }
+  },
+  "modloader-api/config": {
+    requiresBaseResponse: false,
+    getFinalResponse: async ({interceptionId, request, baseResponse, responseHeaders, resourceType}) => {
+      var body = "";
+      var jobject = JSON.parse(request.postData);
+      jobject.modName = jobject.modName.replace(/(?:\\+|\/+)|(^|\/)\.+(\/|$)|[?"<>|:*]|(^\/+|\/+$)/g, (match, p1, p2, p3) => {
+        if (p1 || p3) return ''; // Remove leading or trailing slashes or dot sequences
+        if (p2) return '/';      // Remove directory traversal segments (e.g., `.` or `..`)
+        return '/';              // Normalize slashes
+      });
+
+      if(request.method == "POST") {
+
+        if(fs.existsSync(`${modConfigPath}/${jobject.modName}.json`)) {
+          body = fs.readFileSync(`${modConfigPath}/${jobject.modName}.json`, "utf8");
+        }else{
+          body = "{}"
+        }
+      }
+      if(request.method == "SET") {
+        fs.writeFileSync(`${modConfigPath}/${jobject.modName}.json`, JSON.stringify(jobject.config), "utf8");
+      }
       body = Buffer.from(body).toString("base64");
       return { body, contentType: "application/json" };
     }
@@ -142,6 +169,7 @@ globalThis.resolvePathRelativeToExecutable = function (executablePath) {
 // It is very important to not do anything that needs globalThis.config before this function!!!
 async function readAndVerifyConfig(sourcePath, targetPath) {
   try {
+    ensureDirectoryExists(modConfigPath);
     sourcePath = resolvePathToAsset(sourcePath);
     let sourceContent = fs.readFileSync(sourcePath, "utf8");
     const sourceData = JSON.parse(sourceContent);
