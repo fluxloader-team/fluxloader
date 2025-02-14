@@ -107,7 +107,31 @@ function applyBundlePatches(data) {
 
   return data;
 }
+globalThis.modConfig = {
+  get: async (modName) =>{
+    try {
+      var body;
+      if(fs.existsSync(`${modConfigPath}/${modName}.json`)) {
+        body = fs.readFileSync(`${modConfigPath}/${modName}.json`, "utf8");
+      }else{
+        body = "{}"
+      }
+      return body
+    } catch (error) {
+      return null;
+    }
 
+  },
+  set: async (modName, config) =>{
+    try {
+      fs.writeFileSync(`${modConfigPath}/${modName}.json`, JSON.stringify(config), "utf8");
+      return true
+
+    } catch (error) {
+      return false;
+    }
+  }
+}
 function canLogConsole(level) {
   if (!Object.hasOwn(globalThis, "config")) return false;
   if (!config.logging.logToConsole) return false;
