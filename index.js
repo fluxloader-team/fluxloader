@@ -158,21 +158,21 @@ function writeLog(message) {
   fs.appendFileSync(config.paths.log, `[${timestamp}] ${message}\n`, "utf8");
 };
 
-function logDebug(...args) {
+globalThis.logDebug = function(...args) {
   if (!Object.hasOwn(globalThis, "config")) return;
   const message = args.join(" ");
   if (canLogConsole("debug")) console.log("[DEBUG]", message);
   writeLog("[DEBUG] " + message);
 }
 
-function logError(...args) {
+globalThis.logError = function(...args) {
   if (!Object.hasOwn(globalThis, "config")) return;
   const message = args.join(" ");
   if (canLogConsole("error")) console.log("[ERROR]", message);
   writeLog("[ERROR] " + message);
 }
 
-function log(...args) {
+globalThis.log = function(...args) {
   if (!Object.hasOwn(globalThis, "config")) return;
   const message = args.join(" ");
   if (canLogConsole("info")) console.log("[LOG]", message);
