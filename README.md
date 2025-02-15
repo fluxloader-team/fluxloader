@@ -19,11 +19,13 @@ Then place the exe alongside `sandustrydemo.exe` in your steam install location:
 
 ## Downloading Mods
 
-When you first run `mod-loader.exe` it will produce a `mods` folder.
-To install mods, copy any `mod.js` file into this folder.
+When you first run `mod-loader.exe` it will produce a `mods` folder.  
+To install mods, copy any `mod.js` file into this folder.  
 This should be enough for them to work!
 
 ## Creating Mods
+
+This guide is up to date as of **1.2.0**.  
 
 Some examples are provided [here](https://git.rendezvous.dev/shadowcomputer/sandustry-modloader/-/tree/main/examples?ref_type=heads), showing how to use the patches, the **api** endpoints, and perform arbitrary code execution.
 
@@ -65,9 +67,9 @@ exports.api = {
     "test/mod": {
         requiresBaseResponse: false,
         getFinalResponse: async ({ interceptionId, request, responseHeaders, response,resourceType }) => {
-            let bodyData = "Hello World!";
+            let body = "Hello World!";
             let contentType = "text/plain";
-            return { bodyData, contentType };
+            return { body, contentType };
         }
     }
 }
@@ -84,10 +86,10 @@ Alternatively you could intercept requests to certain files. This could allow yo
 ```js
 exports.api = {
     ".png": {
-    requiresBaseResponse: true,
+        requiresBaseResponse: true,
         getFinalResponse: async ({  interceptionId, request, baseResponse, responseHeaders, resourceType }) => {
             log(`Intercepted PNG request: ${request.url}`);
-            return { bodyData: baseResponse.body, contentType: "image/png" };
+            return { body: baseResponse.body, contentType: "image/png" };
         }
     }
 }
