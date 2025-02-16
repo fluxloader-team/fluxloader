@@ -6,7 +6,8 @@
   "dependencies": {
     "acorn": "^8.14.0",
     "escodegen": "^2.1.0",
-    "puppeteer-core": "^20.0.0"
+    "puppeteer-core": "^20.0.0",
+    "semver": "^7.7.1"
   },
   "pkg": {
     "scripts": [
