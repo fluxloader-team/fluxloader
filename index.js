@@ -3,6 +3,7 @@ const { exec } = require("child_process");
 const readline = require("readline");
 const util = require("util");
 const acorn = require("acorn");
+const semver = require('semver')
 
 globalThis.escodegen = require("escodegen");
 globalThis.path = require("path");
@@ -14,6 +15,8 @@ const configTargetPath = "./modloader-config.json";
 const modLoaderPath = "./assets/modloader.js";
 const modsPath = "./mods";
 const modConfigPath = "./mods/config"
+
+globalThis.ModLoaderVersion = "1.4.0-dev"
 
 globalThis.bundlePatches = [
   {
@@ -33,7 +36,6 @@ globalThis.intercepts = {
       body = await injectModloader(body);
       body = applyBundlePatches(body);
       body = Buffer.from(body).toString("base64");
-      //setTimeout(() => { injectModloader(); }, 200);
       return { body, contentType: "text/javascript" };
     }
   },
@@ -769,11 +771,13 @@ async function loadMod(modPath) {
 
 function validateMod(mod) {
   // Ensure mod has required modinfo
-  if (!mod.modinfo || !mod.modinfo.name || !mod.modinfo.version) {
+  if (!mod.modinfo || !mod.modinfo.name || !mod.modinfo.version || !mod.modinfo.loaderVersion) {
       console.error(`Invalid mod info for mod: ${mod.modinfo?.name || "unknown"}`);
       return false;
   }
-
+  if(!semver.valid(semver.coerce(mod.modinfo.loaderVersion)) || !semver.satisfies(semver.coerce(globalThis.ModLoaderVersion),semver.coerce(mod.modinfo.loaderVersion))){
+    return false;
+  }
   // Check that dependencies are met
   const dependencies = mod.modinfo?.dependencies || [];
   for (const dependency of dependencies) {

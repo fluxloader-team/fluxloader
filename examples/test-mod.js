@@ -1,6 +1,7 @@
 exports.modinfo = {
   name: "test-mod",
   version: "1.0.0",
+  gameVersion: "1.4.0",
   dependencies: [],
   modauthor: "tomster12",
 };
