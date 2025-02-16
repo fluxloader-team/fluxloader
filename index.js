@@ -28,17 +28,10 @@ globalThis.intercepts = {
     getFinalResponse: async ({ baseResponse }) => {
       log(`Intercepted bundle.js and applying ${globalThis.bundlePatches.length} patch(es)...`);
       let body = Buffer.from(baseResponse.body, "base64").toString("utf8");
+      body = await injectModloader(body);
       body = applyBundlePatches(body);
       body = Buffer.from(body).toString("base64");
-      setTimeout(() => { injectModloader(); }, 200);
-      return { body, contentType: "text/javascript" };
-    }
-  },
-  "modloader-api/modloader": {
-    requiresBaseResponse: false,
-    getFinalResponse: async (_) => {
-      let body = globalThis.modloaderContent;
-      body = Buffer.from(body).toString("base64");
+      //setTimeout(() => { injectModloader(); }, 200);
       return { body, contentType: "text/javascript" };
     }
   },
@@ -543,18 +536,19 @@ async function initializeInterceptions() {
   }
 }
 
-async function injectModloader() {
+async function injectModloader(body) {
   logDebug("Starting Modloader Injection...");
   try {
-    const url = "modloader-api/modloader";
-    await globalThis.mainPage.addScriptTag({ url });
-    log(`Modloader script injected successfully at ${url}`);
+    body = `${globalThis.modloaderContent}
+${body}`
+   return body;
   } catch(e) {
     logError(e);
     logError("Modloader injection failed. send error log to modding channel. Exiting...");
     setTimeout(() => {
       process.exit(0);
     }, 5000);
+    return body;
   }
 }
 
