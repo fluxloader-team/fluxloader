@@ -466,6 +466,10 @@ async function connectToGame() {
 async function initializeInterceptions() {
   try{
     globalThis.cdpClient = await mainPage.target().createCDPSession();
+    await globalThis.cdpClient.send('Log.enable');
+    globalThis.cdpClient.on('Log.entryAdded', (event) => {
+      console.log(event.entry.text);
+    });
 
     const interceptPatterns = Object.keys(globalThis.intercepts);
 
