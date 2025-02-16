@@ -24,6 +24,8 @@ globalThis.bundlePatches = [
   }
 ];
 
+globalThis.GameVersion = "This is temp remove me"
+
 globalThis.intercepts = {
   "bundle.js": {
     requiresBaseResponse: true,
