@@ -4,10 +4,17 @@
   "main": "index.js",
   "bin": "index.js",
   "dependencies": {
+    "acorn": "^8.14.0",
+    "escodegen": "^2.1.0",
     "puppeteer-core": "^20.0.0"
   },
   "pkg": {
-    "scripts": ["./index.js"],
-    "assets": ["assets/modloader.js", "assets/modloader-config.json"]
+    "scripts": [
+      "./index.js"
+    ],
+    "assets": [
+      "assets/modloader.js",
+      "assets/modloader-config.json"
+    ]
   }
 }
