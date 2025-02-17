@@ -916,14 +916,6 @@ async function connectToGame() {
     process.exit(0);
   });
 
-  globalThis.browser.on("*", (event) => {
-    try{
-      logDebug("Browser event:" + JSON.stringify(event));
-    } catch(e) {
-      logError(e);
-    }
-  })
-
   globalThis.pages = await browser.pages();
   logDebug(`Pages found: ${pages.length}`);
   if (pages.length === 0) throw new Error("No open pages found.");
@@ -940,7 +932,7 @@ async function connectToGame() {
   mainPage.on("load", async () => {
     logDebug("Page loaded");
     if (globalThis.config.debug.openWebDevTools) {
-      globalThis.cdpClient.send("Runtime.evaluate", { expression: "electron.openDevTools();" });
+      await globalThis.cdpClient.send("Runtime.evaluate", {expression: "electron.openDevTools();"});
     }
   });
 
@@ -962,7 +954,7 @@ async function initializeInterceptions() {
     interceptPatterns.forEach(pattern => {
       if (globalThis.intercepts[pattern].requiresBaseResponse) {
         matchPatterns.push({urlPattern: "*" + pattern + "*", requestStage: "Response"})
-      } else {
+      } else{
         matchPatterns.push({urlPattern: "*" + pattern + "*", requestStage: "Request"})
       }
     });
