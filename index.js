@@ -25,7 +25,7 @@ globalThis.bundlePatches = [
 ];
 
 globalThis.intercepts = {
-  "bundle.js": {
+  "/bundle.js": {
     requiresBaseResponse: true,
     getFinalResponse: async ({ baseResponse }) => {
       log(`Intercepted bundle.js and applying ${globalThis.bundlePatches.length} patch(es)...`);
