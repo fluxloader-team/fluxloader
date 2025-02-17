@@ -27,7 +27,7 @@ globalThis.bundlePatches = [
 globalThis.GameVersion = "This is temp remove me"
 
 globalThis.intercepts = {
-  "bundle.js": {
+  "/bundle.js": {
     requiresBaseResponse: true,
     getFinalResponse: async ({ baseResponse }) => {
       log(`Intercepted bundle.js and applying ${globalThis.bundlePatches.length} patch(es)...`);
@@ -870,8 +870,21 @@ async function fetchJSONWithRetry(url, retries = 200, delay = 100) {
   throw new Error(`Failed to fetch JSON from ${url} after ${retries} retries.`);
 }
 
+async function finalizeModloaderPatches() {
+  if (!globalThis.config.debug.enableDebugMenu) {
+    globalThis.bundlePatches.push({
+      type: "replace",
+      from: "function ym(t){",
+      to: "function ym(t){return;",
+      expectedMatches: 1,
+    });
+  }
+}
+
 async function initializeModloader() {
   await readAndVerifyConfig(configSourcePath, configTargetPath);
+
+  await finalizeModloaderPatches();
 
   if (config.logging.logToFile) {
     fs.writeFileSync(config.paths.log, "", "utf8");
