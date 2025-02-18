@@ -16,9 +16,11 @@ import {
 } from "fs";
 
 interface Patch {
-  type: "regex" | "process";
+  type: "regex" | "process" | "stringReplace" | "classInterception";
   pattern?: string;
   replace?: string;
+  find?: string;
+  file?: string;
   expectedMatches?: number;
   func?: (data: string) => string;
 }
@@ -64,6 +66,52 @@ interface Config {
   };
 }
 
+function findClosingBracketPosition(code: string, className: string) {
+  const classPattern = new RegExp(
+    `class\\s+${className}\\s*(extends\\s+\\w+\\s*)?(implements\\s+[\\w\\s,]+\\s*)?{`
+  );
+  const match = classPattern.exec(code);
+
+  if (!match) {
+    console.log("Class not found");
+    return {
+      startIndex: -1,
+      endIndex: -1,
+    };
+  }
+
+  let startIndex = match.index + match[0].length; // Start after "class pr {"
+  let stack = 1; // Track opening `{`
+
+  for (let i = startIndex; i < code.length; i++) {
+    if (code[i] === "{") stack++; // Opening brace, increase count
+    if (code[i] === "}") stack--; // Closing brace, decrease count
+
+    if (stack === 0)
+      return {
+        startIndex,
+        endIndex: i,
+      }; // Found the matching closing brace
+  }
+
+  console.log("Closing bracket not found");
+  return {
+    startIndex: -1,
+    endIndex: -1,
+  };
+}
+
+function extractOutClassText(text: string, className: string) {
+  const { startIndex, endIndex } = findClosingBracketPosition(text, className);
+  if (startIndex === -1 || endIndex === -1) {
+    return null;
+  }
+  return {
+    startIndex: startIndex,
+    endIndex: endIndex,
+    content: text.substring(startIndex, endIndex),
+  };
+}
 declare global {
   var bundlePatches: Patch[];
   var intercepts: Record<string, Intercept>;
@@ -96,6 +144,8 @@ const configTargetPath = "./modloader-config.json";
 const modLoaderPath = "./assets/modloader.js";
 const modsPath = "./mods";
 
+const interceptionsPath = "./assets/interceptions";
+
 (globalThis as any).path = path;
 (globalThis as any).http = http;
 globalThis.fs = {
@@ -114,6 +164,25 @@ globalThis.bundlePatches = [
     pattern: "debug:{active:!1",
     replace: "debug:{active:1",
     expectedMatches: 1,
+  },
+  {
+    type: "stringReplace",
+    find: "function ym(t){",
+    replace:
+      "function ym(t) { if(globalThis.stateInterceptor != null) {t = globalThis.stateInterceptor(t)}",
+  },
+  {
+    type: "stringReplace",
+    find: "else t.store.player.velocity.x<=a&&t.store.player.velocity.x>=-a&&(t.store.player.velocity.x=0)",
+    replace:
+      "else {t.store.player.velocity.x <= a && t.store.player.velocity.x >= -a && (t.store.player.velocity.x = 0)} globalThis.interceptors?.postMove?.(t)",
+  },
+
+  {
+    type: "classInterception",
+    find: "pr",
+    replace: "PrInterception",
+    file: "pr.js",
   },
 ];
 
@@ -157,6 +226,7 @@ globalThis.intercepts = {
 };
 
 function applyBundlePatches(data: string): string {
+  data = `window.electron.openDevTools(); ${data}`;
   for (const patch of globalThis.bundlePatches) {
     if (patch.type === "regex") {
       const regex = new RegExp(patch.pattern!, "g");
@@ -182,8 +252,63 @@ function applyBundlePatches(data: string): string {
       } catch (error: any) {
         logDebug(`Failed to apply process patch: ${error.message}`);
       }
+    } else if (patch.type === "stringReplace") {
+      const isFound = data.includes(patch.find ?? "");
+      logDebug("isFound", isFound, patch.find);
+      data = data.replaceAll(patch.find ?? "", patch.replace ?? "");
+      logDebug(
+        `Applied stringReplace patch: "${patch.find}" -> "${patch.replace}".`
+      );
+    } else if (patch.type === "classInterception") {
+      const className = patch.find!;
+      const newClassName = patch.replace!;
+      const classPattern = new RegExp(`class\\s+${className}\\s*{`);
+      const match = classPattern.exec(data);
+
+      if (match === null) {
+        logDebug(`Class ${className} not found.`);
+        continue;
+      }
+
+      if (false as any) {
+        continue;
+      }
+      data = data.replaceAll(
+        `class ${className}`,
+        `class ${className} extends ${newClassName}`
+      );
+
+      const interceptionPath = resolvePathToAsset(
+        interceptionsPath + "/" + patch.file
+      );
+      const interceptionContent = readFileSync(interceptionPath, "utf8");
+      let beforeString = data.substring(0, match.index);
+      let afterString = data.substring(match.index);
+      data =
+        beforeString +
+        `/* Interception \n${interceptionPath}\n */` +
+        interceptionContent +
+        afterString;
+
+      const classInfo = extractOutClassText(data, className);
+      if (classInfo != null) {
+        let newContent = classInfo.content.replace(
+          "constructor(",
+          "constructor(...args){super(...args);this.oldConstructor(...args);}oldConstructor("
+        );
+        data = data.replaceAll(classInfo.content, newContent);
+      }
+
+      logDebug(
+        `Applied classInterception patch: for class "${className}" -> "${patch.replace}".`
+      );
     }
   }
+
+  const bundlePath = resolvePathToAsset("./temp");
+  if (!existsSync(bundlePath)) mkdirSync(bundlePath, { recursive: true });
+  writeFileSync(`${bundlePath}/bundle.js`, data, "utf8");
+  writeFileSync(`${bundlePath}/bundletemp.js`, data, "utf8");
 
   return data;
 }

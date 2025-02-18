@@ -4,6 +4,11 @@ export type GameInstance = {
     state: {
       store: {
         version: string;
+        mapData: {
+          data: Uint8Array;
+          width: number;
+          height: number;
+        }
         player: {
           x: number;
           y: number;

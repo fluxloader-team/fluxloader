@@ -6,7 +6,7 @@
   "scripts": {
     "build": "npx pkg . --targets win --output dist/mod-loader.exe",
     "dev": "nodemon",
-    "start": "ts-node src/index.ts"
+    "start": "ts-node ./src/index.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

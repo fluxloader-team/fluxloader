@@ -1,4 +1,17 @@
 (async function () {
+  globalThis.stateInterceptor = (t) => {
+    return t;
+  };
+
+  if (globalThis.interceptors == null) {
+    globalThis.interceptors = {};
+  }
+  globalThis.interceptors.postMove = (t) => {
+    if (globalThis.modLoader == null) {
+      return;
+    }
+    globalThis.modLoader.executeIntercept("onPostMove", t);
+  };
   /**
    * Creates and initializes the mod loader.
    */
@@ -68,13 +81,7 @@
         console.error(`Mod '${modName}' not found.`);
         return;
       }
-      if (Object.prototype.hasOwnProperty.call(mod, "onUnload")) {
-        try {
-          mod.onUnload();
-        } catch (err) {
-          console.error(`Error executing onUnload for mod '${modName}': `, err);
-        }
-      }
+      this.tryExecuteModFunction(mod, "onUnload");
       globalThis.activeMods = globalThis.activeMods.filter(
         (m) => m.modinfo.id !== modName
       );
@@ -85,11 +92,11 @@
      * @param {{id: string, path: string, name: string}} modName - The name of the mod.
      * @returns {object|null} The loaded mod object or null if failed.
      */
-    modLoader.loadMod = async function (mod) {
+    modLoader.loadMod = async function (mod, force = false) {
       const modName = mod.name;
       const existingMod = modLoader.getMod(modName);
       if (existingMod != null) {
-        if (mod.id == existingMod.modinfo.version_id) {
+        if (mod.id == existingMod.modinfo.version_id && !force) {
           console.log(`Mod '${modName}' already loaded.`);
           return null;
         } else {
@@ -102,19 +109,26 @@
         console.error("modloader name is reserved.");
         return null;
       }
+
       try {
         const response = await fetch(mod.path);
         if (!response.ok) {
           console.error(`Failed to load mod '${modName}'`);
           return null;
         }
-        const modScript = await response.text();
-        const modExports = {};
-        if (modScript.includes("module.exports = ")) {
-          const module = { exports: {} };
-          const modWrapper = new Function("exports", "module", modScript);
+        let modScript = await response.text();
+        let modExports = {};
+        if (modScript.includes("module.exports =")) {
+          let module = { exports: {} };
+          let modWrapper = new Function("exports", "module", modScript);
           modWrapper(modExports, module);
-          Object.assign(modExports, module.exports);
+          if (module.exports.default) {
+            if (module.exports.default instanceof Function) {
+              modExports = module.exports.default();
+            } else {
+              modExports = module.exports.default;
+            }
+          }
         } else {
           const modWrapper = new Function("exports", modScript);
           modWrapper(modExports);
@@ -126,6 +140,7 @@
         modExports.modinfo.version_id = mod.id;
         modExports.modinfo.id = modName;
         modExports.modinfo.initialised = false;
+        modExports.modinfo.path = mod.path;
         return modExports;
       } catch (err) {
         console.error(`Error loading mod '${modName}': `, err);
@@ -139,7 +154,25 @@
      */
     modLoader.onKeyDown = function (event) {
       if (event.key === "F1") {
-        modLoader.reload(true);
+        globalThis.modLoader.reload(true);
+      }
+      globalThis.modLoader.executeIntercept("onKeyDown", event);
+    };
+    modLoader.onKeyUp = function (event) {
+      globalThis.modLoader.executeIntercept("onKeyUp", event);
+    };
+
+    modLoader.reloadMod = async function (name) {
+      let existingMod = modLoader.getMod(name);
+      if (existingMod != null) {
+        await modLoader.loadMod(
+          {
+            id: existingMod.modinfo.id,
+            name: existingMod.modinfo.name,
+            path: existingMod.modinfo.path,
+          },
+          true
+        );
       }
     };
 
@@ -147,17 +180,21 @@
      * Loads the mod loader and starts watching for changes.
      */
     modLoader.load = async function () {
+      globalThis.modLoader = modLoader;
       await modLoader.loadMods();
+      await modLoader.executeModFunctions();
       modLoader.eventListener = window.addEventListener(
         "keydown",
         modLoader.onKeyDown
+      );
+      modLoader.eventListener = window.addEventListener(
+        "keyup",
+        modLoader.onKeyUp
       );
 
       modLoader.watchInterval = setInterval(() => {
         modLoader.reload();
       }, 1000);
-
-      globalThis.modLoader = modLoader;
     };
 
     /**
@@ -165,6 +202,7 @@
      */
     modLoader.unload = async function () {
       window.removeEventListener("keydown", modLoader.onKeyDown);
+      window.removeEventListener("keyup", modLoader.onKeyUp);
       if (modLoader.watchInterval != null) {
         clearInterval(modLoader.watchInterval);
       }
@@ -175,19 +213,19 @@
      * @param {boolean} [force=false] - Whether to force reload.
      */
     modLoader.reload = async function (force = false) {
-      const response = await fetch("modloader-api/modloader");
+      let response = await fetch("modloader-api/modloader");
       if (!response.ok) {
         console.error(`Failed to load modLoader script`);
         return null;
       }
-      const modLoaderScript = await response.text();
+      let modLoaderScript = await response.text();
       if (!force && globalThis.modLoaderScript === modLoaderScript) {
         await modLoader.loadMods();
         return;
       }
-      console.log("Reloading Modloader");
       globalThis.modLoaderScript = modLoaderScript;
-      const modLoaderWrapper = new Function("modLoader", modLoaderScript);
+      modLoaderScript.replaceAll("const ", "let ");
+      let modLoaderWrapper = new Function("modLoader", modLoaderScript);
       modLoaderWrapper();
     };
 
@@ -230,15 +268,27 @@
       }
     };
 
+    modLoader.executeIntercept = function (interception, ...args) {
+      for (const mod of globalThis.activeMods) {
+        if (Object.prototype.hasOwnProperty.call(mod, "onEvent")) {
+          mod.onEvent(interception, ...args);
+        }
+      }
+    };
+
     /**
      * Tries to execute a specific function in a mod.
      * @param {object} mod - The mod object.
      * @param {string} functionName - The name of the function to execute.
      */
-    modLoader.tryExecuteModFunction = async function (mod, functionName) {
+    modLoader.tryExecuteModFunction = async function (
+      mod,
+      functionName,
+      ...args
+    ) {
       if (Object.prototype.hasOwnProperty.call(mod, functionName)) {
         try {
-          mod[functionName]();
+          mod[functionName](...args);
         } catch (err) {
           console.error(
             `Error executing ${functionName} for mod '${mod.modinfo.name}': `,
