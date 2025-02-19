@@ -998,6 +998,14 @@ async function finalizeModloaderPatches() {
       expectedMatches: 1,
     });
   }
+  if (!globalThis.config.disableMenuSubtitle) {
+    globalThis.bundlePatches.push({
+      type: "regex",
+      pattern: "if\\(t\\.store\\.scene\\.active===x\\.MainMenu\\)(.+?)else",
+      replace: `if(t.store.scene.active===x.MainMenu){globalThis.moddedSubtitle(Fd);$1}else`,
+      expectedMatches: 1,
+    });
+  }
 }
 
 async function initializeModloader() {
