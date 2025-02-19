@@ -77,9 +77,8 @@ globalThis.intercepts = {
 }
 
 class ASTPatchNode {
-  constructor(parentASTNode, currentASTNode, action) {
-    this.parentASTNode = parentASTNode;
-    this.currentASTNode = currentASTNode;
+  constructor(astNode, action) {
+    this.astNode = astNode;
     this.action = action;
   }
 
@@ -88,46 +87,43 @@ class ASTPatchNode {
   }
 
   /**
-   * Find all nodes that match the provided object and apply the callback to each with a new node.
-   * - match.type: [function | variable | object | literal | identifier | property | return]
-   * - match.name: string
-   * - match.value: any              (requires type: literal)
-   * - match.objKeys:   {...}        (requires type: object)
-   * - match.objValues: [...]||{...} (requires type: object)
+   * Find all nodes that match the args call callback with each node.
+   * See doesMatch(...) for the match object structure.
    */
-  find(match, callback = null, expectedCount = -1) {
-    // match requires a type
-    if (!match.type) throw new Error("find(...) requires a type to match.");
-
+  find(type, args, callback = null, expected = -1) {
     let stack = [];
     let found = [];
 
     // Start the search with all the current nodes children
-    let children = this.getChildren(this.currentASTNode);
+    let children = this.getChildren(this.astNode);
     for (let child of children) {
-      stack.push([this.currentASTNode, child]);
+      child._parent = this.astNode;
+      stack.push(child);
     }
 
     // DFS through the AST to find all matching nodes
     while (stack.length > 0) {
       let node = stack.pop();
 
-      if (this.doesMatch(node[1], match)) found.push(node);
+      if (this.doesMatch(node, type, args)) found.push(node);
 
-      let children = this.getChildren(node[1]);
+      let children = this.getChildren(node);
       for (let child of children) {
-        if (child != null) stack.push([node[1], child]);
+        if (child != null) {
+          child._parent = node;
+          stack.push(child);
+        }
       }
     }
 
-    if (expectedCount !== -1 && found.length !== expectedCount) {
-      throw new Error(`find(...) expected ${expectedCount} matches, found ${found.length}.`);
+    if (expected !== -1 && found.length !== expected) {
+      throw new Error(`find(...) expected ${expected} matches, found ${found.length}.`);
     }
 
     // Create a new patcher for each found node
     if (callback != null) {
       for (let node of found) {
-        let patcher = new ASTPatchNode(node[0], node[1], callback);
+        let patcher = new ASTPatchNode(node, callback);
         patcher.patch();
       }
     }
@@ -136,394 +132,517 @@ class ASTPatchNode {
   }
 
   /**
+   * Performs a loose check of node against the type and args.
+   * See each case inside for their specific args structure.
+   */
+  doesMatch(node, type, args) {
+    // type=function
+    // - node: [ "FunctionDeclaration", "FunctionExpression" ]
+    // - args: { name: optional, anonymous: optional, params: optional }
+    // - Tries to extract its name from context
+    if (type == "function") {
+      const allowed = [ "FunctionDeclaration", "FunctionExpression" ];
+      if (!allowed.includes(node.type)) return false;
+
+      // Get name to check "name" and "anonymous"
+      if (args.name !== undefined || args.anonymous !== undefined) {
+        let name, isAnonymous;
+
+        // Use name if we have one
+        if (node.id) {
+          name = node.id.name;
+          isAnonymous = false;
+        }
+        
+        // Otherwise extract from context
+        else {
+          const { name: contextName, isAnonymous: contextIsAnonymous } = this.extractNameFromParent(node);
+          name = contextName;
+          isAnonymous = contextIsAnonymous;
+        }
+
+        if (isAnonymous && args.anonymous !== true) return false;
+        if (!isAnonymous && args.name !== undefined && name !== args.name) return false;
+      }
+
+      // Extract parameters from node to check "params"
+      if (args.params !== undefined) {
+        if (node.params.length !== args.params.length) return false;
+        for (let i = 0; i < node.params.length; i++) {
+          if (node.params[i].name !== args.params[i]) return false;
+        }
+      }
+      
+      return true;
+    }
+
+    // type=object
+    // - node: [ "ObjectExpression" ]
+    // - args: { name: optional, anonymous: optional, keys: optional, values: optional }
+    // - Tries to extract its name from context
+    else if (type == "object") {
+      if (node.type !== "ObjectExpression") return false;
+      
+      // Extract name from context to check "name"
+      if (args.name !== undefined || args.anonymous !== undefined) {
+        const { name, isAnonymous } = this.extractNameFromParent(node);
+        if (isAnonymous && args.anonymous !== true) return false;
+        if (!isAnonymous && args.name !== undefined && name !== args.name) return false;
+      }
+
+      // Check the node has all the keys in args.keys
+      if (args.keys !== undefined) {
+        function hasKeys(keys, properties) {
+          // Keys is an array so ensure all keys are found
+          if (keys instanceof Array) {
+            return keys.every((key) => {
+              return properties.find((prop) => {
+                return prop.type === "Property" && (
+                  (prop.key.type === "Literal" && prop.key.value === key) ||
+                  (prop.key.type === "Identifier" && prop.key.name === key)
+                );
+              });
+            });
+          }
+          
+          // Keys is an object so check each nested object
+          else if (keys instanceof Object) {
+            return Object.keys(keys).every((key) => {
+              let prop = properties.find((prop) => {
+                return prop.type === "Property" && (
+                  (prop.key.type === "Literal" && prop.key.value === key) ||
+                  (prop.key.type === "Identifier" && prop.key.name === key)
+                );
+              });
+              if (prop === undefined) return false;
+              return hasKeys(keys[key], prop.value.properties);
+            });
+          }
+
+          else throw new Error("doesMatch('object', { keys }) must be an array or object.");
+        }
+
+        if (!hasKeys(args.keys, node.properties)) return false;
+      }
+
+      // Check the node has all the values in args.values
+      if (args.values !== undefined) {
+        function hasValues(values, properties) {
+          if (!(values instanceof Object)) throw new Error("doesMatch('object', { values }) must be an object.");
+
+          // Check each property and nested object of values is in properties
+          return Object.keys(values).every((key) => {
+            let prop = properties.find((prop) => {
+              return prop.type === "Property" && (
+                (prop.key.type === "Literal" && prop.key.value === key) ||
+                (prop.key.type === "Identifier" && prop.key.name === key)
+              );
+            });
+            if (prop === undefined) return false;
+            
+            // Recurse into a nested object
+            if (values[key] instanceof Object) {
+              if (prop.value.type !== "ObjectExpression") return false;
+              return hasValues(values[key], prop.value.properties);
+            }
+            
+            // Check the base case of a literal value
+            else return values[key] === prop.value.value
+          });
+        }
+
+        if (!hasValues(args.values, node.properties)) return false;
+      }
+
+      return true;
+    }
+
+    // type=property
+    // - node: [ "Property" ]
+    // - args: required
+    else if (type == "property") {
+      if (node.type !== "Property") return false;
+      if (args === undefined) throw new Error("doesMatch('property', ...) requires args.");
+      return node.key.name === args;
+    }
+
+    // type=identifier
+    // - node: [ "Identifier" ]
+    // - args: required
+    else if (type === "identifier") {
+      if (node.type !== "Identifier") return false;
+      if (args === undefined) throw new Error("doesMatch('identifier', ...) requires args.");
+      return node.name === args;
+    }
+
+    // type=literal
+    // - node: [ "Literal" ]
+    // - args: required
+    else if (node.type === "Literal") {
+      if (node.type !== "Literal") return false;
+      if (args === undefined) throw new Error("doesMatch('literal', ...) requires args.");
+      return node.value === args;
+    }
+
+    // type=call
+    // - node: [ "CallExpression" ]
+    // - args: { name: optiona, params: optional }
+    else if (type === "call") {
+      if (node.type !== "CallExpression") return false;
+
+      // Simple check against the callee for the name
+      if (args.name !== undefined) {
+        if (node.callee.type === "Identifier") {
+          if (node.callee.name !== args.name) return false;
+        }
+        else if (node.callee.type === "MemberExpression") {
+          if (node.callee.property.name !== args.name) return false;
+        }
+      }
+
+      // Check correct amount of parameters
+      if (args.params !== undefined && node.arguments.length !== args.params.length) return false;
+
+      // Check each parameter matches
+      for (let i = 0; i < node.arguments.length; i++) {
+       if (args.params !== undefined) {
+          if (args.params[i].type === undefined) throw new Error("doesMatch('call', { params }) requires a type on each param.");
+          if (!this.doesMatch(node.arguments[i], args.params[i].type, args.params[i])) return false;
+          continue;
+        }
+      }
+
+      return true;
+    }
+
+    else throw new Error(`Unknown type (${type}) for doesMatch(...).`);
+  }
+
+  /**
+   * Extracts the name of the current node from the parent context.
+   */
+  extractNameFromParent(node) {
+    let name = null;
+    let isAnonymous = false;
+
+    const anonymousTypes = [
+      "CallExpression",
+      "NewExpression",
+      "ReturnStatement",
+      "LogicalExpression",
+      "SequenceExpression",
+      "ArrayExpression",
+      "MemberExpression",
+      "ConditionalExpression",
+      "ArrowFunctionExpression",
+    ];
+
+    if (anonymousTypes.includes(node._parent.type)) {
+      isAnonymous = true;
+    } else if (node._parent.type == "AssignmentExpression" && node._parent.left.type == "MemberExpression") {
+      name = node._parent.left.property.name;
+    } else if (node._parent.type == "VariableDeclarator" && node._parent.id.type == "Identifier") {
+      name = node._parent.id.name;
+    } else if (node._parent.type == "Property") {
+      name = node._parent.key.name;
+    } else if (node._parent.type == "AssignmentExpression") {
+      name = node._parent.left.name;
+    } else if (node._parent.type == "AssignmentPattern") {
+      name = node._parent.left.name;
+    } else if (node._parent.type == "MethodDefinition") {
+      name = node._parent.key.name;
+    } else {
+      isAnonymous = true;
+      logDebug(`Hit an unknown AST parent type (${node._parent.type}) when extracting name for node (${node.type})`);
+    }
+
+    return { name, isAnonymous };
+  }
+
+  /**
+   * Move this patcher node to the specific child of the AST node.
+   */
+  gotoChild(childProp) {
+    if (!this.astNode[childProp]) {
+      throw new Error(`gotoChild(...) requires a valid child property: ${childProp}`);
+    }
+    this.astNode[childProp]._parent = this.astNode;
+    this.astNode = this.astNode[childProp];
+  }
+
+  /**
+   * Move this patcher node to the AST nodes parent.
+   */
+  gotoParent() {
+    if (!this.astNode._parent) {
+      throw new Error(`gotoParent(...) requires a parent node.`);
+    }
+    this.astNode = this.astNode._parent
+  }
+
+  /**
    * Adds the content of the target function to the specified position.
-   * - position: [start | end | before | after]
-   * - [before, after]: the parent node MUST have a body array
-   * - [start, end]: the current node MUST be a function with a block statement
+   * See internal comments for the different positions.
    */
   insert(position, target) {
-    // Must insert a function
-    if (!(target instanceof Function)) throw new Error("insert(...) argument 2 must be a function.");
+    // Extract the target code to insert
+    let targetCodeASTs = acorn.parse(`(${target.toString()})`, { ecmaVersion: 2020 });
+    targetCodeASTs = [ targetCodeASTs.body[0].expression.body ];
+    if (targetCodeASTs[0].type === "BlockStatement") targetCodeASTs = targetCodeASTs[0].body;
 
-    // Start / end inserts requires the current node to be a function with a block statement
+    function getMutableChildrenList(node) {
+      let lst;
+      if (node.type === "BlockStatement") {
+        lst = node.body;
+      } else if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression") {
+        if (node.body.type === "BlockStatement") {
+          lst = node.body.body;
+        }
+      }
+      return lst;
+    }
+
+    // position is one of [ start, end ]
+    // - Add to the start / end of the current nodes body
+    // - Requires current node to have an insertable list of elements
     if (position == "start" || position == "end") {
-      if (this.currentASTNode.type != "FunctionDeclaration") throw new Error(`insert(${position}, ...) requires current node to be a function.`);
-      if (this.currentASTNode.body.type != "BlockStatement")
-        throw new Error(`insert(${position}, ...) requires current node to have a block statement inside.`);
+      let lst = getMutableChildrenList(this.astNode);
+      if (lst === undefined) throw new Error(`insert(${position}, ...) requires a list of elements inside current node.`);
+
+      if (position === "start") {
+        for (let i = targetCodeASTs.length - 1; i >= 0; i--) lst.unshift(targetCodeASTs[i]);
+      }
+      else if (position === "end") {
+        for (let i = 0; i < targetCodeASTs.length; i++) lst.push(targetCodeASTs[i]);
+      }
     }
 
-    // Before / after inserts require the parent node to have a list of body nodes
-    if (position == "before" || position == "after") {
-      if (!(this.parentASTNode.body instanceof Array)) throw new Error(`insert(${position}, ...) requires the current nodes parent to have a body array.`);
-    }
+    // position is one of [ before, after ]
+    // - Add before / after the current node in the parent list
+    // - Requires the current node to have a parent with a list of elements
+    else if (position == "before" || position == "after") {
+      if (!this.astNode._parent) throw new Error(`insert(${position}, ...) requires a parent node.`);
 
-    // Convert the  the target to AST and extract the inner nodes
-    // Allow standard and arrow functions, as well as either a block or single statement
-    const targetAST = acorn.parse(`(${target.toString()})`, { ecmaVersion: 2020 });
-    let targetInnerASTNodes = [targetAST.body[0].expression.body];
-    if (targetAST.body[0].expression.body.type === "BlockStatement") targetInnerASTNodes = targetAST.body[0].expression.body.body;
+      let lst = getMutableChildrenList(this.astNode._parent);
+      if (lst === undefined) throw new Error(`insert(${position}, ...) requires a list of elements inside parent node.`);
 
-    if (position === "start") {
-      targetInnerASTNodes.forEach((node) => {
-        this.currentASTNode.body.body.unshift(node);
-      });
-    } else if (position === "end") {
-      targetInnerASTNodes.forEach((node) => {
-        this.currentASTNode.body.body.push(node);
-      });
-    } else if (position === "before") {
-      let index = this.parentASTNode.body.indexOf(this.currentASTNode);
-      targetInnerASTNodes.forEach((node) => {
-        this.parentASTNode.body.splice(index, 0, node);
-        index++;
-      });
-    } else if (position === "after") {
-      let index = this.parentASTNode.body.indexOf(this.currentASTNode);
-      targetInnerASTNodes.forEach((node) => {
-        this.parentASTNode.body.splice(index + 1, 0, node);
-        index++;
-      });
-    } else {
-      throw new Error(`insert(...) requires a valid position: [start | end | before | after].`);
+      let index = lst.indexOf(this.astNode);
+      if (index === -1) throw new Error(`insert(${position}, ...) requires current node to be in the parent nodes list.`);
+
+      if (position === "before") {
+        for (let i = targetCodeASTs.length - 1; i >= 0; i--) lst.splice(index, 0, targetCodeASTs[i]);
+      }
+      else if (position === "after") {
+        for (let i = 0; i < targetCodeASTs.length; i++) lst.splice(index + 1, 0, targetCodeASTs[i]);
+      }
     }
   }
 
   /**
    * Wraps the current function with the provided function.
-   * - The current node MUST be a function with a block statement.
-   * - The wrap function MUST have a block statement, and MUST have same argument count as the current function + 1.
-   * - Works by moving the current function into an inner function then appending the wrap function contents.
+   * Requires current node to be one of [ FunctionExpression, FunctionDeclaration, ArrowFunctionExpression ]
    */
   wrap(wrapper) {
     // Must wrap with a function
     if (!(wrapper instanceof Function)) throw new Error("wrap(...) requires a wrapping function.");
 
-    // The current node must be a function
-    if (this.currentASTNode.type != "FunctionDeclaration") throw new Error("wrap(...) requires current node to be a function.");
-
+    // FunctionExpression.body { BlockStatement.body }
+    // FunctionDeclaration.body { BlockStatement.body }
+    // ArrowFunctionExpression.body { BlockStatement.body }
+    
+    // Must be a function type
+    const allowed = [ "FunctionExpression", "FunctionDeclaration", "ArrowFunctionExpression" ];
+    if (!allowed.includes(this.astNode.type)) {
+      throw new Error("wrap(...) requires the current node to be a function.");
+    }
+    
     // Convert the wrap function to AST and extract the inner nodes
-    const wrapperAST = acorn.parse(`(${wrapper.toString()})`, { ecmaVersion: 2020 });
-    let wrapperASTNode = wrapperAST.body[0].expression;
-
-    // The wrap function must have a block statement
-    if (!wrapperASTNode.body.type === "BlockStatement") throw new Error("wrap(...) requires a block statement.");
-
+    let wrapperAST = acorn.parse(`(${wrapper.toString()})`, { ecmaVersion: 2020 });
+    wrapperAST = wrapperAST.body[0].expression;
+    
     // The wrap function arguments must match the current function arguments + 1 (for the function)
-    if (this.currentASTNode.params.length != wrapperASTNode.params.length - 1)
+    if (this.astNode.params.length != wrapperAST.params.length - 1)
       throw new Error("wrap(...) requires the same number of arguments as the current function + 1 (for the function).");
-    const innerDefinitionName = wrapperASTNode.params[0].name;
+    const innerDefinitionName = wrapperAST.params[0].name;
+    
+    // Convert the body to a block statement if it is not
+    if (wrapperAST.body.type !== "BlockStatement") {
+      wrapperAST.body = {
+        type: "BlockStatement",
+        body: [ wrapperAST.body ]
+      };
+    }
 
-    // We want to change:  function current(...args) { ... }
-    // To look like:       function current(...args) { function func(...args); ...wrap function contents... }
+    // Original function: function current(...args) { ...contents 1... }
+    // With a wrapper:    function wrapper(func, ...args) { ..contents 2... }
+    // Should change to:  function current(...args) { function func(...args) { ...contents 1... }; ...contents 2... }
     // - Move the current nodes function into an inner function with the same arguments
     // - Append the wrap function contents to the block body of the current node
 
-    // Copy the definition of the current function into a new inner function AST node
-    const args = this.currentASTNode.params.map((param) => param.name);
-    let innerDefinitionASTNode = acorn.parse(`function ${innerDefinitionName}(${args.join(", ")}) { }`, { ecmaVersion: 2020 });
-    innerDefinitionASTNode = innerDefinitionASTNode.body[0];
-    innerDefinitionASTNode.body.body = this.currentASTNode.body.body;
-    this.currentASTNode.body.body = [innerDefinitionASTNode];
+    // Create the inner function AST node with the correct arguments
+    const args = this.astNode.params.map((param) => param.name);
+    let innerFunctionAST = acorn.parse(`function ${innerDefinitionName}(${args.join(", ")}) { }`, { ecmaVersion: 2020 });
+    innerFunctionAST = innerFunctionAST.body[0];
+
+    // Copy the original function into the inner function, then the inner function to the current node
+    innerFunctionAST.body.body = this.astNode.body.body;
+    this.astNode.body.body = [innerFunctionAST];
 
     // Append the wrap function contents to the new body of the current node
-    wrapperASTNode.body.body.forEach((node) => {
-      this.currentASTNode.body.body.push(node);
-    });
+    wrapperAST.body.body.forEach((node) => this.astNode.body.body.push(node));
   }
 
   /**
    * Changes the current node to the provided value.
-   * - currentASTNode.type must be [variable | object | literal | identifier | property]
-   * - updateProps only applies to objects and will update properties instead of overwriting
+   * method=update: Overwrites properties with new values, adds new properties if they don't exist.
+   * - value must be an object, can have nested objects.
+   * method=set: Overwrites the current nodes value with the new value.
+   * - value can be a variable, object, literal, or property.
    */
-  change(value, updateProps = false) {
-    // The current node must be a variable, object, or literal
-    if (!(this.currentASTNode.type != "VariableDeclarator" || this.currentASTNode.type != "ObjectExpression" || this.currentASTNode.type != "Literal")) {
-      throw new Error("change(...) requires the current node to be a variable, object, or literal.");
-    }
+  change(method, value) {
+    // method: Update
+    // - current node must be an object (or object in a property)
+    // - value must be an object, can have nested objects
+    if (method === "update") {
+      if (!(value instanceof Object)) throw new Error("change('update', ...) requires an object value.");
 
-    // If the current node is a variable we can overwrite the init value
-    if (this.currentASTNode.type === "VariableDeclarator") {
-      const valueAST = acorn.parse(`(${value.toString()})`, { ecmaVersion: 2020 });
-      this.currentASTNode.init = valueAST.body[0].expression;
-    }
-
-    // If the current node is a property we need to change the value
-    else if (this.currentASTNode.type === "Property") {
-      let valueAST = acorn.parse(`({${this.currentASTNode.key.name}: ${JSON.stringify(value)}})`, { ecmaVersion: 2020 });
-      this.currentASTNode.value = valueAST.body[0].expression.properties[0].value;
-    }
-
-    // If the current node is an object we need to update the properties
-    else if (this.currentASTNode.type === "ObjectExpression") {
-      const valueAST = acorn.parse(`(${JSON.stringify(value)})`, { ecmaVersion: 2020 });
-      const valueProperties = valueAST.body[0].expression.properties;
-
-      // Just overwrite the properties if updateProps is false
-      if (!updateProps) {
-        this.currentASTNode.properties = valueProperties;
+      // Extract the target object to update
+      let target = this.astNode;
+      if (this.astNode.type === "Property") target = this.astNode.value;
+      if (this.astNode.type !== "ObjectExpression") {
+        throw new Error("change('update', ...) requires the current node to be an object.");
       }
 
-      // Otherwise update each property
-      else {
-        function updateObject(a, b) {
-          for (let aProp of a) {
-            let found = false;
-            for (let bProp of b) {
-              if (aProp.key.value === bProp.key.name) {
+      function updateObject(valuesProperties, nodeProperties) {
+        valuesProperties.forEach((valueProp) => {
+          const nodeProp = nodeProperties.find((nodeProp) => nodeProp.key.name === valueProp.key.value);
 
-                // Different type so overwrite
-                if (aProp.value.type !== bProp.value.type) {
-                  bProp.value = bProp.value;
-                }
-                
-                // If both are literals then overwrite
-                else if (aProp.value.type === "Literal") {
-                  bProp.value.value = aProp.value.value;
-                }
-
-                // If both are identifiers then overwrite
-                else if (aProp.value.type === "Identifier") {
-                  bProp.value.name = aProp.value.name;
-                }
-
-                // If both are objects then recurse
-                else if (aProp.value.type === "ObjectExpression") {
-                  updateObject(aProp.value.properties, bProp.value.properties);
-                }
-
-                found = true;
-                break;
-              }
-            }
-
-            // If the property wasn't found then add it
-            if (!found) b.push(aProp);
-          }
-        }
-
-        updateObject(valueProperties, this.currentASTNode.properties);
-      }
-    }
-
-    // If the current node is a literal we can change the value directly
-    else if (this.currentASTNode.type === "Literal") {
-      this.currentASTNode.value = value;
-    }
-  }
-
-  doesMatch(node, match) {
-    if (!match.type) throw new Error("find(...) requires a type to match.");
-
-    const typeMap = {
-      function: "FunctionDeclaration",
-      variable: "VariableDeclarator",
-      object: "ObjectExpression",
-      literal: "Literal",
-      identifier: "Identifier",
-      return: "ReturnStatement",
-      property: "Property"
-    };
-
-    // Support for { type, name, value, props }
-
-    // Always has to be the same type
-    if (node.type !== typeMap[match.type]) return false;
-
-    // If an identifier, final return check if they have the same name
-    if (node.type === "Identifier") return match.name == undefined || node.name === match.name;
-
-    // If a property, final return check if they have the same name
-    if (node.type === "Property") return match.name == undefined || node.key.name === match.name;
-
-    // If name defined then ensure they have the same name
-    if (match.name != undefined && node.id.name !== match.name) return false;
-
-    // If a literal, final return check if they have same value
-    if (node.type === "Literal") return match.value == undefined || node.value === match.value;
-
-    // If an object, final return check if they have the same properties / values
-    else if (node.type === "ObjectExpression") {
-      if (!match.objKeys && !match.objValues) return true;
-
-      // Ensure every value in a is found in b
-      function doesObjectValuesMatch(a, b) {
-        for (let aProp of a) {
-          let found = false;
-          for (let bProp of b) {
-            if (bProp.type !== "Property") continue;
-
-            // Found a matching variable name so check the value
-            if (aProp.key.value === bProp.key.name) {
-              if (aProp.value.type !== bProp.value.type) return false;
-              if (aProp.value.type === "Literal") {
-                if (aProp.value.value !== bProp.value.value) return false;
-              } else if (aProp.value.type === "Identifier") {
-                if (aProp.value.name !== bProp.value.name) return false;
-              } else if (aProp.value.type === "ObjectExpression") {
-                if (!doesObjectValuesMatch(aProp.value.properties, bProp.value.properties)) return false;
-              } else return false;
-              found = true;
-              break;
-            }
+          // Add new property if it doesn't exist
+          if (nodeProp === undefined) {
+            nodeProperties.push(valueProp);
           }
           
-          if (!found) return false;
-        }
-        return true;
-      }
-
-      // Ensure every key in a is found in b
-      function doesObjectKeysMatch(a, b) {
-        // Check every element in the a list is found in b
-        if (a.type === "ArrayExpression") {
-          for (let aKey of a.elements) {
-            let found = false;
-            for (let bProp of b) {
-              if (aKey.value === bProp.key.name) {
-                found = true;
-                break;
-              }
-            }
-            if (!found) return false;
+          // Try to continue updating nested properties if both have it
+          else if (valueProp.value.type === "ObjectExpression" && nodeProp.value.type === "ObjectExpression") {
+            updateObject(valueProp.value.properties, nodeProp.value.properties);
           }
-          return true;
-        
-        // Recurse into every object key of a and ensure it is found in b
-        } else if (a.type === "ObjectExpression") {
-          for (let aProp of a) {
-            let found = false;
-            for (let bProp of b) {
-              if (aProp.type !== "Property") continue;
-              if (aProp.key.value === bProp.key.name) {
-                found = true;
-                break;
-              }
-            }
-            if (!found) return false;
+
+          // Otherwise just overwrite the property
+          else {
+            nodeProp.value = valueProp.value;
           }
-        }
-        
-        // match.objKeys must be either arrays or objects
-        else throw new Error("Invalid match objKeys type.");
+        });
       }
 
-      if (match.objValues) {
-        let matchAST = acorn.parse(`(${JSON.stringify(match.objValues)})`, { ecmaVersion: 2020 });
-        matchAST = matchAST.body[0].expression.properties;
-        if (!doesObjectValuesMatch(matchAST, node.properties)) return false;
-      }
-
-      if (match.objKeys) {
-        let matchAST = acorn.parse(`(${JSON.stringify(match.objKeys)})`, { ecmaVersion: 2020 });
-        matchAST = matchAST.body[0].expression;
-        if (!doesObjectKeysMatch(matchAST, node.properties)) return false;
-      }
-
-      return true;
+      let valuesAST = acorn.parse(`(${JSON.stringify(value)})`, { ecmaVersion: 2020 });
+      updateObject(valuesAST.body[0].expression.properties, target.properties);
     }
 
-    // At this point the type and name matches with no specific type checks
-    return true;
+    // method: Set
+    // - Current node can be a variable, object, literal, or property
+    else if (method === "set") {
+      const allowed = [ "VariableDeclarator", "ObjectExpression", "Literal", "Property" ];
+      if (!allowed.includes(this.astNode.type)) {
+        throw new Error("change('set', ...) requires the current node to be a variable, object, literal, or property.");
+      }
+
+      let valueAST = acorn.parse(`(${JSON.stringify(value)})`, { ecmaVersion: 2020 });
+      valueAST = valueAST.body[0].expression;
+
+      // Update the relevant section of the current node
+      if (this.astNode.type === "VariableDeclarator") this.astNode.init = valueAST;
+      else if (this.astNode.type === "Property") this.astNode.value = valueAST;
+      else if (this.astNode.type === "ObjectExpression") this.astNode.properties = valueAST.properties;
+      else if (this.astNode.type === "Literal") this.astNode.value = value;
+    }
   }
 
   /**
-   * Same as find(...) but performs a property-by-property match to the raw AST node
-   * No guard rails for checking types and nice names, uses raw AST node properties
+   * Same as find(...) but performs a raw search against AST properties.
    * https://github.com/estree/estree/blob/master/es5.md
    */
-  findUnsafe(match, callback = null, expectedCount = -1) {
+  findRaw(args, callback = null, expected = -1) {
     let stack = [];
     let found = [];
 
     // Start the search with all the current nodes children
-    let children = this.getChildren(this.currentASTNode);
+    let children = this.getChildren(this.astNode);
     for (let child of children) {
-      stack.push([this.currentASTNode, child]);
+      child._parent = this.astNode;
+      stack.push(child);
     }
 
     // DFS through the AST to find all matching nodes
     while (stack.length > 0) {
       let node = stack.pop();
 
-      if (this.doesMatchUnsafe(node[1], match)) found.push(node);
+      if (this.doesMatchRaw(node, args)) found.push(node);
 
-      let children = this.getChildren(node[1]);
+      let children = this.getChildren(node);
       for (let child of children) {
-        if (child != null) stack.push([node[1], child]);
+        if (child != null) {
+          child._parent = node;
+          stack.push(child);
+        }
       }
     }
 
-    if (expectedCount !== -1 && found.length !== expectedCount) {
-      throw new Error(`find(...) expected ${expectedCount} matches, found ${found.length}.`);
+    if (expected !== -1 && found.length !== expected) {
+      throw new Error(`findRaw(...) expected ${expected} matches, found ${found.length}.`);
     }
 
     // Create a new patcher for each found node
     if (callback != null) {
       for (let node of found) {
-        let patcher = new ASTPatchNode(node[0], node[1], callback);
+        let patcher = new ASTPatchNode(node, callback);
         patcher.patch();
       }
     }
 
     return found.length > 0;
   }
-
+  
   /**
-   * Same as change(...) but directly sets the raw AST nodes properties
-   * No guard rails for checking types and nice names, uses raw AST node properties
+   * Same as change(...) but directly sets the raw AST nodes properties.
    * https://github.com/estree/estree/blob/master/es5.md
    */
-  changeUnsafe(value, updateProps = false) {
-    if (!updateProps) {
-      this.currentASTNode = {};
-    }
-
-    for (let key in value) {
-      this.currentASTNode[key] = value[key];
-    }
+  changeRaw(change) {
+    // Allow the user to directly change the AST node
+    change(this.astNode);
   }
 
-  doesMatchUnsafe(node, match) {
-    function doesVariableMatch(a, b) {
-      // If both are objects perform a recursive object deep match
-      if (a instanceof Object) {
-        if (!(b instanceof Object)) return false;
-        if (!doesObjectMatch(a, b)) return false;
-        return true;
-      }
-      
-      // If both are arrays perform a recursive list deep match
-      else if (a instanceof Array) {
-        if (!(b instanceof Array)) return false;
-        if (a.length !== b.length) return false;
-        for (let i = 0; i < a.length; i++) {
-          if (!doesVariableMatch(a[i], b[i])) return false;
+  /**
+   * Same as doesMatch(...) but performs a raw match against AST properties.
+   */
+  doesMatchRaw(node, args) {
+    // Perform a property-wise match of the node against the args
+    // Ensure everything in args is in node, but not the other way around
+    // On nested objects recurse otherwise compare values (be careful with arrays)
+    function matchObject(node, args) {
+      for (let key in args) {
+        if (node[key] === undefined) return false;
+        if (args[key] instanceof Object) {
+          if (!matchObject(node[key], args[key])) return false;
+        } else {
+          if (node[key] !== args[key]) return false;
         }
-        return true;
-      }
-      
-      // Otherwise check literal values
-      else return a === b;
-    }
-
-    function doesObjectMatch(a, b) {
-      // Ensure each property in a is found in b
-      for (let key in a) {
-        if (!Object.hasOwn(b, key) || b[key] === undefined) return false;
-        if (!doesVariableMatch(a[key], b[key])) return false;
       }
       return true;
     }
 
-    return doesObjectMatch(match, node);
+    return matchObject(node, args);
   }
 
+  /**
+   * Extracts all the children of the node.
+   * Does this with a brute force search over all properties.
+   */
   getChildren(node) {
     let children = [];
 
     // Grab each acorn.Node from each property in the node
     for (let key in node) {
+      if (key === "_parent") continue;
       if (node[key] instanceof acorn.Node) {
         children.push(node[key]);
       } else if (node[key] instanceof Array) {
@@ -579,7 +698,7 @@ function applyBundlePatches(data) {
     // Apply AST patches to the data
     else if (patch.type === "ast") {
       const ast = acorn.parse(data, { ecmaVersion: 2020 });
-      let patcher = new ASTPatchNode(null, ast, patch.action);
+      let patcher = new ASTPatchNode(ast, patch.action);
       patcher.patch();
       data = escodegen.generate(ast);
       logDebug(`Applied AST patch.`);

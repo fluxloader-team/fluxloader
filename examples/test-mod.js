@@ -5,110 +5,85 @@ exports.modinfo = {
   modauthor: "tomster12",
 };
 
+function logASTNode(msg, node, limit = -1) {
+  let displayString = escodegen.generate(node).replaceAll("\n", "").replaceAll("    ", "");
+  if (limit != -1) displayString = displayString.length > limit ? displayString.substring(0, limit) + ` ... (${displayString.length - limit} more)` : displayString;
+  console.log(`test-mod: ${msg}: ${displayString}`);
+}
+
 exports.patches = [
-  // Process the entire source code
-  {
-    "type": "process",
-    func: (data) => {
-      console.log("test-mod: process patch");
-      return data;
-    }
-  },
-  // Match a value using regex in the source and replace it
-  {
-    "type": "regex",
-    "pattern": 'description:"Unlocks Conveyor Belts and Launchers.",cost:50',
-    "replace": 'description:"Unlocks Conveyor Belts and Launchers.",cost:1',
-    "expectedMatches": 1
-  },
-  // Simpler match to directly replace a string
-  {
-    "type": "replace",
-    "from": '"Unlocks Gun. Damage type: ⛏️",cost:500',
-    "to": '"Unlocks Gun. Damage type: ⛏️",cost:1',
-    "expectedMatches": 1
-  },
-  // AST patch to modify the source code by traversing the AST
   {
     "type": "ast",
-    "action": (root) => {
-      // Find object using a nested property
-      root.find({ type: "object", objValues: { gun: { speed: { level: 1 } } } }, (node) => {
+    action: (root) => {
 
-        // Change a nested property
-        node.change({ gun: { damage: { level: 100 } } }, updateProps = true);
+      // Find an object that defines the following keys
+      root.find("object", { keys: [ "jetpack", "gun", "shovel" ] }, (node) => {
 
-        // Find an exact property on the object
-        node.find({ type: "property", name: "gun" }, (node) => {
-          node.find({ type: "property", name: "bullets" }, (node) => {
-            node.find({ type: "property", name: "level" }, (node) => {
+        // Find the nested object called "gun"
+        node.find("object", { name: "gun" }, (node) => {
+          logASTNode("Gun object before change", node.astNode);
 
-              // Change the value directly
-              node.change(100);
-            }, expectedCount = 1);
+          // Update the nested property damage.level to 100
+          node.change("update", { damage: { level: 100 } });
+
+          // Manually search to the nested bullets.level and change to 100
+          node.find("property", "bullets", (node) => {
+            node.find("property", "level", (node) => {
+              node.change("set", 100);
+            });
           });
 
-          const displayString = escodegen.generate(node.currentASTNode).replaceAll("\n", "").replaceAll(" ", "");
-          console.log(`test-mod: Found gun object: ${displayString}`);
-        });
-      }, expectedCount = 1);
+          // Search to speed then overwrite the object to level 100
+          node.find("property", "speed", (node) => {
+            node.change("set", { level: 100, availableLevel: 1 });
+          }, expected = 1);
 
-      // Find the p_ function and wrap around it
-      root.find({ type: "function", name: "p_" }, (node) => {
-        const displayString = escodegen.generate(node.currentASTNode).replaceAll("\n", "").replaceAll(" ", "");
-        console.log(`test-mod: Found p_ function definition: ${displayString}`);
+          logASTNode("Gun object after change", node.astNode);
+        }, expected = 1);
+      }, expected = 1);
 
-        // Wrap around it and listen to the function arguments
+      // Do a wide search for functions with these arguments
+      // Looking for the following function: (lf = {})[l.Grabber] = function (r, i, s) { ... }
+      root.find("function", { params: [ "r", "i", "s" ]}, (node) => {
+
+        // Narrow it down with a raw match of the parent node
+        if (node.doesMatchRaw(node.astNode._parent, {
+          type: "AssignmentExpression", operator: "=",
+          left: { property: { property: { name: "Grabber" } } },
+        })) {
+          logASTNode("(r,i,s) function before change", node.astNode, 150);
+          
+          // Add a log to the start of the function
+          node.insert("start", () => {
+            console.log("Hello from inside this function :)");
+            const maybeUseful = "some value";
+          });
+
+          logASTNode("(r,i,s) function after change", node.astNode, 150);
+        }
+      });
+
+      // Find the p_ function by name
+      root.find("function", { name: "p_" }, (node) => {
+        logASTNode("p_(e) function before change", node.astNode, 150);
+
+        // Wrap it to listen to the parameters
         node.wrap((f, e) => {
           console.log(`test-mod: p_ called with ${JSON.stringify(e)}`);
           f(e);
         });
-      }, expectedCount = 1);
 
-      // Use the unsafe version to find a specific AST node
-      root.findUnsafe({
-        type: "AssignmentExpression", operator: "=",
-        left: { type: "MemberExpression", property: { type: "Identifier", name: "style" } },
-        right: { type: "Identifier", name: "i" }
-      }, (node) => {
-        console.log(`test-mod: Found specific node: ${JSON.stringify(node.currentASTNode)}`);
-      });
+        logASTNode("p_(e) function after change", node.astNode, 150);
+      }, expected = 1);
+    
+      // Find a specific function call
+      root.find("call", { name: "m_", params: [
+        { type: "object", values: { href: "https://discord.gg/HJNk5eMnmt" } },
+        { type: "object", keys: [ "children"] }
+      ] }, (node) => {
+
+        logASTNode("specific m_ function call", node.astNode, 150);
+      }, expected = 1);
     }
   }
 ];
-
-exports.api = {
-  // Standard API endpoint that returns text
-  "test-mod/mod": {
-    requiresBaseResponse: false,
-    getFinalResponse: (_) => {
-      let body = Buffer.from("Hello World!").toString("base64");
-      return { body, contentType: "text/plain" };
-    }
-  },
-
-  // Wider matching API endpoint that extracts the url
-  "test-mod/log/": {
-    requiresBaseResponse: false,
-    getFinalResponse: ({ request }) => {
-      let body = Buffer.from("Logged").toString("base64");
-      console.log(`test-mod: log: ${request.url}`);
-      return { body, contentType: "text/plain" };
-    }
-  }
-}
-
-exports.onMenuLoaded = async function () {
-  console.log("test-mod: menu loaded");
-
-  // Send requests to the 2 API endpoints
-  const res = await fetch("test-mod/mod");
-  const text = await res.text();
-  console.log(`test-mod: test/mod response: ${text}`);
-  await fetch("test-mod/log/hello-world");
-};
-
-exports.onGameLoaded = function () {
-  // Access game version from the gameInstance
-  console.log(`test-mod: game loaded, game version: ${gameInstance.state.store.version}`);
-};
