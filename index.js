@@ -883,7 +883,7 @@ async function finalizeModloaderPatches() {
     globalThis.bundlePatches.push({
       type: "regex",
       pattern: "if\\(t\\.store\\.scene\\.active===x\\.MainMenu\\)(.+?)else",
-      replace: `if(t.store.scene.active===x.MainMenu){setInterval(globalThis.moddedSubtitle, 60, Fd);$1}else`,
+      replace: `if(t.store.scene.active===x.MainMenu){globalThis.moddedSubtitle(Fd);$1}else`,
       expectedMatches: 1,
     });
   }
