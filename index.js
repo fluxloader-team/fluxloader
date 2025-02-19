@@ -894,7 +894,7 @@ moddedSubtitle = function (spawnSolid) {
 		x: 392 + 80,
 		y: 404 + 32,
 	};
-	const particle = 14; // Fluxite
+	const particle = 14;
 	if (!globalThis.moddedSubtitleActivePositions || !globalThis.moddedSubtitleInvalidPositions) {
 		globalThis.moddedSubtitleActivePositions = [
 			{
@@ -904,7 +904,6 @@ moddedSubtitle = function (spawnSolid) {
 		];
 		globalThis.moddedSubtitleInvalidPositions = [];
 	}
-	// Allow jumping across gaps to designated coordinates
 	const jumps = {
 		"3, 3": {
 			x: 4,
@@ -989,7 +988,6 @@ moddedSubtitle = function (spawnSolid) {
 		for (const offset of offsets) {
 			const newPos = { x: position.x + offset[0], y: position.y + offset[1] };
 			const newPosName = `${newPos.x}, ${newPos.y}`;
-			// Will return truthy if particle should be placed, falsey if not
 			const mappedNames = globalThis.moddedSubtitleActivePositions.map((pos) => `${pos.x}, ${pos.y}`);
 			if (tryGet(newPos.x, newPos.y) && !globalThis.moddedSubtitleInvalidPositions.includes(newPosName) && !mappedNames.includes(newPosName)) {
 				globalThis.moddedSubtitleActivePositions.push(newPos);
@@ -1011,7 +1009,7 @@ async function finalizeModloaderPatches() {
     globalThis.bundlePatches.push({
       type: "regex",
       pattern: "if\\(t\\.store\\.scene\\.active===x\\.MainMenu\\)(.+?)else",
-      replace: `if(t.store.scene.active===x.MainMenu){setInterval(${moddedSubtitle.toString()}, 60, Fd);$1}else`,
+      replace: `if(t.store.scene.active===x.MainMenu){setInterval(${moddedSubtitle.toString().replace(/[\n\t]+/g, '')}, 60, Fd);$1}else`,
       expectedMatches: 1,
     });
   }
