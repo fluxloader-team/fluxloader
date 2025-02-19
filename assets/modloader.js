@@ -128,7 +128,7 @@
 			x: 392 + 80,
 			y: 404 + 32,
 		};
-		const particle = 14;
+		const particle = 14; // Fluxite
 		if (!globalThis.moddedSubtitleActivePositions || !globalThis.moddedSubtitleInvalidPositions) {
 			globalThis.moddedSubtitleActivePositions = [
 				{
@@ -138,6 +138,7 @@
 			];
 			globalThis.moddedSubtitleInvalidPositions = [];
 		}
+		// Allow jumping across gaps to designated coordinates
 		const jumps = {
 			"3, 3": {
 				x: 4,
@@ -223,6 +224,7 @@
 				const newPos = { x: position.x + offset[0], y: position.y + offset[1] };
 				const newPosName = `${newPos.x}, ${newPos.y}`;
 				const mappedNames = globalThis.moddedSubtitleActivePositions.map((pos) => `${pos.x}, ${pos.y}`);
+				// Will return truthy if particle should be placed, falsey if not
 				if (tryGet(newPos.x, newPos.y) && !globalThis.moddedSubtitleInvalidPositions.includes(newPosName) && !mappedNames.includes(newPosName)) {
 					globalThis.moddedSubtitleActivePositions.push(newPos);
 				}
