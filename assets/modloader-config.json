@@ -1,4 +1,5 @@
 {
+  "disableMenuSubtitle": false,
   "paths": {
     "executable": "./sandustrydemo.exe",
     "log": "./modloader.log"
