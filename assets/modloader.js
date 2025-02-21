@@ -55,7 +55,11 @@
 	}
 
 	async function executeModFunctions() {
-		// Wait for game state before loading anything
+		// Call any unsafe preloads
+		for (const mod of globalThis.activeMods) {
+			await tryExecuteModFunction(mod, "onUnsafePreload");
+		}
+		// Wait for game state before loading anything else
 		if (!Object.prototype.hasOwnProperty.call(window, "__debug")) {
 			await new Promise((resolve) => {
 				Object.defineProperty(window, "__debug", {
