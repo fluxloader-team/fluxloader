@@ -993,8 +993,10 @@ async function finalizeModloaderPatches() {
   if (!globalThis.config.debug.enableDebugMenu) {
     globalThis.bundlePatches.push({
       type: "replace",
-      from: "function ym(t){",
-      to: "function ym(t){return;",
+      // This relies on the minified name "_m" which adds debug button to main menu
+      // To find this search for "Debug" and look for the surrounding function - good luck
+      from: "function _m(t){",
+      to: "function _m(t){return;",
       expectedMatches: 1,
     });
   }
@@ -1002,7 +1004,9 @@ async function finalizeModloaderPatches() {
     globalThis.bundlePatches.push({
       type: "regex",
       pattern: "if\\(t\\.store\\.scene\\.active===x\\.MainMenu\\)(.+?)else",
-      replace: `if(t.store.scene.active===x.MainMenu){globalThis.moddedSubtitle(Fd);$1}else`,
+      // this relies on minified name "Od" which places blocks
+      // If this breaks search the code for "e" for placing blocks in debug
+      replace: `if(t.store.scene.active===x.MainMenu){globalThis.moddedSubtitle(Od);$1}else`,
       expectedMatches: 1,
     });
   }
