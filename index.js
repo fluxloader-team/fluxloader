@@ -381,11 +381,12 @@ class ASTPatchNode {
   /**
    * Adds the content of the target function to the specified position.
    * See internal comments for the different positions.
+   * target must be a string that contains an expression or a block statement.
    */
   insert(position, target) {
-    // Extract the target code to insert
-    let targetCodeASTs = acorn.parse(`(${target.toString()})`, { ecmaVersion: 2020 });
-    targetCodeASTs = [ targetCodeASTs.body[0].expression.body ];
+    // Convert the target string to AST and extract the body
+    let targetCodeASTs = acorn.parse(`${target}`, { ecmaVersion: 2020 });
+    targetCodeASTs = [ targetCodeASTs.body[0] ];
     if (targetCodeASTs[0].type === "BlockStatement") targetCodeASTs = targetCodeASTs[0].body;
 
     function getMutableChildrenList(node) {
@@ -439,11 +440,9 @@ class ASTPatchNode {
   /**
    * Wraps the current function with the provided function.
    * Requires current node to be one of [ FunctionExpression, FunctionDeclaration, ArrowFunctionExpression ]
+   * wrapper must be a string that contains an arrow function: (f, [ args ]) => { ... f( [ args ]); ... }
    */
   wrap(wrapper) {
-    // Must wrap with a function
-    if (!(wrapper instanceof Function)) throw new Error("wrap(...) requires a wrapping function.");
-
     // FunctionExpression.body { BlockStatement.body }
     // FunctionDeclaration.body { BlockStatement.body }
     // ArrowFunctionExpression.body { BlockStatement.body }
@@ -454,9 +453,14 @@ class ASTPatchNode {
       throw new Error("wrap(...) requires the current node to be a function.");
     }
     
-    // Convert the wrap function to AST and extract the inner nodes
-    let wrapperAST = acorn.parse(`(${wrapper.toString()})`, { ecmaVersion: 2020 });
+    // Convert the wrapper string to AST and extract the inner nodes
+    let wrapperAST = acorn.parse(`(${wrapper})`, { ecmaVersion: 2020 });
     wrapperAST = wrapperAST.body[0].expression;
+
+    // Ensure that wrapper AST is a function
+    if (wrapperAST.type !== "ArrowFunctionExpression") {
+      throw new Error("wrap(...) requires the wrapper to be an arrow function.");
+    }
     
     // The wrap function arguments must match the current function arguments + 1 (for the function)
     if (this.astNode.params.length != wrapperAST.params.length - 1)
@@ -1204,6 +1208,10 @@ function unexpectedClose() {
 }
 
 (async () => {
+  console.log(unexpectedClose.toString());
+  console.log((function test() { console.log("Hello"); }).toString());
+  console.log((() => console.log("Hello")).toString());
+
   process.on("uncaughtException", (e) => {
     logError(`Uncaught Exception: ${e.message}\n${e.stack}`);
     unexpectedClose();

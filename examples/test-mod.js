@@ -54,10 +54,10 @@ exports.patches = [
           logASTNode("(r,i,s) function before change", node.astNode, 150);
           
           // Add a log to the start of the function
-          node.insert("start", () => {
+          node.insert("start", `{
             console.log("Hello from inside this function :)");
             const maybeUseful = "some value";
-          });
+          }`);
 
           logASTNode("(r,i,s) function after change", node.astNode, 150);
         }
@@ -68,10 +68,10 @@ exports.patches = [
         logASTNode("p_(e) function before change", node.astNode, 150);
 
         // Wrap it to listen to the parameters
-        node.wrap((f, e) => {
-          console.log(`test-mod: p_ called with ${JSON.stringify(e)}`);
+        node.wrap(`(f, e) => {
+          console.log('test-mod: p_ called with ' + JSON.stringify(e));
           f(e);
-        });
+        }`);
 
         logASTNode("p_(e) function after change", node.astNode, 150);
       }, expected = 1);
