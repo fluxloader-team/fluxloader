@@ -27,7 +27,7 @@ globalThis.bundlePatches = [
 globalThis.GameVersion = "This is temp remove me"
 
 globalThis.intercepts = {
-  "/bundle.js": {
+  "/bundle.js": [{
     requiresBaseResponse: true,
     getFinalResponse: async ({ baseResponse }) => {
       log(`Intercepted bundle.js and applying ${globalThis.bundlePatches.length} patch(es)...`);
@@ -38,8 +38,8 @@ globalThis.intercepts = {
       //setTimeout(() => { injectModloader(); }, 200);
       return { body, contentType: "text/javascript" };
     }
-  },
-  "modloader-api/active-mod-paths": {
+  }],
+  "modloader-api/active-mod-paths": [{
     requiresBaseResponse: false,
     getFinalResponse: async (_) => {
       const modPaths = globalThis.loadedMods.map(({ path }) => path);
@@ -47,8 +47,8 @@ globalThis.intercepts = {
       body = Buffer.from(body).toString("base64");
       return { body, contentType: "application/json" };
     }
-  },
-  "modloader-api/config": {
+  }],
+  "modloader-api/config": [{
     requiresBaseResponse: false,
     getFinalResponse: async ({interceptionId, request, baseResponse, responseHeaders, resourceType}) => {
       var body = "";
@@ -73,7 +73,7 @@ globalThis.intercepts = {
       body = Buffer.from(body).toString("base64");
       return { body, contentType: "application/json" };
     }
-  }
+  }]
 }
 
 class ASTPatchNode {
@@ -931,8 +931,10 @@ async function loadAndValidateAllMods(modsPath) {
         
         if (modExports.api) {
           Object.keys(modExports.api).forEach(key => {
-            globalThis.intercepts[key] = modExports.api[key];
-            log(`Mod "${modName}" added API endpoint: ${key}`);
+            const list = modExports.api[key] instanceof Array ? modExports.api[key] : [modExports.api[key]];
+            if (key in globalThis.intercepts) globalThis.intercepts[key].push(...list);
+            else globalThis.intercepts[key] = list;
+            log(`Mod "${modName}" added ${list.length} rule(s) to API endpoint: ${key}`);
           })
         }
 
@@ -1100,59 +1102,62 @@ async function initializeInterceptions() {
 
     const interceptPatterns = Object.keys(globalThis.intercepts);
 
-    var matchPatterns = []
-    interceptPatterns.forEach(pattern => {
-      if (globalThis.intercepts[pattern].requiresBaseResponse) {
-        matchPatterns.push({urlPattern: "*" + pattern + "*", requestStage: "Response"})
-      } else {
-        matchPatterns.push({urlPattern: "*" + pattern + "*", requestStage: "Request"})
-      }
+    const fetchPatterns = interceptPatterns.map(pattern => {
+      const anyRequestBase = globalThis.intercepts[pattern].some(intercept => intercept.requiresBaseResponse);
+      return { urlPattern: "*" + pattern + "*", requestStage: anyRequestBase ? "Response" : "Request" };
     });
 
-    await cdpClient.send("Fetch.enable", {
-      patterns: matchPatterns
-    });
-
-    function getMatchingIntercept(url) {
-      try {
-        // We are explicitly only looking for simple includes() matches however the cdpClient patterns will perform a pseudo-regex match
-        // Need to be careful with this with mods, the !matchingIntercept check below will throw an error if no match is found
-        const matchingPattern = interceptPatterns.find(pattern => url.includes(pattern));
-        return globalThis.intercepts[matchingPattern];
-      } catch(e) {
-        logError(e);
-        return false;
-      }
-    }
+    await cdpClient.send("Fetch.enable", { patterns: fetchPatterns });
 
     await cdpClient.on("Fetch.requestPaused", async ({ requestId, request, frameId, resourceType, responseErrorReason, responseStatusCode, responseStatusText, responseHeaders, networkId, redirectedRequestId }) => {
       var interceptionId = requestId;
-      logDebug(`Intercepted ${request.url} {interception id: ${interceptionId}}`);
 
-      var matchingIntercept = getMatchingIntercept(request.url.toLowerCase());
+      let matchingIntercepts = [];
+      interceptPatterns.forEach(pattern => {
+        if (request.url.toLowerCase().includes(pattern.toLowerCase())) {
+          matchingIntercepts.push(...globalThis.intercepts[pattern]);
+        }
+      });
+       
+      logDebug(`Intercepted ${request.url} with interception id: ${interceptionId}: ${matchingIntercepts.length} matching intercept(s).`);
 
-      if (!matchingIntercept) {
-        logError(`No matching intercept found for ${request.url}, check your patterns dont include "*" or "?".`);
+      if (matchingIntercepts.length === 0) {
+        // Including * or ? in the pattern will causethe fetchPatterns to pick up a URL but no intercept pattern will match
+        logError(`No matching intercepts found for ${request.url}, check your patterns dont include "*" or "?".`);
         process.exit(1);
       }
 
-      let baseResponse = null;
-      if (matchingIntercept.requiresBaseResponse) {
-        baseResponse = await cdpClient.send("Fetch.getResponseBody", { requestId: interceptionId });
+      const anyRequestBase = matchingIntercepts.some(intercept => intercept.requiresBaseResponse);
+
+      let currentResponse = null;
+
+      if (anyRequestBase) {
+        currentResponse = await cdpClient.send("Fetch.getResponseBody", { requestId: interceptionId });
+        currentResponse = { body: currentResponse.body, contentType: responseHeaders.find(({name}) => name.toLowerCase() === "content-type").value };
       }
 
-      const response = await matchingIntercept.getFinalResponse({ interceptionId, request, baseResponse, responseHeaders, resourceType });
+      for (const matchingIntercept of matchingIntercepts) {
+        const interceptResponse = await matchingIntercept.getFinalResponse({ interceptionId, request, baseResponse: currentResponse, responseHeaders, resourceType });
+        // If the response is falsy then just continue to the next intercept
+        if (!interceptResponse) continue;
+        currentResponse = interceptResponse;
+      }
+
+      // If an intercept is not going to give a response then it needs to atleast request the base response
+      if (currentResponse === null) {
+        throw new Error(`No response was given for ${request.url}, no intercept requested base response or gave a response.`);
+      }
   
       try {
         if (!responseHeaders) {
           responseHeaders = [
-            { name: "Content-Length", value: response.body.length.toString() },
-            { name: "Content-Type", value: response.contentType }
+            { name: "Content-Length", value: currentResponse.body.length.toString() },
+            { name: "Content-Type", value: currentResponse.contentType }
           ];
         } else {
           responseHeaders = responseHeaders.map(({name, value}) => {
-            if (name.toLowerCase() === "content-length") value = response.body.length.toString();
-            else if (name.toLowerCase() === "content-type") value = response.contentType;
+            if (name.toLowerCase() === "content-length") value = currentResponse.body.length.toString();
+            else if (name.toLowerCase() === "content-type") value = currentResponse.contentType;
             return {name, value};
           });
         }
@@ -1161,12 +1166,13 @@ async function initializeInterceptions() {
         logError(e);
       }
 
-      logDebug(`Fulfilling ${request.url} {interception id: ${interceptionId}}, ${response.body.length} bytes, ${response.contentType}`);
+      logDebug(`Fulfilling ${request.url} {interception id: ${interceptionId}}, ${currentResponse.body.length} bytes, ${currentResponse.contentType}`);
 
-      await cdpClient.send("Fetch.fulfillRequest", {requestId: interceptionId, responseCode: 200, responseHeaders, body: response.body });
+      await cdpClient.send("Fetch.fulfillRequest", {requestId: interceptionId, responseCode: 200, responseHeaders, body: currentResponse.body });
     });
   } catch(e) {
     logError(e);
+    process.exit(1);
   }
 }
 
