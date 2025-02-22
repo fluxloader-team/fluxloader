@@ -385,7 +385,13 @@ class ASTPatchNode {
    */
   insert(position, target) {
     // Convert the target string to AST and extract the body
-    let targetCodeASTs = acorn.parse(`${target}`, { ecmaVersion: 2020 });
+    let targetCodeASTs = null;
+    try {
+      targetCodeASTs = acorn.parse(`${target}`, { ecmaVersion: 2020 });
+    } catch (e) {
+      logError("Failed to parse target code for insert(...)");
+      throw e;
+    }
     targetCodeASTs = [ targetCodeASTs.body[0] ];
     if (targetCodeASTs[0].type === "BlockStatement") targetCodeASTs = targetCodeASTs[0].body;
 
@@ -454,7 +460,13 @@ class ASTPatchNode {
     }
     
     // Convert the wrapper string to AST and extract the inner nodes
-    let wrapperAST = acorn.parse(`(${wrapper})`, { ecmaVersion: 2020 });
+    let wrapperAST = null;
+    try {
+      wrapperAST = acorn.parse(`(${wrapper})`, { ecmaVersion: 2020 });
+    } catch (e) {
+      logError("Failed to parse target code for wrap(...)");
+      throw e;
+    }
     wrapperAST = wrapperAST.body[0].expression;
 
     // Ensure that wrapper AST is a function
@@ -536,7 +548,13 @@ class ASTPatchNode {
         });
       }
 
-      let valuesAST = acorn.parse(`(${JSON.stringify(value)})`, { ecmaVersion: 2020 });
+      let valuesAST;
+      try {
+        valuesAST = acorn.parse(`(${JSON.stringify(value)})`, { ecmaVersion: 2020 });
+      } catch (e) {
+        logError("Failed to parse target code for change('update', ...)");
+        throw e;
+      }
       updateObject(valuesAST.body[0].expression.properties, target.properties);
     }
 
@@ -548,7 +566,13 @@ class ASTPatchNode {
         throw new Error("change('set', ...) requires the current node to be a variable, object, literal, or property.");
       }
 
-      let valueAST = acorn.parse(`(${JSON.stringify(value)})`, { ecmaVersion: 2020 });
+      let valueAST;
+      try {
+        valueAST = acorn.parse(`(${JSON.stringify(value)})`, { ecmaVersion: 2020 });
+      } catch (e) {
+        logError("Failed to parse target code for change('update', ...)");
+        throw e;
+      }
       valueAST = valueAST.body[0].expression;
 
       // Update the relevant section of the current node

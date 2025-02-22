@@ -63,26 +63,26 @@ exports.patches = [
         }
       });
 
-      // Find the p_ function by name
-      root.find("function", { name: "p_" }, (node) => {
-        logASTNode("p_(e) function before change", node.astNode, 150);
+      // Find the Ld function by name
+      root.find("function", { name: "Ld" }, (node) => {
+        logASTNode("Ld(e) function before change", node.astNode, 150);
 
         // Wrap it to listen to the parameters
-        node.wrap(`(f, e) => {
-          console.log('test-mod: p_ called with ' + JSON.stringify(e));
-          f(e);
+        node.wrap(`(f, e, t, n, r, i) => {
+          console.log("test-mod: Ld called with " + JSON.stringify(e));
+          return f(e, t, n, r, i);
         }`);
 
-        logASTNode("p_(e) function after change", node.astNode, 150);
+        logASTNode("Ld(e) function after change", node.astNode, 150);
       }, expected = 1);
     
       // Find a specific function call
-      root.find("call", { name: "m_", params: [
+      root.find("call", { name: "w_", params: [
         { type: "object", values: { href: "https://discord.gg/HJNk5eMnmt" } },
         { type: "object", keys: [ "children"] }
       ] }, (node) => {
 
-        logASTNode("specific m_ function call", node.astNode, 150);
+        logASTNode("specific w_ function call", node.astNode, 150);
       }, expected = 1);
     }
   }
