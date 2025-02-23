@@ -662,7 +662,7 @@ function applyBundlePatches(data) {
   for (const patch of globalThis.bundlePatches) {
     // Match instances of "pattern" and replace with with "replace", expect "expectedMatches" matches
     if (patch.type === "regex") {
-      if (!patch.pattern || !patch.replace) {
+      if (!Object.hasOwn(patch, "pattern") || !Object.hasOwn(patch, "replace")) {
         throw new Error(`Failed to apply regex patch. Missing "pattern" or "replace" field.`);
       }
       const regex = new RegExp(patch.pattern, "g");
@@ -683,7 +683,7 @@ function applyBundlePatches(data) {
 
     // Replace "from" with "to" in the data
     else if (patch.type === "replace") {
-      if (!patch.from || !patch.to) {
+      if (!Object.hasOwn(patch, "from") || !Object.hasOwn(patch, "to")) {
         throw new Error(`Failed to apply replace patch. Missing "from" or "to" field.`);
       }
       // Find all instances of patch.from
