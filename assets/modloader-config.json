@@ -1,4 +1,5 @@
 {
+  "disableMenuSubtitle": false,
   "paths": {
     "executable": "./sandustrydemo.exe",
     "log": "./modloader.log"
@@ -11,6 +12,7 @@
   "debug": {
     "interactiveConsole": false,
     "exeDebugPort": 9222,
-    "openWebDevTools": false
+    "openWebDevTools": false,
+    "enableDebugMenu": false
   }
 }
