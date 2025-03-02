@@ -1006,6 +1006,27 @@ async function finalizeModloaderPatches() {
       from: "function _m(t){",
       to: "function _m(t){return;",
       expectedMatches: 1,
+    },
+    {
+      type: "replace",
+      // This uses the spawnElements function of the debug state to disable most debug keybinds
+      from: "spawnElements:function(n,r){",
+      to: "spawnElements:function(n,r){return false;",
+      expectedMatches: 1,
+    },
+    {
+      type: "replace",
+      // This exits early out of the 'PauseCamera' down event
+      from: "e.debug.active&&(t.session.overrideCamera",
+      to: "return;e.debug.active&&(t.session.overrideCamera",
+      expectedMatches: 1,
+    },
+    {
+      type: "replace",
+      // This exits early out of the 'Pause' down event
+      from: "e.debug.active&&(t.session.paused",
+      to: "return;e.debug.active&&(t.session.paused",
+      expectedMatches: 1,
     });
   }
   if (!globalThis.config.disableMenuSubtitle) {
