@@ -24,8 +24,6 @@ globalThis.bundlePatches = [
   }
 ];
 
-globalThis.GameVersion = "This is temp remove me"
-
 globalThis.intercepts = {
   "/bundle.js": [{
     requiresBaseResponse: true,
@@ -1292,10 +1290,6 @@ function unexpectedClose() {
 }
 
 (async () => {
-  console.log(unexpectedClose.toString());
-  console.log((function test() { console.log("Hello"); }).toString());
-  console.log((() => console.log("Hello")).toString());
-
   process.on("uncaughtException", (e) => {
     logError(`Uncaught Exception: ${e.message}\n${e.stack}`);
     unexpectedClose();
