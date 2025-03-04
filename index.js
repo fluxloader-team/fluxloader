@@ -13,68 +13,71 @@ const configSourcePath = "./assets/modloader-config.json";
 const configTargetPath = "./modloader-config.json";
 const modLoaderPath = "./assets/modloader.js";
 const modsPath = "./mods";
-const modConfigPath = "./mods/config"
+const modConfigPath = "./mods/config";
 
 globalThis.bundlePatches = [
   {
-    "type": "regex",
-    "pattern": "debug:{active:!1",
-    "replace": "debug:{active:1",
-    "expectedMatches": 1
-  }
+    type: "regex",
+    pattern: "debug:{active:!1",
+    replace: "debug:{active:1",
+    expectedMatches: 1,
+  },
 ];
 
-globalThis.GameVersion = "This is temp remove me"
-
 globalThis.intercepts = {
-  "/bundle.js": [{
-    requiresBaseResponse: true,
-    getFinalResponse: async ({ baseResponse }) => {
-      log(`Intercepted bundle.js and applying ${globalThis.bundlePatches.length} patch(es)...`);
-      let body = Buffer.from(baseResponse.body, "base64").toString("utf8");
-      body = await injectModloader(body);
-      body = applyBundlePatches(body);
-      body = Buffer.from(body).toString("base64");
-      //setTimeout(() => { injectModloader(); }, 200);
-      return { body, contentType: "text/javascript" };
-    }
-  }],
-  "modloader-api/active-mod-paths": [{
-    requiresBaseResponse: false,
-    getFinalResponse: async (_) => {
-      const modPaths = globalThis.loadedMods.map(({ path }) => path);
-      let body = JSON.stringify(modPaths, null, 2);
-      body = Buffer.from(body).toString("base64");
-      return { body, contentType: "application/json" };
-    }
-  }],
-  "modloader-api/config": [{
-    requiresBaseResponse: false,
-    getFinalResponse: async ({interceptionId, request, baseResponse, responseHeaders, resourceType}) => {
-      var body = "";
-      var jobject = JSON.parse(request.postData);
-      jobject.modName = jobject.modName.replace(/(?:\\+|\/+)|(^|\/)\.+(\/|$)|[?"<>|:*]|(^\/+|\/+$)/g, (match, p1, p2, p3) => {
-        if (p1 || p3) return ''; // Remove leading or trailing slashes or dot sequences
-        if (p2) return '/';      // Remove directory traversal segments (e.g., `.` or `..`)
-        return '/';              // Normalize slashes
-      });
+  "/bundle.js": [
+    {
+      requiresBaseResponse: true,
+      getFinalResponse: async ({ baseResponse }) => {
+        log(`Intercepted bundle.js and applying ${globalThis.bundlePatches.length} patch(es)...`);
+        let body = Buffer.from(baseResponse.body, "base64").toString("utf8");
+        body = await injectModloader(body);
+        body = applyBundlePatches(body);
+        body = Buffer.from(body).toString("base64");
+        //setTimeout(() => { injectModloader(); }, 200);
+        return { body, contentType: "text/javascript" };
+      },
+    },
+  ],
+  "modloader-api/active-mod-paths": [
+    {
+      requiresBaseResponse: false,
+      getFinalResponse: async (_) => {
+        const modPaths = globalThis.loadedMods.map(({ path }) => path);
+        let body = JSON.stringify(modPaths, null, 2);
+        body = Buffer.from(body).toString("base64");
+        return { body, contentType: "application/json" };
+      },
+    },
+  ],
+  "modloader-api/config": [
+    {
+      requiresBaseResponse: false,
+      getFinalResponse: async ({ interceptionId, request, baseResponse, responseHeaders, resourceType }) => {
+        var body = "";
+        var jobject = JSON.parse(request.postData);
+        jobject.modName = jobject.modName.replace(/(?:\\+|\/+)|(^|\/)\.+(\/|$)|[?"<>|:*]|(^\/+|\/+$)/g, (match, p1, p2, p3) => {
+          if (p1 || p3) return ""; // Remove leading or trailing slashes or dot sequences
+          if (p2) return "/"; // Remove directory traversal segments (e.g., `.` or `..`)
+          return "/"; // Normalize slashes
+        });
 
-      if(request.method == "POST") {
-
-        if(fs.existsSync(`${modConfigPath}/${jobject.modName}.json`)) {
-          body = fs.readFileSync(`${modConfigPath}/${jobject.modName}.json`, "utf8");
-        }else{
-          body = "{}"
+        if (request.method == "POST") {
+          if (fs.existsSync(`${modConfigPath}/${jobject.modName}.json`)) {
+            body = fs.readFileSync(`${modConfigPath}/${jobject.modName}.json`, "utf8");
+          } else {
+            body = "{}";
+          }
         }
-      }
-      if(request.method == "SET") {
-        fs.writeFileSync(`${modConfigPath}/${jobject.modName}.json`, JSON.stringify(jobject.config), "utf8");
-      }
-      body = Buffer.from(body).toString("base64");
-      return { body, contentType: "application/json" };
-    }
-  }]
-}
+        if (request.method == "SET") {
+          fs.writeFileSync(`${modConfigPath}/${jobject.modName}.json`, JSON.stringify(jobject.config), "utf8");
+        }
+        body = Buffer.from(body).toString("base64");
+        return { body, contentType: "application/json" };
+      },
+    },
+  ],
+};
 
 class ASTPatchNode {
   constructor(astNode, action) {
@@ -141,7 +144,7 @@ class ASTPatchNode {
     // - args: { name: optional, anonymous: optional, params: optional }
     // - Tries to extract its name from context
     if (type == "function") {
-      const allowed = [ "FunctionDeclaration", "FunctionExpression" ];
+      const allowed = ["FunctionDeclaration", "FunctionExpression"];
       if (!allowed.includes(node.type)) return false;
 
       // Get name to check "name" and "anonymous"
@@ -153,7 +156,7 @@ class ASTPatchNode {
           name = node.id.name;
           isAnonymous = false;
         }
-        
+
         // Otherwise extract from context
         else {
           const { name: contextName, isAnonymous: contextIsAnonymous } = this.extractNameFromParent(node);
@@ -172,7 +175,7 @@ class ASTPatchNode {
           if (node.params[i].name !== args.params[i]) return false;
         }
       }
-      
+
       return true;
     }
 
@@ -182,7 +185,7 @@ class ASTPatchNode {
     // - Tries to extract its name from context
     else if (type == "object") {
       if (node.type !== "ObjectExpression") return false;
-      
+
       // Extract name from context to check "name"
       if (args.name !== undefined || args.anonymous !== undefined) {
         const { name, isAnonymous } = this.extractNameFromParent(node);
@@ -197,29 +200,27 @@ class ASTPatchNode {
           if (keys instanceof Array) {
             return keys.every((key) => {
               return properties.find((prop) => {
-                return prop.type === "Property" && (
-                  (prop.key.type === "Literal" && prop.key.value === key) ||
-                  (prop.key.type === "Identifier" && prop.key.name === key)
+                return (
+                  prop.type === "Property" &&
+                  ((prop.key.type === "Literal" && prop.key.value === key) || (prop.key.type === "Identifier" && prop.key.name === key))
                 );
               });
             });
           }
-          
+
           // Keys is an object so check each nested object
           else if (keys instanceof Object) {
             return Object.keys(keys).every((key) => {
               let prop = properties.find((prop) => {
-                return prop.type === "Property" && (
-                  (prop.key.type === "Literal" && prop.key.value === key) ||
-                  (prop.key.type === "Identifier" && prop.key.name === key)
+                return (
+                  prop.type === "Property" &&
+                  ((prop.key.type === "Literal" && prop.key.value === key) || (prop.key.type === "Identifier" && prop.key.name === key))
                 );
               });
               if (prop === undefined) return false;
               return hasKeys(keys[key], prop.value.properties);
             });
-          }
-
-          else throw new Error("doesMatch('object', { keys }) must be an array or object.");
+          } else throw new Error("doesMatch('object', { keys }) must be an array or object.");
         }
 
         if (!hasKeys(args.keys, node.properties)) return false;
@@ -233,21 +234,21 @@ class ASTPatchNode {
           // Check each property and nested object of values is in properties
           return Object.keys(values).every((key) => {
             let prop = properties.find((prop) => {
-              return prop.type === "Property" && (
-                (prop.key.type === "Literal" && prop.key.value === key) ||
-                (prop.key.type === "Identifier" && prop.key.name === key)
+              return (
+                prop.type === "Property" &&
+                ((prop.key.type === "Literal" && prop.key.value === key) || (prop.key.type === "Identifier" && prop.key.name === key))
               );
             });
             if (prop === undefined) return false;
-            
+
             // Recurse into a nested object
             if (values[key] instanceof Object) {
               if (prop.value.type !== "ObjectExpression") return false;
               return hasValues(values[key], prop.value.properties);
             }
-            
+
             // Check the base case of a literal value
-            else return values[key] === prop.value.value
+            else return values[key] === prop.value.value;
           });
         }
 
@@ -294,8 +295,7 @@ class ASTPatchNode {
       if (args.name !== undefined) {
         if (node.callee.type === "Identifier") {
           if (node.callee.name !== args.name) return false;
-        }
-        else if (node.callee.type === "MemberExpression") {
+        } else if (node.callee.type === "MemberExpression") {
           if (node.callee.property.name !== args.name) return false;
         }
       }
@@ -305,7 +305,7 @@ class ASTPatchNode {
 
       // Check each parameter matches
       for (let i = 0; i < node.arguments.length; i++) {
-       if (args.params !== undefined) {
+        if (args.params !== undefined) {
           if (args.params[i].type === undefined) throw new Error("doesMatch('call', { params }) requires a type on each param.");
           if (!this.doesMatch(node.arguments[i], args.params[i].type, args.params[i])) return false;
           continue;
@@ -313,9 +313,7 @@ class ASTPatchNode {
       }
 
       return true;
-    }
-
-    else throw new Error(`Unknown type (${type}) for doesMatch(...).`);
+    } else throw new Error(`Unknown type (${type}) for doesMatch(...).`);
   }
 
   /**
@@ -377,7 +375,7 @@ class ASTPatchNode {
     if (!this.astNode._parent) {
       throw new Error(`gotoParent(...) requires a parent node.`);
     }
-    this.astNode = this.astNode._parent
+    this.astNode = this.astNode._parent;
   }
 
   /**
@@ -394,7 +392,7 @@ class ASTPatchNode {
       logError("Failed to parse target code for insert(...)");
       throw e;
     }
-    targetCodeASTs = [ targetCodeASTs.body[0] ];
+    targetCodeASTs = [targetCodeASTs.body[0]];
     if (targetCodeASTs[0].type === "BlockStatement") targetCodeASTs = targetCodeASTs[0].body;
 
     function getMutableChildrenList(node) {
@@ -418,8 +416,7 @@ class ASTPatchNode {
 
       if (position === "start") {
         for (let i = targetCodeASTs.length - 1; i >= 0; i--) lst.unshift(targetCodeASTs[i]);
-      }
-      else if (position === "end") {
+      } else if (position === "end") {
         for (let i = 0; i < targetCodeASTs.length; i++) lst.push(targetCodeASTs[i]);
       }
     }
@@ -438,8 +435,7 @@ class ASTPatchNode {
 
       if (position === "before") {
         for (let i = targetCodeASTs.length - 1; i >= 0; i--) lst.splice(index, 0, targetCodeASTs[i]);
-      }
-      else if (position === "after") {
+      } else if (position === "after") {
         for (let i = 0; i < targetCodeASTs.length; i++) lst.splice(index + 1, 0, targetCodeASTs[i]);
       }
     }
@@ -454,13 +450,13 @@ class ASTPatchNode {
     // FunctionExpression.body { BlockStatement.body }
     // FunctionDeclaration.body { BlockStatement.body }
     // ArrowFunctionExpression.body { BlockStatement.body }
-    
+
     // Must be a function type
-    const allowed = [ "FunctionExpression", "FunctionDeclaration", "ArrowFunctionExpression" ];
+    const allowed = ["FunctionExpression", "FunctionDeclaration", "ArrowFunctionExpression"];
     if (!allowed.includes(this.astNode.type)) {
       throw new Error("wrap(...) requires the current node to be a function.");
     }
-    
+
     // Convert the wrapper string to AST and extract the inner nodes
     let wrapperAST = null;
     try {
@@ -475,17 +471,17 @@ class ASTPatchNode {
     if (wrapperAST.type !== "ArrowFunctionExpression") {
       throw new Error("wrap(...) requires the wrapper to be an arrow function.");
     }
-    
+
     // The wrap function arguments must match the current function arguments + 1 (for the function)
     if (this.astNode.params.length != wrapperAST.params.length - 1)
       throw new Error("wrap(...) requires the same number of arguments as the current function + 1 (for the function).");
     const innerDefinitionName = wrapperAST.params[0].name;
-    
+
     // Convert the body to a block statement if it is not
     if (wrapperAST.body.type !== "BlockStatement") {
       wrapperAST.body = {
         type: "BlockStatement",
-        body: [ wrapperAST.body ]
+        body: [wrapperAST.body],
       };
     }
 
@@ -537,7 +533,7 @@ class ASTPatchNode {
           if (nodeProp === undefined) {
             nodeProperties.push(valueProp);
           }
-          
+
           // Try to continue updating nested properties if both have it
           else if (valueProp.value.type === "ObjectExpression" && nodeProp.value.type === "ObjectExpression") {
             updateObject(valueProp.value.properties, nodeProp.value.properties);
@@ -563,7 +559,7 @@ class ASTPatchNode {
     // method: Set
     // - Current node can be a variable, object, literal, or property
     else if (method === "set") {
-      const allowed = [ "VariableDeclarator", "ObjectExpression", "Literal", "Property" ];
+      const allowed = ["VariableDeclarator", "ObjectExpression", "Literal", "Property"];
       if (!allowed.includes(this.astNode.type)) {
         throw new Error("change('set', ...) requires the current node to be a variable, object, literal, or property.");
       }
@@ -629,7 +625,7 @@ class ASTPatchNode {
 
     return found.length > 0;
   }
-  
+
   /**
    * Same as change(...) but directly sets the raw AST nodes properties.
    * https://github.com/estree/estree/blob/master/es5.md
@@ -675,7 +671,7 @@ class ASTPatchNode {
         children.push(node[key]);
       } else if (node[key] instanceof Array) {
         if (node[key].length > 0 && node[key][0] instanceof acorn.Node) {
-          node[key].forEach(child => {
+          node[key].forEach((child) => {
             if (child instanceof acorn.Node) children.push(child);
           });
         }
@@ -699,10 +695,12 @@ function applyBundlePatches(data) {
         data = data.replace(regex, patch.replace);
         logDebug(`Applied regex patch: "${patch.pattern}" -> "${patch.replace}", ${matches.length} match(s).`);
       } else {
-        throw new Error(`Failed to apply regex patch: "${patch.pattern}" -> "${patch.replace}", ${matches ? matches.length : 0} / ${patch.expectedMatches} match(s).`);
+        throw new Error(
+          `Failed to apply regex patch: "${patch.pattern}" -> "${patch.replace}", ${matches ? matches.length : 0} / ${patch.expectedMatches} match(s).`
+        );
       }
     }
-    
+
     // Process data with "func" from the patch
     else if (patch.type === "process") {
       data = patch.func(data);
@@ -743,40 +741,38 @@ function applyBundlePatches(data) {
 }
 
 globalThis.modConfig = {
-  get: async (modName) =>{
+  get: async (modName) => {
     try {
       modName = modName.replace(/(?:\\+|\/+)|(^|\/)\.+(\/|$)|[?"<>|:*]|(^\/+|\/+$)/g, (match, p1, p2, p3) => {
-        if (p1 || p3) return ''; // Remove leading or trailing slashes or dot sequences
-        if (p2) return '/';      // Remove directory traversal segments (e.g., `.` or `..`)
-        return '/';              // Normalize slashes
+        if (p1 || p3) return ""; // Remove leading or trailing slashes or dot sequences
+        if (p2) return "/"; // Remove directory traversal segments (e.g., `.` or `..`)
+        return "/"; // Normalize slashes
       });
       var body;
-      if(fs.existsSync(`${modConfigPath}/${modName}.json`)) {
+      if (fs.existsSync(`${modConfigPath}/${modName}.json`)) {
         body = JSON.parse(fs.readFileSync(`${modConfigPath}/${modName}.json`, "utf8"));
-      }else{
-        body = {}
+      } else {
+        body = {};
       }
-      return body
+      return body;
     } catch (error) {
       return null;
     }
-
   },
-  set: async (modName, config) =>{
+  set: async (modName, config) => {
     try {
       modName = modName.replace(/(?:\\+|\/+)|(^|\/)\.+(\/|$)|[?"<>|:*]|(^\/+|\/+$)/g, (match, p1, p2, p3) => {
-        if (p1 || p3) return ''; // Remove leading or trailing slashes or dot sequences
-        if (p2) return '/';      // Remove directory traversal segments (e.g., `.` or `..`)
-        return '/';              // Normalize slashes
+        if (p1 || p3) return ""; // Remove leading or trailing slashes or dot sequences
+        if (p2) return "/"; // Remove directory traversal segments (e.g., `.` or `..`)
+        return "/"; // Normalize slashes
       });
       fs.writeFileSync(`${modConfigPath}/${modName}.json`, JSON.stringify(config), "utf8");
-      return true
-
+      return true;
     } catch (error) {
       return false;
     }
-  }
-}
+  },
+};
 
 function canLogConsole(level) {
   if (!Object.hasOwn(globalThis, "config")) return false;
@@ -792,28 +788,28 @@ function writeLog(message) {
   if (!config.logging.logToFile) return;
   const timestamp = new Date().toISOString();
   fs.appendFileSync(config.paths.log, `[${timestamp}] ${message}\n`, "utf8");
-};
+}
 
-globalThis.logDebug = function(...args) {
+globalThis.logDebug = function (...args) {
   if (!Object.hasOwn(globalThis, "config")) return;
   const message = args.join(" ");
   if (canLogConsole("debug")) console.log("[DEBUG]", message);
   writeLog("[DEBUG] " + message);
-}
+};
 
-globalThis.logError = function(...args) {
+globalThis.logError = function (...args) {
   if (!Object.hasOwn(globalThis, "config")) return;
   const message = args.join(" ");
   if (canLogConsole("error")) console.log("[ERROR]", message);
   writeLog("[ERROR] " + message);
-}
+};
 
-globalThis.log = function(...args) {
+globalThis.log = function (...args) {
   if (!Object.hasOwn(globalThis, "config")) return;
   const message = args.join(" ");
   if (canLogConsole("info")) console.log("[LOG]", message);
   writeLog("[LOG] " + message);
-}
+};
 
 function ensureDirectoryExists(dirPath) {
   if (!fs.existsSync(dirPath)) {
@@ -834,7 +830,7 @@ function resolvePathToAsset(assetPath) {
 globalThis.resolvePathRelativeToExecutable = function (executablePath) {
   // Resolve path relative to sandustrydemo.exe based on config
   return path.resolve(path.dirname(config.paths.executable), executablePath);
-}
+};
 
 // It is very important to not do anything that needs globalThis.config before this function!!!
 async function readAndVerifyConfig(sourcePath, targetPath) {
@@ -845,14 +841,14 @@ async function readAndVerifyConfig(sourcePath, targetPath) {
     const sourceData = JSON.parse(sourceContent);
 
     if (!fs.existsSync(targetPath)) {
-        fs.writeFileSync(targetPath, sourceContent, "utf8");
-        globalThis.config = sourceData;
-        return;
+      fs.writeFileSync(targetPath, sourceContent, "utf8");
+      globalThis.config = sourceData;
+      return;
     }
 
     const targetContent = fs.readFileSync(targetPath, "utf8");
     const targetData = JSON.parse(targetContent);
-    
+
     let modified = false;
     function traverse(source, target) {
       // If target doesn't have a property source has, then add it
@@ -925,25 +921,23 @@ async function loadMod(modPath) {
 function validateMod(mod) {
   // Ensure mod has required modinfo
   if (!mod.modinfo || !mod.modinfo.name || !mod.modinfo.version) {
-      console.error(`Invalid mod info for mod: ${mod.modinfo?.name || "unknown"}`);
-      return false;
+    console.error(`Invalid mod info for mod: ${mod.modinfo?.name || "unknown"}`);
+    return false;
   }
 
   // Check that dependencies are met
   const dependencies = mod.modinfo?.dependencies || [];
   for (const dependency of dependencies) {
-      const [depName, depVersion] = Object.entries(dependency)[0];
-      const loadedMod = globalThis.loadedMods.find((m) => m.modinfo.name === depName);
-      if (!loadedMod) {
-          console.error(`Missing dependency '${depName}' for mod '${mod.modinfo.name}'.`);
-          return false;
-      }
-      if (loadedMod.modinfo.version !== depVersion) {
-          console.error(
-              `Version mismatch for dependency '${depName}' in mod '${mod.modinfo.name}'. Expected: ${depVersion}, Found: ${loadedMod.modinfo.version}`
-          );
-          return false;
-      }
+    const [depName, depVersion] = Object.entries(dependency)[0];
+    const loadedMod = globalThis.loadedMods.find((m) => m.modinfo.name === depName);
+    if (!loadedMod) {
+      console.error(`Missing dependency '${depName}' for mod '${mod.modinfo.name}'.`);
+      return false;
+    }
+    if (loadedMod.modinfo.version !== depVersion) {
+      console.error(`Version mismatch for dependency '${depName}' in mod '${mod.modinfo.name}'. Expected: ${depVersion}, Found: ${loadedMod.modinfo.version}`);
+      return false;
+    }
   }
   return true;
 }
@@ -952,27 +946,26 @@ async function loadAndValidateAllMods(modsPath) {
   try {
     modsPath = resolvePathRelativeToExecutable(modsPath);
     ensureDirectoryExists(modsPath);
-  
+
     logDebug(`Checking for .js mods in folder: ${modsPath}`);
     const files = fs.readdirSync(modsPath).filter((file) => file.endsWith(".js"));
     const modNames = files.map((file) => path.basename(file, ".js"));
-    
+
     globalThis.loadedMods = [];
     for (const modName of modNames) {
       const modPath = path.join(modsPath, `${modName}.js`);
       const modExports = await loadMod(modPath);
       if (modExports && validateMod(modExports)) {
-        
         if (modExports.api) {
-          Object.keys(modExports.api).forEach(key => {
+          Object.keys(modExports.api).forEach((key) => {
             const list = modExports.api[key] instanceof Array ? modExports.api[key] : [modExports.api[key]];
             if (key in globalThis.intercepts) globalThis.intercepts[key].push(...list);
             else globalThis.intercepts[key] = list;
             log(`Mod "${modName}" added ${list.length} rule(s) to API endpoint: ${key}`);
-          })
+          });
         }
 
-        if(modExports.patches) {
+        if (modExports.patches) {
           globalThis.bundlePatches = globalThis.bundlePatches.concat(modExports.patches);
           for (const patch of modExports.patches) {
             log(`Mod "${modName}" added patch: ${patch.type}`);
@@ -982,16 +975,15 @@ async function loadAndValidateAllMods(modsPath) {
         globalThis.loadedMods.push({ path: modPath, exports: modExports });
       }
     }
-  
-    log(`Validated ${globalThis.loadedMods.length} mod(s): [ ${globalThis.loadedMods.map((m) => m.exports.modinfo.name).join(", ")} ]`);
 
+    log(`Validated ${globalThis.loadedMods.length} mod(s): [ ${globalThis.loadedMods.map((m) => m.exports.modinfo.name).join(", ")} ]`);
   } catch (error) {
     logError(`Error loading and validating mods: ${error.message}`);
     throw error;
   }
 }
 
-function fetchJSON(url, silentError=false) {
+function fetchJSON(url, silentError = false) {
   return new Promise((resolve, reject) => {
     const req = http.get(url, (res) => {
       let data = "";
@@ -1012,7 +1004,7 @@ async function fetchJSONWithRetry(url, retries = 200, delay = 100) {
   for (let i = 0; i < retries; i++) {
     logDebug(`Attempting to fetch ${url} (retry ${i + 1}/${retries})`);
     try {
-      const res = await fetchJSON(url, silentError=true);
+      const res = await fetchJSON(url, (silentError = true));
       logDebug(`Fetch attempt ${i + 1} successful.`);
       return res;
     } catch (err) {
@@ -1027,35 +1019,37 @@ async function fetchJSONWithRetry(url, retries = 200, delay = 100) {
 
 async function finalizeModloaderPatches() {
   if (!globalThis.config.debug.enableDebugMenu) {
-    globalThis.bundlePatches.push({
-      type: "replace",
-      // This relies on the minified name "_m" which adds debug button to main menu
-      // To find this search for "Debug" and look for the surrounding function - good luck
-      from: "function _m(t){",
-      to: "function _m(t){return;",
-      expectedMatches: 1,
-    },
-    {
-      type: "replace",
-      // This uses the spawnElements function of the debug state to disable most debug keybinds
-      from: "spawnElements:function(n,r){",
-      to: "spawnElements:function(n,r){return false;",
-      expectedMatches: 1,
-    },
-    {
-      type: "replace",
-      // This exits early out of the 'PauseCamera' down event
-      from: "e.debug.active&&(t.session.overrideCamera",
-      to: "return;e.debug.active&&(t.session.overrideCamera",
-      expectedMatches: 1,
-    },
-    {
-      type: "replace",
-      // This exits early out of the 'Pause' down event
-      from: "e.debug.active&&(t.session.paused",
-      to: "return;e.debug.active&&(t.session.paused",
-      expectedMatches: 1,
-    });
+    globalThis.bundlePatches.push(
+      {
+        type: "replace",
+        // This relies on the minified name "_m" which adds debug button to main menu
+        // To find this search for "Debug" and look for the surrounding function - good luck
+        from: "function _m(t){",
+        to: "function _m(t){return;",
+        expectedMatches: 1,
+      },
+      {
+        type: "replace",
+        // This uses the spawnElements function of the debug state to disable most debug keybinds
+        from: "spawnElements:function(n,r){",
+        to: "spawnElements:function(n,r){return false;",
+        expectedMatches: 1,
+      },
+      {
+        type: "replace",
+        // This exits early out of the 'PauseCamera' down event
+        from: "e.debug.active&&(t.session.overrideCamera",
+        to: "return;e.debug.active&&(t.session.overrideCamera",
+        expectedMatches: 1,
+      },
+      {
+        type: "replace",
+        // This exits early out of the 'Pause' down event
+        from: "e.debug.active&&(t.session.paused",
+        to: "return;e.debug.active&&(t.session.paused",
+        expectedMatches: 1,
+      }
+    );
   }
   if (!globalThis.config.disableMenuSubtitle) {
     globalThis.bundlePatches.push({
@@ -1077,7 +1071,7 @@ async function initializeModloader() {
   if (config.logging.logToFile) {
     fs.writeFileSync(config.paths.log, "", "utf8");
   }
-  
+
   if (!fs.existsSync(config.paths.executable)) {
     logError(`Game executable not found: ${config.paths.executable}`);
     process.exit(1);
@@ -1087,7 +1081,7 @@ async function initializeModloader() {
   await loadModLoader(modLoaderPath);
   await loadAndValidateAllMods(modsPath);
 
-  log(`Starting sandustry: ${config.paths.executable}`)
+  log(`Starting sandustry: ${config.paths.executable}`);
   logDebug(`Starting sandustry: ${config.paths.executable} with debug port ${config.debug.exeDebugPort}`);
   const cmd = `"${config.paths.executable}" --remote-debugging-port=${config.debug.exeDebugPort} --enable-logging --enable-features=NetworkService`;
   globalThis.gameProcess = exec(cmd, (err) => {
@@ -1116,26 +1110,26 @@ async function connectToGame() {
   });
 
   globalThis.browser.on("*", (event) => {
-    try{
+    try {
       logDebug("Browser event:" + JSON.stringify(event));
-    } catch(e) {
+    } catch (e) {
       logError(e);
     }
-  })
+  });
 
   globalThis.pages = await browser.pages();
   logDebug(`Pages found: ${pages.length}`);
   if (pages.length === 0) throw new Error("No open pages found.");
   globalThis.mainPage = pages[0];
 
-  mainPage.on("close", () =>{
+  mainPage.on("close", () => {
     logDebug("Page closed");
   });
 
   mainPage.on("framenavigated", async (frame) => {
     logDebug(`Frame navigated to: ${frame.url()}`);
   });
-  
+
   mainPage.on("load", async () => {
     logDebug("Page loaded");
     if (globalThis.config.debug.openWebDevTools) {
@@ -1148,84 +1142,104 @@ async function connectToGame() {
 }
 
 async function initializeInterceptions() {
-  try{
+  try {
     globalThis.cdpClient = await mainPage.target().createCDPSession();
-    await globalThis.cdpClient.send('Console.enable');
-    globalThis.cdpClient.on('Console.messageAdded', (event) => {
+    await globalThis.cdpClient.send("Console.enable");
+    globalThis.cdpClient.on("Console.messageAdded", (event) => {
       console.log(event.message.text);
     });
 
     const interceptPatterns = Object.keys(globalThis.intercepts);
 
-    const fetchPatterns = interceptPatterns.map(pattern => {
-      const anyRequestBase = globalThis.intercepts[pattern].some(intercept => intercept.requiresBaseResponse);
+    const fetchPatterns = interceptPatterns.map((pattern) => {
+      const anyRequestBase = globalThis.intercepts[pattern].some((intercept) => intercept.requiresBaseResponse);
       return { urlPattern: "*" + pattern + "*", requestStage: anyRequestBase ? "Response" : "Request" };
     });
 
     await cdpClient.send("Fetch.enable", { patterns: fetchPatterns });
 
-    await cdpClient.on("Fetch.requestPaused", async ({ requestId, request, frameId, resourceType, responseErrorReason, responseStatusCode, responseStatusText, responseHeaders, networkId, redirectedRequestId }) => {
-      var interceptionId = requestId;
+    await cdpClient.on(
+      "Fetch.requestPaused",
+      async ({
+        requestId,
+        request,
+        frameId,
+        resourceType,
+        responseErrorReason,
+        responseStatusCode,
+        responseStatusText,
+        responseHeaders,
+        networkId,
+        redirectedRequestId,
+      }) => {
+        var interceptionId = requestId;
 
-      let matchingIntercepts = [];
-      interceptPatterns.forEach(pattern => {
-        if (request.url.toLowerCase().includes(pattern.toLowerCase())) {
-          matchingIntercepts.push(...globalThis.intercepts[pattern]);
+        let matchingIntercepts = [];
+        interceptPatterns.forEach((pattern) => {
+          if (request.url.toLowerCase().includes(pattern.toLowerCase())) {
+            matchingIntercepts.push(...globalThis.intercepts[pattern]);
+          }
+        });
+
+        logDebug(`Intercepted ${request.url} with interception id: ${interceptionId}: ${matchingIntercepts.length} matching intercept(s).`);
+
+        if (matchingIntercepts.length === 0) {
+          // Including * or ? in the pattern will causethe fetchPatterns to pick up a URL but no intercept pattern will match
+          logError(`No matching intercepts found for ${request.url}, check your patterns dont include "*" or "?".`);
+          process.exit(1);
         }
-      });
-       
-      logDebug(`Intercepted ${request.url} with interception id: ${interceptionId}: ${matchingIntercepts.length} matching intercept(s).`);
 
-      if (matchingIntercepts.length === 0) {
-        // Including * or ? in the pattern will causethe fetchPatterns to pick up a URL but no intercept pattern will match
-        logError(`No matching intercepts found for ${request.url}, check your patterns dont include "*" or "?".`);
-        process.exit(1);
-      }
+        const anyRequestBase = matchingIntercepts.some((intercept) => intercept.requiresBaseResponse);
 
-      const anyRequestBase = matchingIntercepts.some(intercept => intercept.requiresBaseResponse);
+        let currentResponse = null;
 
-      let currentResponse = null;
+        if (anyRequestBase) {
+          currentResponse = await cdpClient.send("Fetch.getResponseBody", { requestId: interceptionId });
+          currentResponse = { body: currentResponse.body, contentType: responseHeaders.find(({ name }) => name.toLowerCase() === "content-type").value };
+        }
 
-      if (anyRequestBase) {
-        currentResponse = await cdpClient.send("Fetch.getResponseBody", { requestId: interceptionId });
-        currentResponse = { body: currentResponse.body, contentType: responseHeaders.find(({name}) => name.toLowerCase() === "content-type").value };
-      }
-
-      for (const matchingIntercept of matchingIntercepts) {
-        const interceptResponse = await matchingIntercept.getFinalResponse({ interceptionId, request, baseResponse: currentResponse, responseHeaders, resourceType });
-        // If the response is falsy then just continue to the next intercept
-        if (!interceptResponse) continue;
-        currentResponse = interceptResponse;
-      }
-
-      // If an intercept is not going to give a response then it needs to atleast request the base response
-      if (currentResponse === null) {
-        throw new Error(`No response was given for ${request.url}, no intercept requested base response or gave a response.`);
-      }
-  
-      try {
-        if (!responseHeaders) {
-          responseHeaders = [
-            { name: "Content-Length", value: currentResponse.body.length.toString() },
-            { name: "Content-Type", value: currentResponse.contentType }
-          ];
-        } else {
-          responseHeaders = responseHeaders.map(({name, value}) => {
-            if (name.toLowerCase() === "content-length") value = currentResponse.body.length.toString();
-            else if (name.toLowerCase() === "content-type") value = currentResponse.contentType;
-            return {name, value};
+        for (const matchingIntercept of matchingIntercepts) {
+          const interceptResponse = await matchingIntercept.getFinalResponse({
+            interceptionId,
+            request,
+            baseResponse: currentResponse,
+            responseHeaders,
+            resourceType,
           });
+          // If the response is falsy then just continue to the next intercept
+          if (!interceptResponse) continue;
+          currentResponse = interceptResponse;
         }
-      } catch (e) {
-        logDebug(JSON.stringify(responseHeaders))
-        logError(e);
+
+        // If an intercept is not going to give a response then it needs to atleast request the base response
+        if (currentResponse === null) {
+          throw new Error(`No response was given for ${request.url}, no intercept requested base response or gave a response.`);
+        }
+
+        try {
+          if (!responseHeaders) {
+            responseHeaders = [
+              { name: "Content-Length", value: currentResponse.body.length.toString() },
+              { name: "Content-Type", value: currentResponse.contentType },
+            ];
+          } else {
+            responseHeaders = responseHeaders.map(({ name, value }) => {
+              if (name.toLowerCase() === "content-length") value = currentResponse.body.length.toString();
+              else if (name.toLowerCase() === "content-type") value = currentResponse.contentType;
+              return { name, value };
+            });
+          }
+        } catch (e) {
+          logDebug(JSON.stringify(responseHeaders));
+          logError(e);
+        }
+
+        logDebug(`Fulfilling ${request.url} {interception id: ${interceptionId}}, ${currentResponse.body.length} bytes, ${currentResponse.contentType}`);
+
+        await cdpClient.send("Fetch.fulfillRequest", { requestId: interceptionId, responseCode: 200, responseHeaders, body: currentResponse.body });
       }
-
-      logDebug(`Fulfilling ${request.url} {interception id: ${interceptionId}}, ${currentResponse.body.length} bytes, ${currentResponse.contentType}`);
-
-      await cdpClient.send("Fetch.fulfillRequest", {requestId: interceptionId, responseCode: 200, responseHeaders, body: currentResponse.body });
-    });
-  } catch(e) {
+    );
+  } catch (e) {
     logError(e);
     process.exit(1);
   }
@@ -1235,9 +1249,9 @@ async function injectModloader(body) {
   logDebug("Starting Modloader Injection...");
   try {
     body = `${globalThis.modloaderContent}
-${body}`
-   return body;
-  } catch(e) {
+${body}`;
+    return body;
+  } catch (e) {
     logError(e);
     logError("Modloader injection failed. send error log to modding channel. Exiting...");
     setTimeout(() => {
@@ -1293,7 +1307,11 @@ function unexpectedClose() {
 
 (async () => {
   console.log(unexpectedClose.toString());
-  console.log((function test() { console.log("Hello"); }).toString());
+  console.log(
+    function test() {
+      console.log("Hello");
+    }.toString()
+  );
   console.log((() => console.log("Hello")).toString());
 
   process.on("uncaughtException", (e) => {
