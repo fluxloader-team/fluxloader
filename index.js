@@ -41,7 +41,6 @@ globalThis.intercepts = {
       body = await injectModloader(body);
       body = applyBundlePatches(body);
       body = Buffer.from(body).toString("base64");
-      //setTimeout(() => { injectModloader(); }, 200);
       return { body, contentType: "text/javascript" };
     }
   }],
@@ -56,7 +55,7 @@ globalThis.intercepts = {
   }],
   "modloader-api/config": [{
     requiresBaseResponse: false,
-    getFinalResponse: async ({interceptionId, request, baseResponse, responseHeaders, resourceType}) => {
+    getFinalResponse: async ({ request }) => {
       var body = "";
       var obj = JSON.parse(request.postData);
       obj.modName = obj.modName.replace(/(?:\\+|\/+)|(^|\/)\.+(\/|$)|[?"<>|:*]|(^\/+|\/+$)/g, (match, p1, p2, p3) => {
@@ -76,6 +75,7 @@ globalThis.intercepts = {
       else if(request.method == "SET") {
         fs.writeFileSync(modConfigPath, JSON.stringify(obj.config), "utf8");
       }
+
       body = Buffer.from(body).toString("base64");
       return { body, contentType: "application/json" };
     }
@@ -1178,24 +1178,30 @@ async function connectToGame() {
 
 async function initializeInterceptions() {
   try{
+    // Initialize the CDP client
     globalThis.cdpClient = await mainPage.target().createCDPSession();
     await globalThis.cdpClient.send('Console.enable');
-    globalThis.cdpClient.on('Console.messageAdded', (event) => {
-      console.log(event.message.text);
-    });
+    
+    // Redirect console messages to the node console
+    if (globalThis.config.debug.forwardConsole) {
+      globalThis.cdpClient.on('Console.messageAdded', (event) => {
+        console.log(event.message.text);
+      });
+    }
 
+    // Convert the intercept patterns into Fetch patterns
     const interceptPatterns = Object.keys(globalThis.intercepts);
-
     const fetchPatterns = interceptPatterns.map(pattern => {
       const anyRequestBase = globalThis.intercepts[pattern].some(intercept => intercept.requiresBaseResponse);
       return { urlPattern: "*" + pattern + "*", requestStage: anyRequestBase ? "Response" : "Request" };
     });
-
     await cdpClient.send("Fetch.enable", { patterns: fetchPatterns });
 
+    // Listen for any intercepted requests
     await cdpClient.on("Fetch.requestPaused", async ({ requestId, request, frameId, resourceType, responseErrorReason, responseStatusCode, responseStatusText, responseHeaders, networkId, redirectedRequestId }) => {
       var interceptionId = requestId;
 
+      // Find the matching intercepts for the request
       let matchingIntercepts = [];
       interceptPatterns.forEach(pattern => {
         if (request.url.toLowerCase().includes(pattern.toLowerCase())) {
@@ -1203,36 +1209,41 @@ async function initializeInterceptions() {
         }
       });
        
-      logDebug(`Intercepted ${request.url} with interception id: ${interceptionId}: ${matchingIntercepts.length} matching intercept(s).`);
+      logDebug(`Intercepted ${request.url} with response code ${responseStatusCode} and interception id: ${interceptionId}: ${matchingIntercepts.length} matching intercept(s).`);
 
+      // Including * or ? in the pattern will cause the 'fetchPatterns' to pick up a URL that no 'interceptPattern' matches
+      // This is because fetch uses a pseudo regex pattern, but just above here we are doing a simple string includes
       if (matchingIntercepts.length === 0) {
-        // Including * or ? in the pattern will causethe fetchPatterns to pick up a URL but no intercept pattern will match
         logError(`No matching intercepts found for ${request.url}, check your patterns dont include "*" or "?".`);
         process.exit(1);
       }
 
-      const anyRequestBase = matchingIntercepts.some(intercept => intercept.requiresBaseResponse);
-
       let currentResponse = null;
 
+      // If any of the patterns request the base response then we need to retrieve it
+      const anyRequestBase = matchingIntercepts.some(intercept => intercept.requiresBaseResponse);
       if (anyRequestBase) {
         currentResponse = await cdpClient.send("Fetch.getResponseBody", { requestId: interceptionId });
         currentResponse = { body: currentResponse.body, contentType: responseHeaders.find(({name}) => name.toLowerCase() === "content-type").value };
       }
 
+      // Sequentially go through the intercepts and get the final response
       for (const matchingIntercept of matchingIntercepts) {
         const interceptResponse = await matchingIntercept.getFinalResponse({ interceptionId, request, baseResponse: currentResponse, responseHeaders, resourceType });
-        // If the response is falsy then just continue to the next intercept
+        
+        // If the response is falsy then just keep the current response
         if (!interceptResponse) continue;
+
         currentResponse = interceptResponse;
       }
 
-      // If an intercept is not going to give a response then it needs to atleast request the base response
-      if (currentResponse === null) {
-        throw new Error(`No response was given for ${request.url}, no intercept requested base response or gave a response.`);
+      // We want to allow null responses for empty endpoints
+      if (!currentResponse) {
+        currentResponse = { body: "", contentType: "text/plain" };
       }
   
       try {
+        // Try and populate the response headers with the content length and type
         if (!responseHeaders) {
           responseHeaders = [
             { name: "Content-Length", value: currentResponse.body.length.toString() },
@@ -1250,9 +1261,12 @@ async function initializeInterceptions() {
         logError(e);
       }
 
-      logDebug(`Fulfilling ${request.url} {interception id: ${interceptionId}}, ${currentResponse.body.length} bytes, ${currentResponse.contentType}`);
+      // Extract a response code if provided
+      const responseCode = currentResponse.responseCode || 200;
 
-      await cdpClient.send("Fetch.fulfillRequest", {requestId: interceptionId, responseCode: 200, responseHeaders, body: currentResponse.body });
+      // Finally we can send the fulfilled request back to the browser
+      logDebug(`Fulfilling ${request.url} {interception id: ${interceptionId}}, ${currentResponse.body.length} bytes, ${currentResponse.contentType}`);
+      await cdpClient.send("Fetch.fulfillRequest", {requestId: interceptionId, responseCode, responseHeaders, body: currentResponse.body });
     });
   } catch(e) {
     logError(e);
