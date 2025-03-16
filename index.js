@@ -2,8 +2,8 @@ const puppeteer = require("puppeteer-core");
 const { exec } = require("child_process");
 const readline = require("readline");
 const util = require("util");
-const acorn = require("acorn");
 
+globalThis.acorn = require("acorn");
 globalThis.escodegen = require("escodegen");
 globalThis.path = require("path");
 globalThis.http = require("http");
@@ -17,9 +17,23 @@ const modConfigPath = "./mods/config"
 
 globalThis.bundlePatches = [
   {
+    // Enable the debug flag
     "type": "regex",
     "pattern": "debug:{active:!1",
     "replace": "debug:{active:1",
+    "expectedMatches": 1
+  },
+  {
+    // Add React to globalThis
+    type: "replace",
+    from: `var Cl,kl=i(6540)`,
+    to: `globalThis.React=i(6540);var Cl,kl=React`,
+    expectedMatches: 1,
+  },{
+    // Add the Config button to main screen
+    "type": "replace",
+    "from": `0,Al(e.state,k.Options)}}),`,
+    "to": `0,Al(e.state,k.Options)}}),(0,bm.jsx)(V_,{state:e.state,text:"Config",hint:"[C]",onClick:function(){globalThis.openConfigMenu();},}),`,
     "expectedMatches": 1
   }
 ];
@@ -646,7 +660,7 @@ class ASTPatchNode {
     // On nested objects recurse otherwise compare values (be careful with arrays)
     function matchObject(node, args) {
       for (let key in args) {
-        if (node[key] === undefined) return false;
+        if (node[key] === undefined || node[key] === null) return false;
         if (args[key] instanceof Object) {
           if (!matchObject(node[key], args[key])) return false;
         } else {
