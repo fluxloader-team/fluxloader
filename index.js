@@ -22,6 +22,13 @@ globalThis.bundlePatches = [
     type: "replace",
     from: `var Cl,kl=i(6540)`,
     to: `globalThis.React=i(6540);var Cl,kl=React`
+  },
+  {
+    // Add the Config button to main screen
+    "type": "replace",
+    "from": `0,Al(e.state,k.Options)}}),`,
+    "to": `0,Al(e.state,k.Options)}}),(0,bm.jsx)(V_,{state:e.state,text:"Config",hint:"[C]",onClick:function(){globalThis.openConfigMenu();},}),`,
+    "expectedMatches": 1
   }
 ];
 
