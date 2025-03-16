@@ -14,15 +14,13 @@ globalThis.bundlePatches = [
     // Enable the debug flag
     "type": "regex",
     "pattern": "debug:{active:!1",
-    "replace": "debug:{active:1",
-    "expectedMatches": 1
+    "replace": "debug:{active:1"
   },
   {
     // Add React to globalThis
     type: "replace",
     from: `var Cl,kl=i(6540)`,
-    to: `globalThis.React=i(6540);var Cl,kl=React`,
-    expectedMatches: 1,
+    to: `globalThis.React=i(6540);var Cl,kl=React`
   }
 ];
 
@@ -695,11 +693,11 @@ function applyBundlePatches(data) {
       }
       const regex = new RegExp(patch.pattern, "g");
       const matches = data.match(regex);
-      if (matches && matches.length === patch.expectedMatches) {
+      if (Object.hasOwn(patch, "expectedMatches") && matches && patch.expectedMatches >= 0 && matches.length !== patch.expectedMatches) {
+        throw new Error(`Failed to apply regex patch: "${patch.pattern}" -> "${patch.replace}", ${matches ? matches.length : 0} / ${patch.expectedMatches} match(s).`);
+      } else {
         data = data.replace(regex, patch.replace);
         logDebug(`Applied regex patch: "${patch.pattern}" -> "${patch.replace}", ${matches.length} match(s).`);
-      } else {
-        throw new Error(`Failed to apply regex patch: "${patch.pattern}" -> "${patch.replace}", ${matches ? matches.length : 0} / ${patch.expectedMatches} match(s).`);
       }
     }
     
@@ -722,7 +720,7 @@ function applyBundlePatches(data) {
         data = data.slice(0, index) + patch.to + data.slice(index + patch.from.length);
         index = data.indexOf(patch.from, index + patch.to.length);
       }
-      if (patch.expectedMatches && matches !== patch.expectedMatches) {
+      if (Object.hasOwn(patch, "expectedMatches") && patch.expectedMatches >= 0 && matches !== patch.expectedMatches) {
         throw new Error(`Failed to apply replace patch: "${patch.from}" -> "${patch.to}", ${matches} / ${patch.expectedMatches} match(s).`);
       } else {
         logDebug(`Applied replace patch: "${patch.from}" -> "${patch.to}".`);
@@ -1052,29 +1050,25 @@ async function finalizeModloaderPatches() {
       // This relies on the minified name "_m" which adds debug button to main menu
       // To find this search for "Debug" and look for the surrounding function - good luck
       from: "function _m(t){",
-      to: "function _m(t){return;",
-      expectedMatches: 1,
+      to: "function _m(t){return;"
     },
     {
       type: "replace",
       // This uses the spawnElements function of the debug state to disable most debug keybinds
       from: "spawnElements:function(n,r){",
-      to: "spawnElements:function(n,r){return false;",
-      expectedMatches: 1,
+      to: "spawnElements:function(n,r){return false;"
     },
     {
       type: "replace",
       // This exits early out of the 'PauseCamera' down event
       from: "e.debug.active&&(t.session.overrideCamera",
-      to: "return;e.debug.active&&(t.session.overrideCamera",
-      expectedMatches: 1,
+      to: "return;e.debug.active&&(t.session.overrideCamera"
     },
     {
       type: "replace",
       // This exits early out of the 'Pause' down event
       from: "e.debug.active&&(t.session.paused",
-      to: "return;e.debug.active&&(t.session.paused",
-      expectedMatches: 1,
+      to: "return;e.debug.active&&(t.session.paused"
     });
   }
   if (!globalThis.config.disableMenuSubtitle) {
@@ -1084,7 +1078,6 @@ async function finalizeModloaderPatches() {
       // this relies on minified name "Od" which places blocks
       // If this breaks search the code for "e" for placing blocks in debug
       replace: `if(t.store.scene.active===x.MainMenu){globalThis.moddedSubtitle(Od);$1}else`,
-      expectedMatches: 1,
     });
   }
 }
