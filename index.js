@@ -4,37 +4,24 @@ const readline = require("readline");
 const util = require("util");
 
 globalThis.acorn = require("acorn");
+globalThis.acorn = require("acorn");
 globalThis.escodegen = require("escodegen");
 globalThis.path = require("path");
 globalThis.http = require("http");
 globalThis.fs = require("fs");
-
-const configSourcePath = "./assets/modloader-config.json";
-const configTargetPath = "./modloader-config.json";
-const modLoaderPath = "./assets/modloader.js";
-const modsPath = "./mods";
-const modConfigPath = "./mods/config"
 
 globalThis.bundlePatches = [
   {
     // Enable the debug flag
     "type": "regex",
     "pattern": "debug:{active:!1",
-    "replace": "debug:{active:1",
-    "expectedMatches": 1
+    "replace": "debug:{active:1"
   },
   {
     // Add React to globalThis
     type: "replace",
     from: `var Cl,kl=i(6540)`,
-    to: `globalThis.React=i(6540);var Cl,kl=React`,
-    expectedMatches: 1,
-  },{
-    // Add the Config button to main screen
-    "type": "replace",
-    "from": `0,Al(e.state,k.Options)}}),`,
-    "to": `0,Al(e.state,k.Options)}}),(0,bm.jsx)(V_,{state:e.state,text:"Config",hint:"[C]",onClick:function(){globalThis.openConfigMenu();},}),`,
-    "expectedMatches": 1
+    to: `globalThis.React=i(6540);var Cl,kl=React`
   }
 ];
 
@@ -64,23 +51,23 @@ globalThis.intercepts = {
     requiresBaseResponse: false,
     getFinalResponse: async ({interceptionId, request, baseResponse, responseHeaders, resourceType}) => {
       var body = "";
-      var jobject = JSON.parse(request.postData);
-      jobject.modName = jobject.modName.replace(/(?:\\+|\/+)|(^|\/)\.+(\/|$)|[?"<>|:*]|(^\/+|\/+$)/g, (match, p1, p2, p3) => {
+      var obj = JSON.parse(request.postData);
+      obj.modName = obj.modName.replace(/(?:\\+|\/+)|(^|\/)\.+(\/|$)|[?"<>|:*]|(^\/+|\/+$)/g, (match, p1, p2, p3) => {
         if (p1 || p3) return ''; // Remove leading or trailing slashes or dot sequences
         if (p2) return '/';      // Remove directory traversal segments (e.g., `.` or `..`)
         return '/';              // Normalize slashes
       });
 
+      const modConfigPath = globalThis.resolvePathRelativeToModloader(`mods/config/${obj.modName}.json`);
       if(request.method == "POST") {
-
-        if(fs.existsSync(`${modConfigPath}/${jobject.modName}.json`)) {
-          body = fs.readFileSync(`${modConfigPath}/${jobject.modName}.json`, "utf8");
+        if(fs.existsSync(modConfigPath)) {
+          body = fs.readFileSync(modConfigPath, "utf8");
         }else{
           body = "{}"
         }
       }
-      if(request.method == "SET") {
-        fs.writeFileSync(`${modConfigPath}/${jobject.modName}.json`, JSON.stringify(jobject.config), "utf8");
+      else if(request.method == "SET") {
+        fs.writeFileSync(modConfigPath, JSON.stringify(obj.config), "utf8");
       }
       body = Buffer.from(body).toString("base64");
       return { body, contentType: "application/json" };
@@ -707,11 +694,11 @@ function applyBundlePatches(data) {
       }
       const regex = new RegExp(patch.pattern, "g");
       const matches = data.match(regex);
-      if (matches && matches.length === patch.expectedMatches) {
+      if (Object.hasOwn(patch, "expectedMatches") && matches && patch.expectedMatches >= 0 && matches.length !== patch.expectedMatches) {
+        throw new Error(`Failed to apply regex patch: "${patch.pattern}" -> "${patch.replace}", ${matches ? matches.length : 0} / ${patch.expectedMatches} match(s).`);
+      } else {
         data = data.replace(regex, patch.replace);
         logDebug(`Applied regex patch: "${patch.pattern}" -> "${patch.replace}", ${matches.length} match(s).`);
-      } else {
-        throw new Error(`Failed to apply regex patch: "${patch.pattern}" -> "${patch.replace}", ${matches ? matches.length : 0} / ${patch.expectedMatches} match(s).`);
       }
     }
     
@@ -734,7 +721,7 @@ function applyBundlePatches(data) {
         data = data.slice(0, index) + patch.to + data.slice(index + patch.from.length);
         index = data.indexOf(patch.from, index + patch.to.length);
       }
-      if (patch.expectedMatches && matches !== patch.expectedMatches) {
+      if (Object.hasOwn(patch, "expectedMatches") && patch.expectedMatches >= 0 && matches !== patch.expectedMatches) {
         throw new Error(`Failed to apply replace patch: "${patch.from}" -> "${patch.to}", ${matches} / ${patch.expectedMatches} match(s).`);
       } else {
         logDebug(`Applied replace patch: "${patch.from}" -> "${patch.to}".`);
@@ -763,8 +750,9 @@ globalThis.modConfig = {
         return '/';              // Normalize slashes
       });
       var body;
-      if(fs.existsSync(`${modConfigPath}/${modName}.json`)) {
-        body = JSON.parse(fs.readFileSync(`${modConfigPath}/${modName}.json`, "utf8"));
+      const modConfigPath = globalThis.resolvePathRelativeToModloader(`mods/config/${modName}.json`);
+      if(fs.existsSync(modConfigPath)) {
+        body = JSON.parse(fs.readFileSync(modConfigPath, "utf8"));
       }else{
         body = {}
       }
@@ -781,7 +769,8 @@ globalThis.modConfig = {
         if (p2) return '/';      // Remove directory traversal segments (e.g., `.` or `..`)
         return '/';              // Normalize slashes
       });
-      fs.writeFileSync(`${modConfigPath}/${modName}.json`, JSON.stringify(config), "utf8");
+      const modConfigPath = globalThis.resolvePathRelativeToModloader(`mods/config/${modName}.json`);
+      fs.writeFileSync(modConfigPath, JSON.stringify(config), "utf8");
       return true
 
     } catch (error) {
@@ -803,7 +792,7 @@ function writeLog(message) {
   if (!Object.hasOwn(globalThis, "config")) return;
   if (!config.logging.logToFile) return;
   const timestamp = new Date().toISOString();
-  fs.appendFileSync(config.paths.log, `[${timestamp}] ${message}\n`, "utf8");
+  fs.appendFileSync(globalThis.resolvedLogPath, `[${timestamp}] ${message}\n`, "utf8");
 };
 
 globalThis.logDebug = function(...args) {
@@ -837,36 +826,50 @@ function ensureDirectoryExists(dirPath) {
   }
 }
 
-function resolvePathToAsset(assetPath) {
-  // When ran with exe this is C:/Snapshot/mod-loader/...
-  // When ran with node this is relative to ./index.js
-  return path.resolve(__dirname, assetPath);
+globalThis.resolvePathToAsset = function (assetPath) {
+  // When ran with exe this is C:/Snapshot/mod-loader/assets/...
+  // When ran with node this is relative to ./index.js at ./assets/...
+  return path.resolve(__dirname, "assets", assetPath);
 }
 
-globalThis.resolvePathRelativeToExecutable = function (executablePath) {
-  // Resolve path relative to sandustrydemo.exe based on config
-  return path.resolve(path.dirname(config.paths.executable), executablePath);
+globalThis.resolvePathRelativeToGame = function (subpath) {
+  // Resolve path relative to sandustrydemo.exe
+  return path.resolve(path.dirname(config.paths.executable), subpath);
+}
+
+globalThis.resolvePathRelativeToModloader = function (subpath) {
+  // Resolve path relative to modloader based on config
+  // When ran with exe this is C:/Snapshot/mod-loader/...
+  // When ran with node this is relative to ./index.js
+  if (process.pkg) {
+    return path.resolve(path.dirname(process.execPath), subpath);
+  } else {
+    return path.resolve(__dirname, subpath);
+  }
 }
 
 // It is very important to not do anything that needs globalThis.config before this function!!!
-async function readAndVerifyConfig(sourcePath, targetPath) {
+async function readAndVerifyConfig() {
+  const modloaderConfigSourcePath = resolvePathToAsset("modloader-config.json");
+  const modloaderConfigTargetPath = resolvePathRelativeToModloader("modloader-config.json");
+  const modloaderModsConfigPath = resolvePathRelativeToModloader("mods/config");
+
   try {
-    ensureDirectoryExists(modConfigPath);
-    sourcePath = resolvePathToAsset(sourcePath);
-    let sourceContent = fs.readFileSync(sourcePath, "utf8");
+    ensureDirectoryExists(modloaderModsConfigPath);
+
+    const sourceContent = fs.readFileSync(modloaderConfigSourcePath, "utf8");
     const sourceData = JSON.parse(sourceContent);
 
-    if (!fs.existsSync(targetPath)) {
-        fs.writeFileSync(targetPath, sourceContent, "utf8");
-        globalThis.config = sourceData;
-        return;
+    // Target doesn't exist so we just copy the source
+    if (!fs.existsSync(modloaderConfigTargetPath)) {
+      fs.writeFileSync(modloaderConfigTargetPath, sourceContent, "utf8");
+      globalThis.config = sourceData;
+      logDebug(`Config target file not found, created from source.`);
+      return;
     }
-
-    const targetContent = fs.readFileSync(targetPath, "utf8");
-    const targetData = JSON.parse(targetContent);
-    
+  
     let modified = false;
-    function traverse(source, target) {
+    function traverseConfigFiles(source, target) {
       // If target doesn't have a property source has, then add it
       for (const key in source) {
         if (typeof source[key] === "object" && source[key] !== null) {
@@ -874,7 +877,7 @@ async function readAndVerifyConfig(sourcePath, targetPath) {
             target[key] = {};
             modified = true;
           }
-          traverse(source[key], target[key]);
+          traverseConfigFiles(source[key], target[key]);
         } else {
           if (!Object.hasOwn(target, key)) {
             target[key] = source[key];
@@ -882,7 +885,6 @@ async function readAndVerifyConfig(sourcePath, targetPath) {
           }
         }
       }
-
       // If target has a property source doesn't have, then remove it
       for (const key in target) {
         if (!Object.hasOwn(source, key)) {
@@ -891,16 +893,20 @@ async function readAndVerifyConfig(sourcePath, targetPath) {
         }
       }
     }
-
-    traverse(sourceData, targetData);
+    
+    // Target already exists so we need to compare and update
+    const targetContent = fs.readFileSync(modloaderConfigTargetPath, "utf8");
+    const targetData = JSON.parse(targetContent);
+    traverseConfigFiles(sourceData, targetData);
     globalThis.config = targetData;
+    globalThis.resolvedLogPath = globalThis.resolvePathRelativeToModloader(globalThis.config.paths.log);
 
     if (!modified) {
       logDebug(`Config file is up-to-date.`);
     } else {
       const targetContentUpdated = JSON.stringify(targetData, null, 2);
-      fs.writeFileSync(targetPath, targetContentUpdated, "utf8");
-      logDebug(`Config ${targetPath} updated successfully.`);
+      fs.writeFileSync(modloaderConfigTargetPath, targetContentUpdated, "utf8");
+      logDebug(`Config ${modloaderConfigTargetPath} updated successfully.`);
     }
   } catch (error) {
     logError(`Could not read / verify config file: ${error.message}`);
@@ -908,10 +914,10 @@ async function readAndVerifyConfig(sourcePath, targetPath) {
   }
 }
 
-async function loadModLoader(modloaderPath) {
+async function loadModLoader() {
   try {
-    logDebug(`Loading modloader file at ${modloaderPath} from source...`);
-    modloaderPath = resolvePathToAsset(modloaderPath);
+    const modloaderPath = globalThis.resolvePathToAsset("modloader.js");
+    logDebug(`Loading modloader file at ${modloaderPath} from assets...`);
     globalThis.modloaderContent = fs.readFileSync(modloaderPath, "utf8");
     logDebug(`Modloader file ${modloaderPath} read successfully.`);
   } catch (error) {
@@ -923,6 +929,7 @@ async function loadModLoader(modloaderPath) {
 async function loadMod(modPath) {
   try {
     logDebug(`Loading mod file: ${modPath}`);
+    // TODO: Check path
     const modContent = fs.readFileSync(modPath, "utf8");
     const modExports = {};
     const modWrapper = new Function("exports", modContent);
@@ -960,9 +967,9 @@ function validateMod(mod) {
   return true;
 }
 
-async function loadAndValidateAllMods(modsPath) {
+async function loadAndValidateAllMods() {
   try {
-    modsPath = resolvePathRelativeToExecutable(modsPath);
+    const modsPath = resolvePathRelativeToModloader("mods");
     ensureDirectoryExists(modsPath);
   
     logDebug(`Checking for .js mods in folder: ${modsPath}`);
@@ -1044,29 +1051,25 @@ async function finalizeModloaderPatches() {
       // This relies on the minified name "_m" which adds debug button to main menu
       // To find this search for "Debug" and look for the surrounding function - good luck
       from: "function _m(t){",
-      to: "function _m(t){return;",
-      expectedMatches: 1,
+      to: "function _m(t){return;"
     },
     {
       type: "replace",
       // This uses the spawnElements function of the debug state to disable most debug keybinds
       from: "spawnElements:function(n,r){",
-      to: "spawnElements:function(n,r){return false;",
-      expectedMatches: 1,
+      to: "spawnElements:function(n,r){return false;"
     },
     {
       type: "replace",
       // This exits early out of the 'PauseCamera' down event
       from: "e.debug.active&&(t.session.overrideCamera",
-      to: "return;e.debug.active&&(t.session.overrideCamera",
-      expectedMatches: 1,
+      to: "return;e.debug.active&&(t.session.overrideCamera"
     },
     {
       type: "replace",
       // This exits early out of the 'Pause' down event
       from: "e.debug.active&&(t.session.paused",
-      to: "return;e.debug.active&&(t.session.paused",
-      expectedMatches: 1,
+      to: "return;e.debug.active&&(t.session.paused"
     });
   }
   if (!globalThis.config.disableMenuSubtitle) {
@@ -1076,18 +1079,17 @@ async function finalizeModloaderPatches() {
       // this relies on minified name "Od" which places blocks
       // If this breaks search the code for "e" for placing blocks in debug
       replace: `if(t.store.scene.active===x.MainMenu){globalThis.moddedSubtitle(Od);$1}else`,
-      expectedMatches: 1,
     });
   }
 }
 
 async function initializeModloader() {
-  await readAndVerifyConfig(configSourcePath, configTargetPath);
-
+  await readAndVerifyConfig();
   await finalizeModloaderPatches();
 
+  // TODO: Check path
   if (config.logging.logToFile) {
-    fs.writeFileSync(config.paths.log, "", "utf8");
+    fs.writeFileSync(globalThis.resolvedLogPath, "", "utf8");
   }
   
   if (!fs.existsSync(config.paths.executable)) {
@@ -1096,8 +1098,8 @@ async function initializeModloader() {
   }
 
   log("Loading Mods...");
-  await loadModLoader(modLoaderPath);
-  await loadAndValidateAllMods(modsPath);
+  await loadModLoader();
+  await loadAndValidateAllMods();
 
   log(`Starting sandustry: ${config.paths.executable}`)
   logDebug(`Starting sandustry: ${config.paths.executable} with debug port ${config.debug.exeDebugPort}`);
