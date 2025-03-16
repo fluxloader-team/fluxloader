@@ -1,3 +1,325 @@
+function log(...args) {
+	const msg = args.join(" ");
+	console.warn(`[MODLOADER INFO]: ${msg}`);
+}
+
+function logWarn(...args) {
+	const msg = args.join(" ");
+	console.warn(`[MODLOADER WARN]: ${msg}`);
+}
+
+function createHTMLElement(html) {
+	const container = document.createElement("div");
+	container.innerHTML = html;
+	return container.children[0];
+}
+
+// ------------------ Config UI ------------------
+
+class ConfigType {
+	static allTypes = {};
+
+	constructor(name, inputHTML, defaultValue, extraParams = {}) {
+		this.name = name.toLowerCase();
+		this.inputHTML = inputHTML;
+		this.default = defaultValue;
+		this.extraParams = extraParams;
+		ConfigType.allTypes[this.name] = this;
+	}
+
+	apply(option) {
+		option.inputHTML = this.inputHTML;
+		option.default = option.default ?? this.default;
+		option.configType = this;
+		for (let param in this.extraParams) {
+			option[param] = option[param] ?? this.extraParams[param];
+		}
+		return option;
+	}
+
+	static getType(name) {
+		return ConfigType.allTypes[name.toLowerCase()];
+	}
+}
+
+globalThis.saveCurrentConfigMenuMod = async function () {
+	if (!globalThis.currentConfigMenuModData) return;
+
+	let config = globalThis.currentConfigMenuModConfig;
+	const modData = globalThis.currentConfigMenuModData;
+	const configOptionsElement = document.getElementById("config-options");
+	const inputElements = configOptionsElement.querySelectorAll(".config-menu-option");
+
+	if (modData.options.length != inputElements.length) {
+		logWarn(`Mismatched number of config options and input elements for mod ${modData.modName}`);
+		return;
+	}
+
+	inputElements.forEach((input, i) => {
+		const optionIndex = input.getAttribute("option-index");
+		const option = modData.options[optionIndex];
+		
+		if (!option) {
+			logWarn(`Missing option for input element in mod ${modData.modName}`);
+			return;
+		}
+
+		let value = input.value;
+
+		let jsonTypes = ["json", "slider", "boolean", "number"];
+		if (jsonTypes.includes(option.configType.name)) {
+			try {
+				value = JSON.parse(value);
+			} catch (error) {
+				logWarn(`Invalid JSON for option ${option.name} in mod ${modData.modName}`);
+				// Skip this option
+				return;
+			}
+		}
+		
+		else if (option.configType.name == "regex") {
+			const regex = new RegExp(option.regex);
+			if (!regex.test(value)) {
+				logWarn(`Invalid value for regex option ${option.name} in mod ${modData.modName}`);
+				value = config[option.name];
+			}
+		}
+
+		config[option.name] = value;
+	});
+
+	await globalThis.modConfig.set(modData.modName, config);
+	globalThis.currentConfigMenuModConfig = null;
+	globalThis.currentConfigMenuModData = null;
+};
+
+globalThis.getConfigMenuModOptionElement = function (option, optionIndex, config) {
+	let value = config[option.name] ?? option.default;
+
+	globalThis.handleConfigMenuBooleanClick = function (e, optionIndex) {
+		let option = globalThis.currentConfigMenuModData.options[optionIndex];
+		
+		e.currentTarget.innerText = !JSON.parse(e.currentTarget.innerText);
+		e.currentTarget.value = e.currentTarget.innerText;
+	}
+	
+	globalThis.handleConfigMenuInputChanged = function (e, optionIndex) {
+		let option = globalThis.currentConfigMenuModData.options[optionIndex];
+
+		// Apply regex validation to the input
+		if (option.configType.name === "regex") {
+			const regex = new RegExp(option.regex);
+			if (!regex.test(e.currentTarget.value)) {
+				e.currentTarget.classList.add("border-red-500");
+			} else {
+				e.currentTarget.classList.remove("border-red-500");
+			}
+
+		}
+	}
+
+	globalThis.handleConfigMenuInputInputted = function (e, optionIndex) {
+		let option = globalThis.currentConfigMenuModData.options[optionIndex];
+
+		if (option.configType.name === "slider") {
+			const value = Math.min(Math.max(e.currentTarget.value, option.min), option.max);
+			e.currentTarget.previousElementSibling.children[1].innerText = value;
+			e.currentTarget.value = value;
+		}
+	}
+
+	switch (option.configType.name) {
+		case "boolean":
+			return `<button
+				name="${option.name}" value="${value}" option-index="${optionIndex}"
+				onclick="globalThis.handleConfigMenuBooleanClick(event, ${optionIndex})"
+				class="w-full px-3 py-1 bg-gray-700 text-white rounded border border-gray-600 focus:ring-blue-500 focus:border-blue-500 config-menu-option">
+				${value}
+			</button>`;
+		
+		case "dropdown":
+			return;
+	
+		case "json":
+			value = JSON.stringify(value);
+			return `<textarea
+				name="${option.name}" option-index="${optionIndex}"
+				onchange="globalThis.handleConfigMenuInputChanged(event, ${optionIndex})"
+				class="w-full px-3 py-1 bg-gray-700 text-white rounded border border-gray-600 focus:ring-blue-500 focus:border-blue-500 config-menu-option">${value}</textarea>`;
+
+		default:
+			const args = option.inputHTML.replace(/{(.*?)}/g, (match, key) => option[key] || match);
+			return `<input
+				name="${option.name}" value="${value}" option-index="${optionIndex}" ${args}
+				onchange="globalThis.handleConfigMenuInputChanged(event, ${optionIndex})" oninput="globalThis.handleConfigMenuInputInputted(event, ${optionIndex})"
+				class="w-full bg-gray-700 text-white rounded border border-gray-600 focus:ring-blue-500 focus:border-blue-500 config-menu-option">`;
+	}
+};
+
+globalThis.loadConfigMenuModData = function (mod, config) {
+	const modName = mod.modinfo.name;
+	let configMenuModData = { modName, options: [] };
+
+	// Mod doesn't provide 'config' preset
+	if (!mod.config) {
+		configMenuModData.providedConfigPreset = false;
+		configMenuModData.options = Object.keys(config).map((name) => {
+			const value = config[name];
+			let configType = ConfigType.getType("string");
+			if (typeof value === "number") configType = ConfigType.getType("number");
+			else if (typeof value === "boolean") configType = ConfigType.getType("boolean");
+			else if (typeof value === "object") configType = ConfigType.getType("json");
+			return configType.apply({ name, label: name });
+		});
+	}
+
+	// Mod provides 'config' preset
+	else {
+		configMenuModData.providedConfigPreset = true;
+		for (const optionPreset of mod.config) {
+
+			// If a string then it's a simple string option
+			if (typeof optionPreset == "string") {
+				const option = { name: optionPreset, label: optionPreset };
+				configMenuModData.options.push(ConfigType.getType("string").apply(option));
+			}
+		
+			// Otherwise try and parse the object
+			else {
+				let option = optionPreset; 
+				option.label = option.label ?? option.name;
+
+				if (!option.name) {
+					logWarn(`Missing name for option in ${modName} with raw option data: ${JSON.stringify(option)}`);
+					continue;
+				}
+	
+				if (typeof option.type === "undefined") {
+					logWarn(`Missing option type for option with name '${option.name}' of mod ${modName}, defaulting to string`);
+					option.type = "string";
+				}
+	
+				configMenuModData.options.push(ConfigType.getType(option.type).apply(option));
+			}
+		}
+	}
+
+	return configMenuModData;
+};
+
+globalThis.setConfigMenuMod = async (i) => {
+	globalThis.saveCurrentConfigMenuMod();
+	const mod = globalThis.activeMods[i];
+	const modName = mod.modinfo.name;
+	let config = await globalThis.modConfig.get(modName);	
+	let modData = globalThis.loadConfigMenuModData(mod, config);
+	globalThis.currentConfigMenuModConfig = config;
+	globalThis.currentConfigMenuModData = modData;
+
+	const configOptions = document.getElementById("config-options");
+
+	if (modData.options.length == 0) {
+		const text = modData.providedConfigPreset
+			? `Mod provided a 'config' preset but no options were found in the config file for this mod.`
+			: `No 'config' preset was found for this mod, and no options were found in the config file for this mod.`;
+
+		configOptions.innerHTML = `
+			<h3 class="text-lg font-semibold mb-2 bg-gray-50">${modName} Settings</h3>
+			<div class="space-y-2"><p class="text-gray-400">${text}</p></div>`;
+
+		return;
+	}
+
+	function createOptionElement(option, optionIndex) {
+		let typeLabel = option.configType.name;
+		if (option.configType.name == "regex") {
+			typeLabel += ` (${option.regex})`;
+		}
+
+		let optionalMidLabel = "";
+		if (option.configType.name == "slider") {
+			optionalMidLabel = `<span class="text-xs text-gray-400 mt-1">${config[option.name]}</span>`;
+		}
+
+		return `
+		<div class="mb-3">
+			<div class="flex justify-between">
+				<label class="text-xs text-gray-400 mt-1">${option.label}</label>
+				${optionalMidLabel}
+				<span class="text-xs text-gray-400 mt-1">${typeLabel}</span>
+			</div>
+			${getConfigMenuModOptionElement(option, optionIndex, config)}
+		</div>`;
+	}
+
+	configOptions.innerHTML = `
+		<h3 class="text-lg font-semibold mb-2 ${modData.providedConfigPreset ? "bg-gray" : "bg-yellow"}">${modName} Settings</h3>
+		<div class="space-y-2">${modData.options.map(createOptionElement).join("")}</div>`;
+};
+
+globalThis.setupConfigMenu = async function () {
+	globalThis.currentConfigMenuModData = null;
+	new ConfigType("string", `type="text"`, "no value");
+	new ConfigType("number", `type="number"`, 1);
+	new ConfigType("regex", `type="text"`, "no value", { regex: /.*/ });
+	new ConfigType("slider", `type="range" min="{min}" max="{max}" step="{step}"`, 50, { min: 0, max: 100, step: 1 });
+	new ConfigType("json", ``, {});
+	new ConfigType("boolean", ``, false);
+};
+
+globalThis.closeConfigMenu = async function () {
+	await globalThis.saveCurrentConfigMenuMod();
+	document.removeEventListener("keydown", globalThis.configMenuKeydownListener);
+	document.getElementById("config-menu").remove();
+};
+
+globalThis.openConfigMenu = function () {
+	if (document.getElementById("config-menu")) return;
+
+	const configMenuDiv = createHTMLElement(`
+		<div id="config-menu"
+			class="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-800 rounded-lg shadow-lg z-50 text-white"
+			style="height: 60vh; width: 100vh; display: grid; grid-template-columns: 1fr 2fr;">
+			<div class="w-full h-full overflow-auto scrollbar-none p-4" style="height: 50vh; -webkit-scrollbar: none;">
+				<h2 class="text-lg font-semibold mb-4">Mods</h2>
+				<div class="space-y-4">
+					${globalThis.activeMods
+						.map(
+							(mod, i) => `
+						<div class="flex items-center">
+							<button class="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 w-full" onclick="globalThis.setConfigMenuMod(${i})">
+								${mod.modinfo.name}
+							</button>
+						</div>`
+						)
+						.join("")}
+				</div>
+			</div>
+			<div class="w-full overflow-auto scrollbar-none p-4" style="height: 50vh; -webkit-scrollbar: none;">
+				<h2 class="text-lg font-semibold mb-4">Config</h2>
+				<div id="config-options" class="flex-1">
+					<h3 class="text-lg font-semibold mb-2">No mod selected</h3>
+				</div>
+			</div>
+			<button id="close-config-menu"
+				class="absolute bg-red-500 text-white rounded-full hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-600"
+				style="right: 50px; top: 30px;">
+				Close
+			</button>
+		</div>`);
+
+	globalThis.configMenuKeydownListener = function (e) {
+		if (e.key === "Escape") closeConfigMenu();
+	};
+
+	document.body.appendChild(configMenuDiv);
+	document.addEventListener("keydown", globalThis.configMenuKeydownListener);
+	const closeButton = document.getElementById("close-config-menu");
+	closeButton.onclick = globalThis.closeConfigMenu;
+};
+
+// ------------------ Mod Loader ------------------
+
 (async function () {
 	globalThis.modConfig = {
 		get: async (modName) => {
@@ -42,6 +364,7 @@
 			}
 		},
 	};
+
 	async function tryExecuteModFunction(mod, functionName) {
 		if (Object.prototype.hasOwnProperty.call(mod, functionName)) {
 			try {
@@ -77,7 +400,7 @@
 		}
 
 		const scene = gameInstance.state.store.scene.active;
-		console.log(`Game state loaded with scene ${scene}, starting mod execution.`);
+		log(`Game state loaded with scene ${scene}, starting mod execution.`);
 
 		if (scene == 1) {
 			for (const mod of globalThis.activeMods) {
@@ -113,18 +436,54 @@
 		function loop() {
 			if (globalThis.moddedSubtitleActivePositions && globalThis.moddedSubtitleActivePositions.length == 0) return clearInterval(interval);
 			const title = [
-				[1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1],
-				[1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1],
-				[1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1],
-				[1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1],
-				[1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1],
-				[1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1],
-				[1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1],
-				[1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1],
-				[1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1],
-				[1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1],
-				[1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1],
-				[1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+				[
+					1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+					0, 0, 0, 1, 1,
+				],
+				[
+					1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+					0, 0, 0, 1, 1,
+				],
+				[
+					1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+					0, 0, 0, 1, 1,
+				],
+				[
+					1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1,
+					1, 1, 1, 1, 1,
+				],
+				[
+					1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1,
+					1, 1, 1, 1, 1,
+				],
+				[
+					1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0,
+					0, 0, 0, 1, 1,
+				],
+				[
+					1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0,
+					0, 0, 0, 1, 1,
+				],
+				[
+					1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 0,
+					0, 0, 0, 1, 1,
+				],
+				[
+					1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0,
+					0, 0, 0, 1, 1,
+				],
+				[
+					1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0,
+					0, 0, 0, 1, 1,
+				],
+				[
+					1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1,
+					1, 1, 1, 1, 1,
+				],
+				[
+					1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1,
+					1, 1, 1, 1, 1,
+				],
 			];
 			function tryGet(x, y) {
 				if (x < 0 || y < 0 || y >= title.length || x >= title[y].length) return false;
@@ -247,7 +606,8 @@
 		globalThis.activeMods.push(mod);
 	}
 
-	console.log(`Mods loaded: [${globalThis.activeMods.map((m) => m.modinfo.name).join(", ")}]`);
+	log(`Mods loaded: [${globalThis.activeMods.map((m) => m.modinfo.name).join(", ")}]`);
 
+	await setupConfigMenu();
 	await executeModFunctions();
 })();
