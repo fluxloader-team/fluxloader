@@ -1055,6 +1055,7 @@ async function finalizeModloaderPatches() {
   if (!globalThis.config.debug.enableDebugMenu) {
     globalThis.bundlePatches.push({
       type: "replace",
+      // This disables the debug menu
       // This relies on the minified name "_m" which adds debug button to main menu
       // To find this search for "Debug" and look for the surrounding function - good luck
       from: "function _m(t){",
@@ -1077,6 +1078,13 @@ async function finalizeModloaderPatches() {
       // This exits early out of the 'Pause' down event
       from: "e.debug.active&&(t.session.paused",
       to: "return;e.debug.active&&(t.session.paused"
+    });
+  } else {
+    globalThis.bundlePatches.push({
+      type: "replace",
+      // This adds the configurable zoom
+      from: 'className:"fixed bottom-2 right-2 w-96 pt-12 text-white"',
+      to: `className:"fixed bottom-2 right-2 w-96 pt-12 text-white",style:{zoom:"${globalThis.config.debug.debugMenuZoom * 100}%"}`
     });
   }
   if (!globalThis.config.disableMenuSubtitle) {
