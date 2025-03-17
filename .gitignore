@@ -8,4 +8,4 @@ package-lock.json
 /modloader.log
 /modloader-config.json
 **/*.exe
-mods
+/mods

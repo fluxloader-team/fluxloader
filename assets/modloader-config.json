@@ -13,6 +13,8 @@
     "interactiveConsole": false,
     "exeDebugPort": 9222,
     "openWebDevTools": false,
-    "enableDebugMenu": false
+    "enableDebugMenu": false,
+    "debugMenuZoom": 0.85,
+    "forwardConsole": false
   }
 }
