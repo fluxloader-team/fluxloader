@@ -1,20 +1,16 @@
 {
   "name": "mod-loader",
   "version": "1.0.0",
-  "main": "index.js",
-  "bin": "index.js",
+  "main": "src/index.js",
+
+  "scripts": {
+    "start": "electron ."
+  },
+
   "dependencies": {
     "acorn": "^8.14.0",
+    "electron": "^35.0.2",
     "escodegen": "^2.1.0",
     "puppeteer-core": "^20.0.0"
-  },
-  "pkg": {
-    "scripts": [
-      "./index.js"
-    ],
-    "assets": [
-      "assets/modloader.js",
-      "assets/modloader-config.json"
-    ]
   }
 }

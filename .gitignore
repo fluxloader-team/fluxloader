@@ -4,8 +4,7 @@ package-lock.json
 .vscode
 
 # Runtime products
-/modloader.js
 /modloader.log
 /modloader-config.json
 **/*.exe
-/mods
+/src/mods
