@@ -1,12 +1,3 @@
-function log(...args) {
-	const msg = args.join(" ");
-	console.warn(`[MODLOADER INFO]: ${msg}`);
-}
-
-function logWarn(...args) {
-	const msg = args.join(" ");
-	console.warn(`[MODLOADER WARN]: ${msg}`);
-}
 
 function createHTMLElement(html) {
 	const container = document.createElement("div");
@@ -14,7 +5,51 @@ function createHTMLElement(html) {
 	return container.children[0];
 }
 
-// ------------------ Config UI ------------------
+globalThis.modConfig = {
+	get: async (modName) => {
+		try {
+			const data = {
+				modName: modName,
+			};
+			const response = await fetch("modloader-api/config", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify(data),
+			});
+
+			if (!response.ok) {
+				return false;
+			}
+
+			return await response.json();
+		} catch (error) {
+			return null;
+		}
+	},
+	set: async (modName, config) => {
+		try {
+			const data = {
+				modName: modName,
+				config: config,
+			};
+			const response = await fetch("modloader-api/config", {
+				method: "SET",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify(data),
+			});
+
+			return response.ok;
+		} catch (error) {
+			return false;
+		}
+	},
+};
+
+// --------------------- CONFIG MENU ---------------------
 
 class ConfigType {
 	static allTypes = {};
@@ -51,16 +86,16 @@ globalThis.saveCurrentConfigMenuMod = async function () {
 	const inputElements = configOptionsElement.querySelectorAll(".config-menu-option");
 
 	if (modData.options.length != inputElements.length) {
-		logWarn(`Mismatched number of config options and input elements for mod ${modData.modName}`);
+		console.log(`Mismatched number of config options and input elements for mod ${modData.modName}`);
 		return;
 	}
 
 	inputElements.forEach((input, i) => {
 		const optionIndex = input.getAttribute("option-index");
 		const option = modData.options[optionIndex];
-		
+
 		if (!option) {
-			logWarn(`Missing option for input element in mod ${modData.modName}`);
+			console.log(`Missing option for input element in mod ${modData.modName}`);
 			return;
 		}
 
@@ -71,16 +106,14 @@ globalThis.saveCurrentConfigMenuMod = async function () {
 			try {
 				value = JSON.parse(value);
 			} catch (error) {
-				logWarn(`Invalid JSON for option ${option.name} in mod ${modData.modName}`);
+				console.log(`Invalid JSON for option ${option.name} in mod ${modData.modName}`);
 				// Skip this option
 				return;
 			}
-		}
-		
-		else if (option.configType.name == "regex") {
+		} else if (option.configType.name == "regex") {
 			const regex = new RegExp(option.regex);
 			if (!regex.test(value)) {
-				logWarn(`Invalid value for regex option ${option.name} in mod ${modData.modName}`);
+				console.log(`Invalid value for regex option ${option.name} in mod ${modData.modName}`);
 				value = config[option.name];
 			}
 		}
@@ -98,11 +131,11 @@ globalThis.getConfigMenuModOptionElement = function (option, optionIndex, config
 
 	globalThis.handleConfigMenuBooleanClick = function (e, optionIndex) {
 		let option = globalThis.currentConfigMenuModData.options[optionIndex];
-		
+
 		e.currentTarget.innerText = !JSON.parse(e.currentTarget.innerText);
 		e.currentTarget.value = e.currentTarget.innerText;
-	}
-	
+	};
+
 	globalThis.handleConfigMenuInputChanged = function (e, optionIndex) {
 		let option = globalThis.currentConfigMenuModData.options[optionIndex];
 
@@ -114,9 +147,8 @@ globalThis.getConfigMenuModOptionElement = function (option, optionIndex, config
 			} else {
 				e.currentTarget.classList.remove("border-red-500");
 			}
-
 		}
-	}
+	};
 
 	globalThis.handleConfigMenuInputInputted = function (e, optionIndex) {
 		let option = globalThis.currentConfigMenuModData.options[optionIndex];
@@ -126,7 +158,7 @@ globalThis.getConfigMenuModOptionElement = function (option, optionIndex, config
 			e.currentTarget.previousElementSibling.children[1].innerText = value;
 			e.currentTarget.value = value;
 		}
-	}
+	};
 
 	switch (option.configType.name) {
 		case "boolean":
@@ -136,10 +168,10 @@ globalThis.getConfigMenuModOptionElement = function (option, optionIndex, config
 				class="w-full px-3 py-1 bg-gray-700 text-white rounded border border-gray-600 focus:ring-blue-500 focus:border-blue-500 config-menu-option">
 				${value}
 			</button>`;
-		
+
 		case "dropdown":
 			return;
-	
+
 		case "json":
 			value = JSON.stringify(value);
 			return `<textarea
@@ -177,28 +209,27 @@ globalThis.loadConfigMenuModData = function (mod, config) {
 	else {
 		configMenuModData.providedConfigPreset = true;
 		for (const optionPreset of mod.config) {
-
 			// If a string then it's a simple string option
 			if (typeof optionPreset == "string") {
 				const option = { name: optionPreset, label: optionPreset };
 				configMenuModData.options.push(ConfigType.getType("string").apply(option));
 			}
-		
+
 			// Otherwise try and parse the object
 			else {
-				let option = optionPreset; 
+				let option = optionPreset;
 				option.label = option.label ?? option.name;
 
 				if (!option.name) {
-					logWarn(`Missing name for option in ${modName} with raw option data: ${JSON.stringify(option)}`);
+					console.log(`Missing name for option in ${modName} with raw option data: ${JSON.stringify(option)}`);
 					continue;
 				}
-	
+
 				if (typeof option.type === "undefined") {
-					logWarn(`Missing option type for option with name '${option.name}' of mod ${modName}, defaulting to string`);
+					console.log(`Missing option type for option with name '${option.name}' of mod ${modName}, defaulting to string`);
 					option.type = "string";
 				}
-	
+
 				configMenuModData.options.push(ConfigType.getType(option.type).apply(option));
 			}
 		}
@@ -211,7 +242,7 @@ globalThis.setConfigMenuMod = async (i) => {
 	globalThis.saveCurrentConfigMenuMod();
 	const mod = globalThis.activeMods[i];
 	const modName = mod.modinfo.name;
-	let config = await globalThis.modConfig.get(modName);	
+	let config = await globalThis.modConfig.get(modName);
 	let modData = globalThis.loadConfigMenuModData(mod, config);
 	globalThis.currentConfigMenuModConfig = config;
 	globalThis.currentConfigMenuModData = modData;
@@ -318,53 +349,104 @@ globalThis.openConfigMenu = function () {
 	closeButton.onclick = globalThis.closeConfigMenu;
 };
 
-// ------------------ Mod Loader ------------------
+globalThis.setupModdedSubtitle = function (spawnSolid) {
+	const interval = setInterval(loop, 60);
+
+	function loop() {
+		if (globalThis.moddedSubtitleActivePositions && globalThis.moddedSubtitleActivePositions.length == 0) return clearInterval(interval);
+
+		const title = [
+			[1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1],
+			[1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1],
+			[1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1],
+			[1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1],
+			[1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1],
+			[1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1],
+			[1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1],
+			[1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1],
+			[1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1],
+			[1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1],
+			[1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+			[1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+		];
+
+		function tryGet(x, y) {
+			if (x < 0 || y < 0 || y >= title.length || x >= title[y].length) return false;
+			return title[y][x];
+		}
+
+		const origin = {
+			x: 392 + 80,
+			y: 404 + 32,
+		};
+
+		const particle = 14; // Fluxite
+		if (!globalThis.moddedSubtitleActivePositions || !globalThis.moddedSubtitleInvalidPositions) {
+			globalThis.moddedSubtitleActivePositions = [
+				{
+					x: 0,
+					y: 0,
+				},
+			];
+			globalThis.moddedSubtitleInvalidPositions = [];
+		}
+
+		// Allow jumping across gaps to designated coordinates
+		const jumps = {
+			"3, 3": { x: 4, y: 4 },
+			"5, 4": { x: 6, y: 3 },
+			"9, 5": { x: 11, y: 5 },
+			"12, 5": { x: 13, y: 4 },
+			"12, 9": { x: 13, y: 10 },
+			"16, 4": { x: 17, y: 5 },
+			"16, 10": { x: 17, y: 9 },
+			"18, 9": { x: 20, y: 9 },
+			"21, 5": { x: 22, y: 4 },
+			"27, 8": { x: 29, y: 8 },
+			"30, 5": { x: 31, y: 4 },
+			"36, 5": { x: 38, y: 5 },
+			"39, 5": { x: 40, y: 4 },
+			"39, 9": { x: 40, y: 10 },
+			"45, 9": { x: 47, y: 9 },
+			"48, 5": { x: 49, y: 4 },
+		};
+
+		const offsets = [
+			[-1, 0],
+			[0, 1],
+			[1, 0],
+			[0, -1],
+		];
+
+		for (const position of [...globalThis.moddedSubtitleActivePositions]) {
+			spawnSolid(gameInstance.state, origin.x + position.x, origin.y + position.y, particle);
+
+			const posName = `${position.x}, ${position.y}`;
+			const mappedNames = globalThis.moddedSubtitleActivePositions.map((pos) => `${pos.x}, ${pos.y}`);
+			globalThis.moddedSubtitleInvalidPositions.push(posName);
+			globalThis.moddedSubtitleActivePositions.splice(mappedNames.indexOf(posName), 1);
+
+			if (jumps[posName]) {
+				globalThis.moddedSubtitleActivePositions.push(jumps[posName]);
+			}
+
+			for (const offset of offsets) {
+				const newPos = { x: position.x + offset[0], y: position.y + offset[1] };
+				const newPosName = `${newPos.x}, ${newPos.y}`;
+				const mappedNames = globalThis.moddedSubtitleActivePositions.map((pos) => `${pos.x}, ${pos.y}`);
+
+				// Will return truthy if particle should be placed, falsey if not
+				if (tryGet(newPos.x, newPos.y) && !globalThis.moddedSubtitleInvalidPositions.includes(newPosName) && !mappedNames.includes(newPosName)) {
+					globalThis.moddedSubtitleActivePositions.push(newPos);
+				}
+			}
+		}
+	}
+};
+
+// --------------------- MODLOADER ---------------------
 
 (async function () {
-	globalThis.modConfig = {
-		get: async (modName) => {
-			try {
-				const data = {
-					modName: modName,
-				};
-				const response = await fetch("modloader-api/config", {
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-					},
-					body: JSON.stringify(data),
-				});
-
-				if (!response.ok) {
-					return false;
-				}
-
-				return await response.json();
-			} catch (error) {
-				return null;
-			}
-		},
-		set: async (modName, config) => {
-			try {
-				const data = {
-					modName: modName,
-					config: config,
-				};
-				const response = await fetch("modloader-api/config", {
-					method: "SET",
-					headers: {
-						"Content-Type": "application/json",
-					},
-					body: JSON.stringify(data),
-				});
-
-				return response.ok;
-			} catch (error) {
-				return false;
-			}
-		},
-	};
-
 	async function tryExecuteModFunction(mod, functionName) {
 		if (Object.prototype.hasOwnProperty.call(mod, functionName)) {
 			try {
@@ -400,7 +482,7 @@ globalThis.openConfigMenu = function () {
 		}
 
 		const scene = gameInstance.state.store.scene.active;
-		log(`Game state loaded with scene ${scene}, starting mod execution.`);
+		console.log(`Game state loaded with scene ${scene}, starting mod execution.`);
 
 		if (scene == 1) {
 			for (const mod of globalThis.activeMods) {
@@ -431,173 +513,6 @@ globalThis.openConfigMenu = function () {
 		}
 	}
 
-	globalThis.moddedSubtitle = function (spawnSolid) {
-		const interval = setInterval(loop, 60);
-		function loop() {
-			if (globalThis.moddedSubtitleActivePositions && globalThis.moddedSubtitleActivePositions.length == 0) return clearInterval(interval);
-			const title = [
-				[
-					1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-					0, 0, 0, 1, 1,
-				],
-				[
-					1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-					0, 0, 0, 1, 1,
-				],
-				[
-					1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-					0, 0, 0, 1, 1,
-				],
-				[
-					1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1,
-					1, 1, 1, 1, 1,
-				],
-				[
-					1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1,
-					1, 1, 1, 1, 1,
-				],
-				[
-					1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0,
-					0, 0, 0, 1, 1,
-				],
-				[
-					1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0,
-					0, 0, 0, 1, 1,
-				],
-				[
-					1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 0,
-					0, 0, 0, 1, 1,
-				],
-				[
-					1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0,
-					0, 0, 0, 1, 1,
-				],
-				[
-					1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0,
-					0, 0, 0, 1, 1,
-				],
-				[
-					1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1,
-					1, 1, 1, 1, 1,
-				],
-				[
-					1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1,
-					1, 1, 1, 1, 1,
-				],
-			];
-			function tryGet(x, y) {
-				if (x < 0 || y < 0 || y >= title.length || x >= title[y].length) return false;
-				return title[y][x];
-			}
-			const origin = {
-				x: 392 + 80,
-				y: 404 + 32,
-			};
-			const particle = 14; // Fluxite
-			if (!globalThis.moddedSubtitleActivePositions || !globalThis.moddedSubtitleInvalidPositions) {
-				globalThis.moddedSubtitleActivePositions = [
-					{
-						x: 0,
-						y: 0,
-					},
-				];
-				globalThis.moddedSubtitleInvalidPositions = [];
-			}
-			// Allow jumping across gaps to designated coordinates
-			const jumps = {
-				"3, 3": {
-					x: 4,
-					y: 4,
-				},
-				"5, 4": {
-					x: 6,
-					y: 3,
-				},
-				"9, 5": {
-					x: 11,
-					y: 5,
-				},
-				"12, 5": {
-					x: 13,
-					y: 4,
-				},
-				"12, 9": {
-					x: 13,
-					y: 10,
-				},
-				"16, 4": {
-					x: 17,
-					y: 5,
-				},
-				"16, 10": {
-					x: 17,
-					y: 9,
-				},
-				"18, 9": {
-					x: 20,
-					y: 9,
-				},
-				"21, 5": {
-					x: 22,
-					y: 4,
-				},
-				"27, 8": {
-					x: 29,
-					y: 8,
-				},
-				"30, 5": {
-					x: 31,
-					y: 4,
-				},
-				"36, 5": {
-					x: 38,
-					y: 5,
-				},
-				"39, 5": {
-					x: 40,
-					y: 4,
-				},
-				"39, 9": {
-					x: 40,
-					y: 10,
-				},
-				"45, 9": {
-					x: 47,
-					y: 9,
-				},
-				"48, 5": {
-					x: 49,
-					y: 4,
-				},
-			};
-			const offsets = [
-				[-1, 0],
-				[0, 1],
-				[1, 0],
-				[0, -1],
-			];
-			for (const position of [...globalThis.moddedSubtitleActivePositions]) {
-				const posName = `${position.x}, ${position.y}`;
-				spawnSolid(gameInstance.state, origin.x + position.x, origin.y + position.y, particle);
-				const mappedNames = globalThis.moddedSubtitleActivePositions.map((pos) => `${pos.x}, ${pos.y}`);
-				globalThis.moddedSubtitleInvalidPositions.push(posName);
-				globalThis.moddedSubtitleActivePositions.splice(mappedNames.indexOf(posName), 1);
-				if (jumps[posName]) {
-					globalThis.moddedSubtitleActivePositions.push(jumps[posName]);
-				}
-				for (const offset of offsets) {
-					const newPos = { x: position.x + offset[0], y: position.y + offset[1] };
-					const newPosName = `${newPos.x}, ${newPos.y}`;
-					const mappedNames = globalThis.moddedSubtitleActivePositions.map((pos) => `${pos.x}, ${pos.y}`);
-					// Will return truthy if particle should be placed, falsey if not
-					if (tryGet(newPos.x, newPos.y) && !globalThis.moddedSubtitleInvalidPositions.includes(newPosName) && !mappedNames.includes(newPosName)) {
-						globalThis.moddedSubtitleActivePositions.push(newPos);
-					}
-				}
-			}
-		}
-	};
-
 	globalThis.activeMods = [];
 	const modPaths = await (await fetch("modloader-api/active-mod-paths")).json();
 	for (const modPath of modPaths) {
@@ -606,7 +521,7 @@ globalThis.openConfigMenu = function () {
 		globalThis.activeMods.push(mod);
 	}
 
-	log(`Mods loaded: [${globalThis.activeMods.map((m) => m.modinfo.name).join(", ")}]`);
+	console.log(`Mods loaded: [${globalThis.activeMods.map((m) => m.modinfo.name).join(", ")}]`);
 
 	await setupConfigMenu();
 	await executeModFunctions();
