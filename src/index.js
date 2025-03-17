@@ -33,9 +33,9 @@ function processGameElectronApp() {
 	mainContent = mainContent.replaceAll("app.on('window-all-closed', function () {", "var _ = (() => {");
 
 	// Ensure that the app thinks it is still running inside the app.asar
-	// - Override userData path to a different directory
+	// - Fix the userData path to be 'sandustrydemo' instead of 'mod-loader'
 	// - Override relative "preload.js" to absolute
-	// - Override relative "index.ht" to absolute
+	// - Override relative "index.html" to absolute
 	mainContent = mainContent.replaceAll('getPath("userData")', 'getPath("userData").replace("mod-loader", "sandustrydemo")');
 	mainContent = mainContent.replaceAll("path.join(__dirname, 'preload.js')", `'${path.join(asarPath, "preload.js").replaceAll("\\", "/")}'`);
 	mainContent = mainContent.replaceAll("loadFile('index.html')", `loadFile('${path.join(asarPath, "index.html").replaceAll("\\", "/")}')`);
