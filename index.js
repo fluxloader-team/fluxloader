@@ -1103,7 +1103,7 @@ async function loadAndValidateAllMods() {
 			}
 		}
 
-		log(`Validated ${globalThis.loadedMods.length} mod(s): [ ${globalThis.loadedMods.map((m) => m.exports.modinfo.name).join(", ")} ]`);
+		log(`Validated ${globalThis.loadedMods.length} mod(s): [ ${globalThis.loadedMods.map((m) => `${m.exports.modinfo.name} (v${m.exports.modinfo.version})`).join(", ")} ]`);
 	} catch (error) {
 		logError(`Error loading and validating mods: ${error.message}`);
 		throw error;

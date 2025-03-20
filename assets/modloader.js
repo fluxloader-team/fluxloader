@@ -521,7 +521,7 @@ globalThis.setupModdedSubtitle = function (spawnSolid) {
 		globalThis.activeMods.push(mod);
 	}
 
-	console.log(`Mods loaded: [${globalThis.activeMods.map((m) => m.modinfo.name).join(", ")}]`);
+	console.log(`Mods loaded: [${globalThis.activeMods.map((m) => `${m.modinfo.name} (v${m.modinfo.version})`).join(", ")}]`);
 
 	await setupConfigMenu();
 	await executeModFunctions();
