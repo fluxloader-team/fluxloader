@@ -1,3 +1,10 @@
 {
-  "gameDirectory": "C:/Program Files (x86)/Steam/steamapps/common/Sandustry Demo/"
+  "gameDirectory": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Sandustry Demo",
+  "logging": {
+    "logToFile": true,
+    "logToConsole": true,
+    "consoleLogLevel": "debug",
+    "fileLogLevel": "debug",
+    "logFileName": "modloader.log"
+  }
 }

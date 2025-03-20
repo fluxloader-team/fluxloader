@@ -9,38 +9,6 @@ globalThis.fs = require("fs");
 
 // --------------------- UTILIY ---------------------
 
-globalThis.configLevels = ["debug", "info", "error"];
-
-globalThis.canLogConsole = function (level) {
-	if (!Object.hasOwn(globalThis, "config")) return false;
-	if (!config.logging.logToConsole) return false;
-	const levelIndex = globalThis.configLevels.indexOf(level);
-	const configIndex = globalThis.configLevels.indexOf(config.logging.consoleLogLevel);
-	return levelIndex >= configIndex;
-};
-
-globalThis.logBase = function (level, tag, message) {
-	const timestamp = new Date().toISOString().split("T")[1].split("Z")[0];
-	const finalMessage = `[${level.toUpperCase()}${tag ? " (" + tag + ")" : ""} ${timestamp}] ${message}`;
-
-	if (!Object.hasOwn(globalThis, "config")) {
-		console.log(`${finalMessage} (warning: config not loaded)`);
-		return;
-	}
-
-	if (config.logging.logToFile) {
-		fs.appendFileSync(globalThis.resolvedLogPath, `${finalMessage}\n`);
-	}
-	
-	if (canLogConsole(level)) {
-		console.log(finalMessage);
-	}
-};
-
-globalThis.logDebug = (...args) => globalThis.logBase("debug", "", args.join(" "));
-globalThis.logError = (...args) => globalThis.logBase("error", "", args.join(" "));
-globalThis.logInfo = (...args) => globalThis.logBase("info", "", args.join(" "));
-globalThis.log = globalThis.logInfo;
 
 globalThis.fetchJSON = function (url, silentError = false) {
 	return new Promise((resolve, reject) => {
@@ -74,28 +42,6 @@ globalThis.fetchJSONWithRetry = async function (url, retries = 200, delay = 100)
 	}
 	logError(`Failed to fetch JSON from ${url} after ${retries} retries.`);
 	throw new Error(`Failed to fetch JSON from ${url} after ${retries} retries.`);
-};
-
-globalThis.resolvePathToAsset = function (assetPath) {
-	// When ran with exe this is C:/Snapshot/mod-loader/assets/...
-	// When ran with node this is relative to ./index.js at ./assets/...
-	return path.resolve(__dirname, "assets", assetPath);
-};
-
-globalThis.resolvePathRelativeToGame = function (subpath) {
-	// Resolve path relative to sandustrydemo.exe
-	return path.resolve(path.dirname(config.paths.executable), subpath);
-};
-
-globalThis.resolvePathRelativeToModloader = function (subpath) {
-	// Resolve path relative to modloader based on config
-	// When ran with exe this is C:/Snapshot/mod-loader/...
-	// When ran with node this is relative to ./index.js
-	if (process.pkg) {
-		return path.resolve(path.dirname(process.execPath), subpath);
-	} else {
-		return path.resolve(__dirname, subpath);
-	}
 };
 
 globalThis.unexpectedClose = function (msg) {

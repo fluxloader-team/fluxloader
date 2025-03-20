@@ -1,10 +1,11 @@
+# IDE files
 node_modules
 package-lock.json
 .idea
 .vscode
 
 # Runtime products
-/modloader.log
-/modloader-config.json
+**/modloader-config.json
 **/*.exe
-/src/mods
+**/*.log
+**/mods/
