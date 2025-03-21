@@ -272,6 +272,18 @@ function setModActive(modName, isActive) {
 	mod.isActive = isActive;
 }
 
+function reorderMods(modNameOrder) {
+	if (modNameOrder.length != globalThis.mods.length) {
+		logError(`New mod load order wrong length: ${modNameOrder.length} != ${globalThis.mod.length}`);
+	}
+
+	// Grab each mod based on the name
+	let modsNewOrder = [];
+	// TODO
+
+	globalThis.mods = modsNewOrder;
+}
+
 function applyModPatches() {
 	// TODO: Refactor to the new system and only consider active mods
 	// if (modExports.api) {
@@ -322,6 +334,19 @@ async function setupElectronApp() {
 	setupModloaderIPC();
 }
 
+function startModloaderWindow() {
+	const modloaderWindow = new BrowserWindow({
+		width: 800,
+		height: 600,
+		webPreferences: {
+			nodeIntegration: true,
+			contextIsolation: false,
+		},
+	});
+	modloaderWindow.loadFile("index.html");
+	modloaderWindow.webContents.openDevTools();
+}
+
 function extractGame() {
 	// Create a new temp dir for the game
 	const extractedBasePath = createNewTempDirectory();
@@ -364,19 +389,6 @@ function processGameElectronApp() {
 	// Using Function(...) doesn't work well due to not being able to access require or the global scope
 	globalThis.sandustryElectron = {};
 	eval(mainContent);
-}
-
-function startModloaderWindow() {
-	const modloaderWindow = new BrowserWindow({
-		width: 800,
-		height: 600,
-		webPreferences: {
-			nodeIntegration: true,
-			contextIsolation: false,
-		},
-	});
-	modloaderWindow.loadFile("index.html");
-	modloaderWindow.webContents.openDevTools();
 }
 
 function startGameWindow() {
