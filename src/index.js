@@ -7,7 +7,7 @@ const os = require("os");
 // ------------- GLOBALS -------------
 
 globalThis.modloaderVersion = "2.0.0";
-globalThis.logLevels = ["debug", "info", "error"];
+globalThis.logLevels = ["debug", "info", "warn", "error"];
 globalThis.defaultConfig = {
 	gameDirectory: ".",
 	modsFolder: "./mods",
@@ -22,8 +22,10 @@ globalThis.defaultConfig = {
 globalThis.configPath = "modloader-config.json";
 globalThis.config = undefined;
 globalThis.mods = [];
+globalThis.baseGameAsarPath = undefined;
+globalThis.extractedGamePath = undefined;
 
-// ------------ UTILITY ------------
+// ------------ MAIN ------------
 
 globalThis.log = function (level, tag, message) {
 	if (!logLevels.includes(level)) {
@@ -58,6 +60,7 @@ globalThis.log = function (level, tag, message) {
 
 globalThis.logDebug = (...args) => globalThis.log("debug", "", args.join(" "));
 globalThis.logInfo = (...args) => globalThis.log("info", "", args.join(" "));
+globalThis.logWarn = (...args) => globalThis.log("warn", "", args.join(" "));
 globalThis.logError = (...args) => new Error(globalThis.log("error", "", args.join(" ")));
 
 function resolvePathRelativeToModloader(name) {
@@ -171,7 +174,7 @@ function findAndVerifyGameExists() {
 
 	// If the game is where the config says then exit out
 	if (checkDirectoryHasGameAsar(globalThis.config.gameDirectory)) {
-		globalThis.gameAsarPath = path.join(globalThis.config.gameDirectory, "resources", "app.asar");
+		globalThis.baseGameAsarPath = path.join(globalThis.config.gameDirectory, "resources", "app.asar");
 		logInfo(`Sandustry app.asar found: ${globalThis.config.gameDirectory}.`);
 		return;
 	}
@@ -182,7 +185,7 @@ function findAndVerifyGameExists() {
 	logDebug("checking default steam directory...");
 	const steamPath = path.join(process.env["ProgramFiles(x86)"], "Steam", "steamapps", "common", "Sandustry Demo");
 	if (checkDirectoryHasGameAsar(steamPath)) {
-		globalThis.gameAsarPath = path.join(steamPath, "resources", "app.asar");
+		globalThis.baseGameAsarPath = path.join(steamPath, "resources", "app.asar");
 		logInfo(`Sandustry app.asar found inside steam path, updating config: ${steamPath}.`);
 		globalThis.config.gameDirectory = steamPath;
 		updateConfig();
@@ -192,11 +195,31 @@ function findAndVerifyGameExists() {
 	throw logError(`Sandustry app.asar not found in configured path or default steam path: ${globalThis.config.gameDirectory} or ${steamPath}.`);
 }
 
+function loadMod(modPath) {
+	// Try and extract mod exports
+	let modExports = {};
+	try {
+		const modContent = fs.readFileSync(modPath, "utf8");
+		const modFunction = new Function("exports", modContent);
+		modFunction(modExports);
+	} catch (e) {
+		logWarn(`Error loading mod: ${modPath}`);
+		return null;
+	}
+	if (!modExports) {
+		logWarn(`No mod exports found for mod: ${modPath}`);
+		return null;
+	}
+	return modExports;
+}
+
 function validateMod(modExports) {
 	// Ensure mod has required modinfo
 	if (!modExports.modinfo || !modExports.modinfo.name || !modExports.modinfo.version) {
-		throw logError(`Invalid mod info for mod: ${modExports.modinfo?.name || "unknown"}`);
+		logWarn(`Invalid exports.modinfo for mod: ${modExports.modinfo?.name || "unknown"}`);
+		return false;
 	}
+	return true;
 }
 
 function reloadMods() {
@@ -205,7 +228,7 @@ function reloadMods() {
 	const baseModsPath = resolvePathRelativeToModloader(globalThis.config.modsFolder);
 	ensureDirectoryExists(baseModsPath);
 
-	// Find all possible mods in the mod folder
+	// Find all mod files in the mod folder
 	let modPaths = [];
 	try {
 		logDebug(`Checking for mods in folder: ${baseModsPath}`);
@@ -215,41 +238,66 @@ function reloadMods() {
 	}
 
 	for (const modPath of modPaths) {
-		try {
-			// Try and extract mod exports
-			const modContent = fs.readFileSync(modPath, "utf8");
-			const modFunction = new Function("exports", modContent);
-			const modExports = {};
-			modFunction(modExports);
+		// Try load and validate each mod, continue with warning otherwise
+		const modExports = loadMod(modPath);
+		if (!modExports) continue;
+		const isValid = validateMod(modExports);
+		if (!isValid) continue;
 
-			// Make sure mod exports anything
-			if (!modExports) {
-				throw logError(`Could not load mod: ${modPath}`);
-			}
-
-			// Make sure modinfo is correct
-			validateMod(modExports);
-
-			// Ensure theres no conflicting mods
-			const conflict = globalThis.mods.find((otherMod) => otherMod.name == modExports.modinfo.name);
-			if (conflict) {
-				throw logError(`Mod conflict: ${conflict.path} with ${modPath} on name ${conflict.name}`);
-			}
-
-			// Add final extracted modinfo to the mod list
-			globalThis.mods.push({
-				name: modExports.modinfo.name,
-				version: modExports.modinfo.version,
-				exports: modExports,
-				path: modPath,
-				isActive: true,
-			});
-		} catch (e) {
-			logError(`Error loading mod: ${modPath}`);
+		// Ensure theres no mods with the same name
+		const conflict = globalThis.mods.find((otherMod) => otherMod.name == modExports.modinfo.name);
+		if (conflict) {
+			throw logError(`Mod conflict: ${conflict.path} with ${modPath} on name ${conflict.name}`);
 		}
+
+		globalThis.mods.push({
+			name: modExports.modinfo.name,
+			version: modExports.modinfo.version,
+			exports: modExports,
+			path: modPath,
+			isActive: true,
+		});
 	}
 
 	log(`Loaded ${globalThis.mods.length} mod(s): [ ${globalThis.mods.map((m) => m.exports.modinfo.name).join(", ")} ]`);
+}
+
+function setModActive(modName, isActive) {
+	logDebug(`Setting mod active: ${modname}.active = ${isActive}`);
+
+	let mod = globalThis.mods.find((m) => m.name == modName);
+	if (!mod) {
+		throw logError(`Mod not found: ${modName}`);
+	}
+	mod.isActive = isActive;
+}
+
+function applyModPatches() {
+	// TODO: Refactor to the new system and only consider active mods
+	// if (modExports.api) {
+	// 	Object.keys(modExports.api).forEach((key) => {
+	// 		const list = modExports.api[key] instanceof Array ? modExports.api[key] : [modExports.api[key]];
+	// 		if (key in globalThis.intercepts) globalThis.intercepts[key].push(...list);
+	// 		else globalThis.intercepts[key] = list;
+	// 		log(`Mod "${modPath}" added ${list.length} rule(s) to API endpoint: ${key}`);
+	// 	});
+	// }
+	// if (modExports.patches) {
+	// 	globalThis.bundlePatches = globalThis.bundlePatches.concat(modExports.patches);
+	// 	for (const patch of modExports.patches) {
+	// 		log(`Mod "${modPath}" added patch: ${patch.type}`);
+	// 	}
+	// }
+}
+
+// ------------ ELECTRON  ------------
+
+function setupModloaderIPC() {
+	// We want the following:
+	// - Get all mods and their data
+	// - Toggle mod active
+	// - Reload mods
+	// - Start game window
 }
 
 async function setupElectronApp() {
@@ -270,15 +318,23 @@ async function setupElectronApp() {
 			app.quit();
 		}
 	});
+
+	setupModloaderIPC();
+}
+
+function extractGame() {
+	// Create a new temp dir for the game
+	const extractedBasePath = createNewTempDirectory();
+	const extractedAsarPath = path.join(tempDir, "app.asar");
+	globalThis.extractedGamePath = path.join(tempDir, "extracted");
+	ensureDirectoryExists(globalThis.extractedGamePath);
+
+	// TODO
 }
 
 function processGameElectronApp() {
-	// TODO: Refactor with new temp dir and logging
-
-	console.log("Processing game electron");
-
 	// Find the main.js inside the game.asar
-	const asarPath = path.join(globalThis.config.gameDirectory, "resources", "app.asar");
+	const basePath = globalThis.extractedGamePath;
 	const mainPath = path.join(asarPath, "main.js");
 	let mainContent = fs.readFileSync(mainPath, "utf8");
 
@@ -297,8 +353,8 @@ function processGameElectronApp() {
 	// - Override relative "preload.js" to absolute
 	// - Override relative "index.html" to absolute
 	mainContent = mainContent.replaceAll('getPath("userData")', 'getPath("userData").replace("mod-loader", "sandustrydemo")');
-	mainContent = mainContent.replaceAll("path.join(__dirname, 'preload.js')", `'${path.join(asarPath, "preload.js").replaceAll("\\", "/")}'`);
-	mainContent = mainContent.replaceAll("loadFile('index.html')", `loadFile('${path.join(asarPath, "index.html").replaceAll("\\", "/")}')`);
+	mainContent = mainContent.replaceAll("path.join(__dirname, 'preload.js')", `'${path.join(basePath, "preload.js").replaceAll("\\", "/")}'`);
+	mainContent = mainContent.replaceAll("loadFile('index.html')", `loadFile('${path.join(basePath, "index.html").replaceAll("\\", "/")}')`);
 
 	// Expose the games main window to be global
 	mainContent = mainContent.replaceAll("const mainWindow", "globalThis.gameElectron_window");
@@ -310,52 +366,37 @@ function processGameElectronApp() {
 	eval(mainContent);
 }
 
-function extractAndApplyGamePatches() {
-	// TODO: Refactor to the new system and only consider active mods
-	// if (modExports.api) {
-	// 	Object.keys(modExports.api).forEach((key) => {
-	// 		const list = modExports.api[key] instanceof Array ? modExports.api[key] : [modExports.api[key]];
-	// 		if (key in globalThis.intercepts) globalThis.intercepts[key].push(...list);
-	// 		else globalThis.intercepts[key] = list;
-	// 		log(`Mod "${modPath}" added ${list.length} rule(s) to API endpoint: ${key}`);
-	// 	});
-	// }
-	// if (modExports.patches) {
-	// 	globalThis.bundlePatches = globalThis.bundlePatches.concat(modExports.patches);
-	// 	for (const patch of modExports.patches) {
-	// 		log(`Mod "${modPath}" added patch: ${patch.type}`);
-	// 	}
-	// }
+function startModloaderWindow() {
+	const modloaderWindow = new BrowserWindow({
+		width: 800,
+		height: 600,
+		webPreferences: {
+			nodeIntegration: true,
+			contextIsolation: false,
+		},
+	});
+	modloaderWindow.loadFile("index.html");
+	modloaderWindow.webContents.openDevTools();
 }
 
 function startGameWindow() {
-	// Create a new temp dir for the game
-	const tempDir = createNewTempDirectory();
-	const tempAsarPath = path.join(tempDir, "app.asar");
-	const tempExtractPath = path.join(tempDir, "extracted");
-	ensureDirectoryExists(tempExtractPath);
-
-	// TODO: Set some global variables
-
-	// Extract the game into the extracted path
-	// TODO
-
-	// Grab the initialization functions from the games electron main
+	extractGame();
 	processGameElectronApp();
-
-	// Apply the patches now we have extracted the game
-	extractAndApplyGamePatches();
-
-	// Finally we want to start the game window
+	applyModPatches();
 }
 
 (async () => {
 	logInfo(`Starting modloader ${modloaderVersion}`);
+
+	// Setup
 	readAndLoadConfig();
 	findAndVerifyGameExists();
 	reloadMods();
 
+	// Main functionality
 	await setupElectronApp();
+	startModloaderWindow();
 
+	// Cleanup
 	deleteTempDirectory();
 })();
