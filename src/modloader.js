@@ -1,1 +1,4 @@
-console.log("Hello from modloader");
+(async () => {
+    const mods = await window.electronAPI.getMods();
+    console.log(mods);
+})();

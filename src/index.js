@@ -1,4 +1,4 @@
-const { app, BrowserWindow, protocol, net } = require("electron");
+const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const process = require("process");
@@ -6,26 +6,33 @@ const os = require("os");
 
 // ------------- GLOBALS -------------
 
-globalThis.modloaderVersion = "2.0.0";
-globalThis.logLevels = ["debug", "info", "warn", "error"];
 globalThis.defaultConfig = {
 	gameDirectory: ".",
-	modsFolder: "./mods",
+	modsPath: "./mods",
 	logging: {
 		logToFile: true,
 		logToConsole: true,
-		consoleLogLevel: "debug",
+		consoleLogLevel: "info",
 		fileLogLevel: "debug",
-		logFileName: "modloader.log",
+		logFilePath: "modloader.log",
 	},
 };
+
+globalThis.modloaderVersion = "2.0.0";
+globalThis.logLevels = ["debug", "info", "warn", "error"];
+globalThis.logFilePath = undefined;
+globalThis.preConfigLogLevel = "info";
 globalThis.configPath = "modloader-config.json";
 globalThis.config = undefined;
+globalThis.tempDirectory = undefined;
 globalThis.mods = [];
 globalThis.baseGameAsarPath = undefined;
 globalThis.extractedGamePath = undefined;
+globalThis.gameElectronFuncs = undefined;
+globalThis.gameWindow = undefined;
+globalThis.modloaderWindow = undefined;
 
-// ------------ MAIN ------------
+// ------------ UTILTY ------------
 
 globalThis.log = function (level, tag, message) {
 	if (!logLevels.includes(level)) {
@@ -34,24 +41,36 @@ globalThis.log = function (level, tag, message) {
 
 	const levelIndex = globalThis.logLevels.indexOf(level);
 	const timestamp = new Date().toISOString().split("T")[1].split("Z")[0];
-	const finalMessage = `[${level.toUpperCase()}${tag ? " (" + tag + ")" : ""} ${timestamp}] ${message}`;
+	const finalMessage = `[${level.toUpperCase().padEnd(6, " ")}${tag ? " (" + tag + ")" : ""} ${timestamp}] ${message}`;
 
-	if (globalThis.config === undefined) {
-		console.log(`${finalMessage} (warning: config not loaded)`);
-	} else {
-		if (globalThis.config.logging.logToFile) {
-			const fileLogLevel = globalThis.logLevels.indexOf(globalThis.config.logging.fileLogLevel);
-			if (levelIndex >= fileLogLevel) {
-				const logPath = path.join(globalThis.config.gameDirectory, globalThis.config.logging.logFileName);
-				fs.appendFileSync(logPath, finalMessage + "\n");
+	// Only log to file if defined by the config and level is allowed
+	if (globalThis.config && globalThis.config.logging.logToFile) {
+		const fileLogLevel = globalThis.logLevels.indexOf(globalThis.config.logging.fileLogLevel);
+		if (levelIndex >= fileLogLevel) {
+
+			// Setup the global log file path the first time we need it
+			if (!globalThis.logFilePath) {
+				globalThis.logFilePath = resolvePathRelativeToModloader(globalThis.config.logging.logFilePath);
+				try {
+					fs.appendFileSync(globalThis.logFilePath, new Date().toISOString() + "\n");
+				} catch (e) {
+					throw logError(`Error writing to log file: ${e}`);
+				}
+				logDebug(`Log file path set to: ${globalThis.logFilePath}`);
 			}
+
+			fs.appendFileSync(globalThis.logFilePath, finalMessage + "\n");
 		}
+	}
 
-		if (globalThis.config.logging.logToConsole) {
-			const consoleLevelIndex = globalThis.logLevels.indexOf(config.logging.consoleLogLevel);
-			if (levelIndex >= consoleLevelIndex) {
-				console.log(finalMessage);
-			}
+	// If config is not loaded then use the pre-config log level and always log to console
+	// Otherwise only log to console if defined by the config and level is allowed
+	let consoleLevel = preConfigLogLevel;
+	if (globalThis.config) consoleLevel = globalThis.config.logging.consoleLogLevel;
+	if (!globalThis.config || globalThis.config.logging.logToConsole) {
+		const consoleLevelIndex = globalThis.logLevels.indexOf(consoleLevel);
+		if (levelIndex >= consoleLevelIndex) {
+			console.log(finalMessage);
 		}
 	}
 
@@ -61,7 +80,11 @@ globalThis.log = function (level, tag, message) {
 globalThis.logDebug = (...args) => globalThis.log("debug", "", args.join(" "));
 globalThis.logInfo = (...args) => globalThis.log("info", "", args.join(" "));
 globalThis.logWarn = (...args) => globalThis.log("warn", "", args.join(" "));
-globalThis.logError = (...args) => new Error(globalThis.log("error", "", args.join(" ")));
+globalThis.logError = (...args) => {
+	const message = args.join(" ");
+	globalThis.log("error", "", message);
+	return new Error(message);
+};
 
 function resolvePathRelativeToModloader(name) {
 	// Relative to mod-loader.exe
@@ -90,9 +113,7 @@ function createNewTempDirectory() {
 }
 
 function deleteTempDirectory() {
-	if (!globalThis.tempDirectory) {
-		throw logError(`Temp directory doesn't exist: ${globalThis.tempDirectory}`);
-	}
+	if (!globalThis.tempDirectory) return;
 
 	logDebug(`Deleting temp directory: ${globalThis.tempDirectory}`);
 
@@ -108,13 +129,27 @@ function deleteTempDirectory() {
 
 // ------------ MAIN ------------
 
+function listenToUnhandledErrors() {
+	process.on("uncaughtException", (err) => {
+		logError(`Uncaught exception: ${err}`);
+		process.exit(1);
+	});
+
+	process.on("unhandledRejection", (err) => {
+		logError(`Unhandled rejection: ${err}`);
+		process.exit(1);
+	});
+}
+
 function readAndLoadConfig() {
 	globalThis.configPath = resolvePathRelativeToModloader(globalThis.configPath);
+	logDebug(`Reading config from: ${globalThis.configPath}`);
 
 	// If config file doesnt exist then create it with the defaults
 	if (!fs.existsSync(globalThis.configPath)) {
 		fs.writeFileSync(globalThis.configPath, JSON.stringify(defaultConfig, null, 4));
 		globalThis.config = defaultConfig;
+		logDebug(`No config found at '${globalThis.configPath}', set to default`);
 	}
 
 	// If a config file exists compare it to the default
@@ -151,17 +186,17 @@ function readAndLoadConfig() {
 		let modified = updateConfigData(defaultConfig, globalThis.config);
 
 		if (!modified) {
-			logDebug(`Config file is up-to-date.`);
+			logDebug(`Config '${globalThis.configPath}' is up-to-date`);
 		} else {
 			fs.writeFileSync(globalThis.configPath, JSON.stringify(config, null, 2), "utf8");
-			logDebug(`Config '${globalThis.configPath}' updated successfully.`);
+			logDebug(`Config '${globalThis.configPath}' updated successfully`);
 		}
 	}
 }
 
 function updateConfig() {
 	fs.writeFileSync(globalThis.configPath, JSON.stringify(globalThis.config, null, 2), "utf8");
-	logDebug(`Config '${globalThis.configPath}' updated successfully.`);
+	logDebug(`Config '${globalThis.configPath}' updated successfully`);
 }
 
 function findAndVerifyGameExists() {
@@ -175,7 +210,7 @@ function findAndVerifyGameExists() {
 	// If the game is where the config says then exit out
 	if (checkDirectoryHasGameAsar(globalThis.config.gameDirectory)) {
 		globalThis.baseGameAsarPath = path.join(globalThis.config.gameDirectory, "resources", "app.asar");
-		logInfo(`Sandustry app.asar found: ${globalThis.config.gameDirectory}.`);
+		logInfo(`Sandustry app.asar found: ${globalThis.config.gameDirectory}`);
 		return;
 	}
 
@@ -186,13 +221,13 @@ function findAndVerifyGameExists() {
 	const steamPath = path.join(process.env["ProgramFiles(x86)"], "Steam", "steamapps", "common", "Sandustry Demo");
 	if (checkDirectoryHasGameAsar(steamPath)) {
 		globalThis.baseGameAsarPath = path.join(steamPath, "resources", "app.asar");
-		logInfo(`Sandustry app.asar found inside steam path, updating config: ${steamPath}.`);
+		logInfo(`Sandustry app.asar found inside steam path, updating config: ${steamPath}`);
 		globalThis.config.gameDirectory = steamPath;
 		updateConfig();
 		return;
 	}
 
-	throw logError(`Sandustry app.asar not found in configured path or default steam path: ${globalThis.config.gameDirectory} or ${steamPath}.`);
+	throw logError(`Sandustry app.asar not found in configured path or default steam path: ${globalThis.config.gameDirectory} or ${steamPath}`);
 }
 
 function loadMod(modPath) {
@@ -203,13 +238,14 @@ function loadMod(modPath) {
 		const modFunction = new Function("exports", modContent);
 		modFunction(modExports);
 	} catch (e) {
-		logWarn(`Error loading mod: ${modPath}`);
+		logWarn(`Error loading mod ${modPath}: ${e.message}`);
 		return null;
 	}
 	if (!modExports) {
 		logWarn(`No mod exports found for mod: ${modPath}`);
 		return null;
 	}
+	logDebug(`Loaded mod: ${modPath}`);
 	return modExports;
 }
 
@@ -219,23 +255,28 @@ function validateMod(modExports) {
 		logWarn(`Invalid exports.modinfo for mod: ${modExports.modinfo?.name || "unknown"}`);
 		return false;
 	}
+	logDebug(`Validated mod: ${modExports.modinfo.name}`);
 	return true;
 }
 
 function reloadMods() {
 	globalThis.mods = [];
 
-	const baseModsPath = resolvePathRelativeToModloader(globalThis.config.modsFolder);
+	const baseModsPath = resolvePathRelativeToModloader(globalThis.config.modsPath);
+	logDebug(`Checking for mods in folder: ${baseModsPath}`);
 	ensureDirectoryExists(baseModsPath);
 
 	// Find all mod files in the mod folder
 	let modPaths = [];
 	try {
-		logDebug(`Checking for mods in folder: ${baseModsPath}`);
-		modPaths = fs.readdirSync(baseModsPath).filter((file) => file.endsWith(".js"));
+		modPaths = fs.readdirSync(baseModsPath)
+			.filter((file) => file.endsWith(".js"))
+			.map((file) => path.join(baseModsPath, file));
 	} catch (e) {
 		throw logError(`Error loading mods: ${e}`);
 	}
+
+	logDebug(`Found ${modPaths.length} mod(s) in folder: ${baseModsPath}`);
 
 	for (const modPath of modPaths) {
 		// Try load and validate each mod, continue with warning otherwise
@@ -251,15 +292,22 @@ function reloadMods() {
 		}
 
 		globalThis.mods.push({
-			name: modExports.modinfo.name,
-			version: modExports.modinfo.version,
 			exports: modExports,
 			path: modPath,
 			isActive: true,
 		});
 	}
 
-	log(`Loaded ${globalThis.mods.length} mod(s): [ ${globalThis.mods.map((m) => m.exports.modinfo.name).join(", ")} ]`);
+	logInfo(`Loaded ${globalThis.mods.length} mod(s) from ${baseModsPath}: [ ${globalThis.mods.map((m) => m.exports.modinfo.name).join(", ")} ]`);
+}
+
+function getModData() {
+	return globalThis.mods.map((mod) => {
+		return {
+			...mod.exports.modinfo,
+			isActive: mod.isActive,
+		};
+	});
 }
 
 function setModActive(modName, isActive) {
@@ -272,16 +320,31 @@ function setModActive(modName, isActive) {
 	mod.isActive = isActive;
 }
 
-function reorderMods(modNameOrder) {
+function reorderModLoadOrder(modNameOrder) {
+	logDebug("Reordering mod load order...");
+
 	if (modNameOrder.length != globalThis.mods.length) {
 		logError(`New mod load order wrong length: ${modNameOrder.length} != ${globalThis.mod.length}`);
 	}
 
 	// Grab each mod based on the name
 	let modsNewOrder = [];
+	
 	// TODO
 
 	globalThis.mods = modsNewOrder;
+}
+
+function extractGame() {
+	// Create a new temp dir for the game
+	const extractedBasePath = createNewTempDirectory();
+	const extractedAsarPath = path.join(tempDir, "app.asar");
+	globalThis.extractedGamePath = path.join(tempDir, "extracted");
+	ensureDirectoryExists(globalThis.extractedGamePath);
+	
+	logDebug(`Extracting game.asar to ${extractedBasePath}`);
+
+	// TODO
 }
 
 function applyModPatches() {
@@ -302,72 +365,24 @@ function applyModPatches() {
 	// }
 }
 
-// ------------ ELECTRON  ------------
-
-function setupModloaderIPC() {
-	// We want the following:
-	// - Get all mods and their data
-	// - Toggle mod active
-	// - Reload mods
-	// - Start game window
-}
-
-async function setupElectronApp() {
-	protocol.registerSchemesAsPrivileged([{ scheme: "file", privileges: { standard: true, supportFetchAPI: true, secure: true } }]);
-
-	await app.whenReady();
-
-	app.on("activate", () => {
-		console("No windows open, starting modloader.");
-		if (BrowserWindow.getAllWindows().length === 0) {
-			setupApp();
-		}
-	});
-
-	app.on("window-all-closed", () => {
-		console.log("All windows closed, exiting");
-		if (process.platform !== "darwin") {
-			app.quit();
-		}
-	});
-
-	setupModloaderIPC();
-}
-
-function startModloaderWindow() {
-	const modloaderWindow = new BrowserWindow({
-		width: 800,
-		height: 600,
-		webPreferences: {
-			nodeIntegration: true,
-			contextIsolation: false,
-		},
-	});
-	modloaderWindow.loadFile("index.html");
-	modloaderWindow.webContents.openDevTools();
-}
-
-function extractGame() {
-	// Create a new temp dir for the game
-	const extractedBasePath = createNewTempDirectory();
-	const extractedAsarPath = path.join(tempDir, "app.asar");
-	globalThis.extractedGamePath = path.join(tempDir, "extracted");
-	ensureDirectoryExists(globalThis.extractedGamePath);
-
-	// TODO
-}
-
-function processGameElectronApp() {
+function processGameApp() {
 	// Find the main.js inside the game.asar
 	const basePath = globalThis.extractedGamePath;
 	const mainPath = path.join(asarPath, "main.js");
-	let mainContent = fs.readFileSync(mainPath, "utf8");
+	let mainContent;
+
+	logDebug(`Processing game electron app: ${mainPath}`);
+	try {
+		mainContent = fs.readFileSync(mainPath, "utf8");
+	} catch (e) {
+		throw logError(`Error reading main.js: ${e}`);
+	}
 
 	// Rename and expose the games main electron functions
-	mainContent = mainContent.replaceAll("function createWindow ()", "globalThis.sandustryElectron.createWindow = function()");
-	mainContent = mainContent.replaceAll("function setupIpcHandlers()", "globalThis.sandustryElectron.setupIpcHandlers = function()");
-	mainContent = mainContent.replaceAll("function loadSettingsSync()", "globalThis.sandustryElectron.loadSettingsSync = function()");
-	mainContent = mainContent.replaceAll("loadSettingsSync()", "globalThis.sandustryElectron.loadSettingsSync()");
+	mainContent = mainContent.replaceAll("function createWindow ()", "globalThis.gameElectronFuncs.createWindow = function()");
+	mainContent = mainContent.replaceAll("function setupIpcHandlers()", "globalThis.gameElectronFuncs.setupIpcHandlers = function()");
+	mainContent = mainContent.replaceAll("function loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync = function()");
+	mainContent = mainContent.replaceAll("loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync()");
 
 	// Block the automatic app listeners so we control when things happen
 	mainContent = mainContent.replaceAll("app.whenReady().then(() => {", "var _ = (() => {");
@@ -382,33 +397,107 @@ function processGameElectronApp() {
 	mainContent = mainContent.replaceAll("loadFile('index.html')", `loadFile('${path.join(basePath, "index.html").replaceAll("\\", "/")}')`);
 
 	// Expose the games main window to be global
-	mainContent = mainContent.replaceAll("const mainWindow", "globalThis.gameElectron_window");
-	mainContent = mainContent.replaceAll("mainWindow", "globalThis.gameElectron_window");
+	mainContent = mainContent.replaceAll("const mainWindow", "globalThis.gameWindow");
+	mainContent = mainContent.replaceAll("mainWindow", "globalThis.gameWindow");
 
 	// Run the code to register their functions with eval
 	// Using Function(...) doesn't work well due to not being able to access require or the global scope
-	globalThis.sandustryElectron = {};
-	eval(mainContent);
+	logDebug(`Evaluating game electron app of length ${mainContent.length}`);
+	try {
+		globalThis.gameElectronFuncs = {};
+		eval(mainContent);
+	} catch (e) {
+		throw logError(`Error evaluating main.js: ${e}`);
+	}
+}
+
+// ------------ ELECTRON  ------------
+
+function setupModloaderIPC() {
+	ipcMain.handle("ml:get-mods", async (event, args) => {
+		return getModData();
+	});
+
+	ipcMain.handle("ml:toggle-mod", async (event, args) => {
+		const modName = args.name;
+		const isActive = args.active;
+		setModActive(modName, isActive);
+	});
+	
+	ipcMain.handle("ml:reload-mods", async (event, args) => {
+		reloadMods();
+	});
+
+	ipcMain.handle("ml:start-game", async (event, args) => {
+		startGameWindow();
+	});
+}
+
+async function setupApp() {
+	process.env["ELECTRON_DISABLE_SECURITY_WARNINGS"] = "true";
+
+	await app.whenReady();
+
+	app.on("window-all-closed", () => {
+		logInfo("All windows closed, exiting...");
+		if (process.platform !== "darwin") {
+			cleanupApp();
+			app.quit();
+		}
+	});
+
+	setupModloaderIPC();
+}
+
+function startModloaderWindow() {
+	try {
+		logDebug("Starting modloader window: src/modloader.html");
+
+		globalThis.modloaderWindow = new BrowserWindow({
+			width: 1400,
+			height: 1200,
+			webPreferences: {
+				preload: resolvePathRelativeToModloader("modloader-preload.js")
+			},
+		});
+
+		globalThis.modloaderWindow.on("closed", () => {
+			globalThis.modloaderWindow = null;
+		});
+		
+		globalThis.modloaderWindow.loadFile("src/modloader.html");
+		globalThis.modloaderWindow.webContents.openDevTools();
+
+	} catch (e) {
+		throw logError(`Error starting modloader window: ${e}`);
+	}
 }
 
 function startGameWindow() {
 	extractGame();
-	processGameElectronApp();
+	processGameApp();
 	applyModPatches();
+	// TODO
+}
+
+function closeGameWindow() {
+	// TODO
+}
+
+function cleanupApp() {
+	deleteTempDirectory();
+	logDebug("Cleanup complete");
+	console.log("\n");
 }
 
 (async () => {
-	logInfo(`Starting modloader ${modloaderVersion}`);
+	logInfo(`Starting modloader ${modloaderVersion}...`);
 
-	// Setup
+	listenToUnhandledErrors();
 	readAndLoadConfig();
 	findAndVerifyGameExists();
 	reloadMods();
 
-	// Main functionality
-	await setupElectronApp();
+	await setupApp();
 	startModloaderWindow();
-
-	// Cleanup
-	deleteTempDirectory();
 })();
