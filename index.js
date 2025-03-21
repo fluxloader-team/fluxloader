@@ -7,6 +7,8 @@ globalThis.path = require("path");
 globalThis.http = require("http");
 globalThis.fs = require("fs");
 
+globalThis.modloaderVersion = "1.5.0";
+
 // --------------------- UTILIY ---------------------
 
 globalThis.configLevels = ["debug", "info", "error"];
@@ -31,7 +33,7 @@ globalThis.logBase = function (level, tag, message) {
 	if (config.logging.logToFile) {
 		fs.appendFileSync(globalThis.resolvedLogPath, `${finalMessage}\n`);
 	}
-	
+
 	if (canLogConsole(level)) {
 		console.log(finalMessage);
 	}
@@ -341,10 +343,7 @@ class ASTPatchNode {
 					if (keys instanceof Array) {
 						return keys.every((key) => {
 							return properties.find((prop) => {
-								return (
-									prop.type === "Property" &&
-									((prop.key.type === "Literal" && prop.key.value === key) || (prop.key.type === "Identifier" && prop.key.name === key))
-								);
+								return prop.type === "Property" && ((prop.key.type === "Literal" && prop.key.value === key) || (prop.key.type === "Identifier" && prop.key.name === key));
 							});
 						});
 					}
@@ -353,10 +352,7 @@ class ASTPatchNode {
 					else if (keys instanceof Object) {
 						return Object.keys(keys).every((key) => {
 							let prop = properties.find((prop) => {
-								return (
-									prop.type === "Property" &&
-									((prop.key.type === "Literal" && prop.key.value === key) || (prop.key.type === "Identifier" && prop.key.name === key))
-								);
+								return prop.type === "Property" && ((prop.key.type === "Literal" && prop.key.value === key) || (prop.key.type === "Identifier" && prop.key.name === key));
 							});
 							if (prop === undefined) return false;
 							return hasKeys(keys[key], prop.value.properties);
@@ -375,10 +371,7 @@ class ASTPatchNode {
 					// Check each property and nested object of values is in properties
 					return Object.keys(values).every((key) => {
 						let prop = properties.find((prop) => {
-							return (
-								prop.type === "Property" &&
-								((prop.key.type === "Literal" && prop.key.value === key) || (prop.key.type === "Identifier" && prop.key.name === key))
-							);
+							return prop.type === "Property" && ((prop.key.type === "Literal" && prop.key.value === key) || (prop.key.type === "Identifier" && prop.key.name === key));
 						});
 						if (prop === undefined) return false;
 
@@ -464,17 +457,7 @@ class ASTPatchNode {
 		let name = null;
 		let isAnonymous = false;
 
-		const anonymousTypes = [
-			"CallExpression",
-			"NewExpression",
-			"ReturnStatement",
-			"LogicalExpression",
-			"SequenceExpression",
-			"ArrayExpression",
-			"MemberExpression",
-			"ConditionalExpression",
-			"ArrowFunctionExpression",
-		];
+		const anonymousTypes = ["CallExpression", "NewExpression", "ReturnStatement", "LogicalExpression", "SequenceExpression", "ArrayExpression", "MemberExpression", "ConditionalExpression", "ArrowFunctionExpression"];
 
 		if (anonymousTypes.includes(node._parent.type)) {
 			isAnonymous = true;
@@ -614,8 +597,7 @@ class ASTPatchNode {
 		}
 
 		// The wrap function arguments must match the current function arguments + 1 (for the function)
-		if (this.astNode.params.length != wrapperAST.params.length - 1)
-			throw new Error("wrap(...) requires the same number of arguments as the current function + 1 (for the function).");
+		if (this.astNode.params.length != wrapperAST.params.length - 1) throw new Error("wrap(...) requires the same number of arguments as the current function + 1 (for the function).");
 		const innerDefinitionName = wrapperAST.params[0].name;
 
 		// Convert the body to a block statement if it is not
@@ -833,11 +815,7 @@ globalThis.applyBundlePatches = function (data) {
 			const regex = new RegExp(patch.pattern, "g");
 			const matches = data.match(regex);
 			if (Object.hasOwn(patch, "expectedMatches") && matches && patch.expectedMatches >= 0 && matches.length !== patch.expectedMatches) {
-				throw new Error(
-					`Failed to apply regex patch: "${patch.pattern}" -> "${patch.replace}", ${matches ? matches.length : 0} / ${
-						patch.expectedMatches
-					} match(s).`
-				);
+				throw new Error(`Failed to apply regex patch: "${patch.pattern}" -> "${patch.replace}", ${matches ? matches.length : 0} / ${patch.expectedMatches} match(s).`);
 			} else {
 				data = data.replace(regex, patch.replace);
 				console.log(matches);
@@ -895,14 +873,13 @@ function ensureDirectoryExists(dirPath) {
 }
 
 async function readAndVerifyConfig() {
-	
 	try {
 		// Read the source config from assets
 		const configSourcePath = resolvePathToAsset("modloader-config.json");
 		const configTargetPath = resolvePathRelativeToModloader("modloader-config.json");
 		const sourceConfigString = fs.readFileSync(configSourcePath, "utf8");
 		const sourceConfig = JSON.parse(sourceConfigString);
-		
+
 		// If target config file doesn't exist so we just copy the source
 		if (!fs.existsSync(configTargetPath)) {
 			fs.writeFileSync(configTargetPath, sourceConfigString, "utf8");
@@ -956,7 +933,7 @@ async function readAndVerifyConfig() {
 				fs.writeFileSync(configTargetPath, targetConfigUpdated, "utf8");
 				logDebug(`Config ${configTargetPath} updated successfully.`);
 			}
-			
+
 			// Ensure mod config directory exists afterwards
 			const modsConfigDirectory = resolvePathRelativeToModloader("mods/config");
 			ensureDirectoryExists(modsConfigDirectory);
@@ -1060,9 +1037,7 @@ function validateMod(mod) {
 			return false;
 		}
 		if (loadedMod.modinfo.version !== depVersion) {
-			console.error(
-				`Version mismatch for dependency '${depName}' in mod '${mod.modinfo.name}'. Expected: ${depVersion}, Found: ${loadedMod.modinfo.version}`
-			);
+			console.error(`Version mismatch for dependency '${depName}' in mod '${mod.modinfo.name}'. Expected: ${depVersion}, Found: ${loadedMod.modinfo.version}`);
 			return false;
 		}
 	}
@@ -1103,7 +1078,7 @@ async function loadAndValidateAllMods() {
 			}
 		}
 
-		log(`Validated ${globalThis.loadedMods.length} mod(s): [ ${globalThis.loadedMods.map((m) => m.exports.modinfo.name).join(", ")} ]`);
+		log(`Validated ${globalThis.loadedMods.length} mod(s): [ ${globalThis.loadedMods.map((m) => `${m.exports.modinfo.name} (v${m.exports.modinfo.version})`).join(", ")} ]`);
 	} catch (error) {
 		logError(`Error loading and validating mods: ${error.message}`);
 		throw error;
@@ -1132,103 +1107,85 @@ async function initializeInterceptions() {
 		await cdpClient.send("Fetch.enable", { patterns: fetchPatterns });
 
 		// Listen for any intercepted requests
-		await cdpClient.on(
-			"Fetch.requestPaused",
-			async ({
-				requestId,
-				request,
-				frameId,
-				resourceType,
-				responseErrorReason,
-				responseStatusCode,
-				responseStatusText,
-				responseHeaders,
-				networkId,
-				redirectedRequestId,
-			}) => {
-				var interceptionId = requestId;
+		await cdpClient.on("Fetch.requestPaused", async ({ requestId, request, frameId, resourceType, responseErrorReason, responseStatusCode, responseStatusText, responseHeaders, networkId, redirectedRequestId }) => {
+			var interceptionId = requestId;
 
-				// Find the matching intercepts for the request
-				let matchingIntercepts = [];
-				interceptPatterns.forEach((pattern) => {
-					if (request.url.toLowerCase().includes(pattern.toLowerCase())) {
-						matchingIntercepts.push(...globalThis.intercepts[pattern]);
-					}
+			// Find the matching intercepts for the request
+			let matchingIntercepts = [];
+			interceptPatterns.forEach((pattern) => {
+				if (request.url.toLowerCase().includes(pattern.toLowerCase())) {
+					matchingIntercepts.push(...globalThis.intercepts[pattern]);
+				}
+			});
+
+			logDebug(`Intercepted ${request.url} with response code ${responseStatusCode} and interception id: ${interceptionId}: ${matchingIntercepts.length} matching intercept(s).`);
+
+			// Including * or ? in the pattern will cause the 'fetchPatterns' to pick up a URL that no 'interceptPattern' matches
+			// This is because fetch uses a pseudo regex pattern, but just above here we are doing a simple string includes
+			if (matchingIntercepts.length === 0) {
+				logError(`No matching intercepts found for ${request.url}, check your patterns dont include "*" or "?".`);
+				process.exit(1);
+			}
+
+			let currentResponse = null;
+
+			// If any of the patterns request the base response then we need to retrieve it
+			const anyRequestBase = matchingIntercepts.some((intercept) => intercept.requiresBaseResponse);
+			if (anyRequestBase) {
+				currentResponse = await cdpClient.send("Fetch.getResponseBody", { requestId: interceptionId });
+				currentResponse = {
+					body: currentResponse.body,
+					contentType: responseHeaders.find(({ name }) => name.toLowerCase() === "content-type").value,
+				};
+			}
+
+			// Sequentially go through the intercepts and get the final response
+			for (const matchingIntercept of matchingIntercepts) {
+				const interceptResponse = await matchingIntercept.getFinalResponse({
+					interceptionId,
+					request,
+					baseResponse: currentResponse,
+					responseHeaders,
+					resourceType,
 				});
 
-				logDebug(
-					`Intercepted ${request.url} with response code ${responseStatusCode} and interception id: ${interceptionId}: ${matchingIntercepts.length} matching intercept(s).`
-				);
+				// If the response is falsy then just keep the current response
+				if (!interceptResponse) continue;
 
-				// Including * or ? in the pattern will cause the 'fetchPatterns' to pick up a URL that no 'interceptPattern' matches
-				// This is because fetch uses a pseudo regex pattern, but just above here we are doing a simple string includes
-				if (matchingIntercepts.length === 0) {
-					logError(`No matching intercepts found for ${request.url}, check your patterns dont include "*" or "?".`);
-					process.exit(1);
-				}
-
-				let currentResponse = null;
-
-				// If any of the patterns request the base response then we need to retrieve it
-				const anyRequestBase = matchingIntercepts.some((intercept) => intercept.requiresBaseResponse);
-				if (anyRequestBase) {
-					currentResponse = await cdpClient.send("Fetch.getResponseBody", { requestId: interceptionId });
-					currentResponse = {
-						body: currentResponse.body,
-						contentType: responseHeaders.find(({ name }) => name.toLowerCase() === "content-type").value,
-					};
-				}
-
-				// Sequentially go through the intercepts and get the final response
-				for (const matchingIntercept of matchingIntercepts) {
-					const interceptResponse = await matchingIntercept.getFinalResponse({
-						interceptionId,
-						request,
-						baseResponse: currentResponse,
-						responseHeaders,
-						resourceType,
-					});
-
-					// If the response is falsy then just keep the current response
-					if (!interceptResponse) continue;
-
-					currentResponse = interceptResponse;
-				}
-
-				// We want to allow null responses for empty endpoints
-				if (!currentResponse) {
-					currentResponse = { body: "", contentType: "text/plain" };
-				}
-
-				try {
-					// Try and populate the response headers with the content length and type
-					if (!responseHeaders) {
-						responseHeaders = [
-							{ name: "Content-Length", value: currentResponse.body.length.toString() },
-							{ name: "Content-Type", value: currentResponse.contentType },
-						];
-					} else {
-						responseHeaders = responseHeaders.map(({ name, value }) => {
-							if (name.toLowerCase() === "content-length") value = currentResponse.body.length.toString();
-							else if (name.toLowerCase() === "content-type") value = currentResponse.contentType;
-							return { name, value };
-						});
-					}
-				} catch (e) {
-					logDebug(JSON.stringify(responseHeaders));
-					logError(e);
-				}
-
-				// Extract a response code if provided
-				const responseCode = currentResponse.responseCode || 200;
-
-				// Finally we can send the fulfilled request back to the browser
-				logDebug(
-					`Fulfilling ${request.url} {interception id: ${interceptionId}}, ${currentResponse.body.length} bytes, ${currentResponse.contentType}`
-				);
-				await cdpClient.send("Fetch.fulfillRequest", { requestId: interceptionId, responseCode, responseHeaders, body: currentResponse.body });
+				currentResponse = interceptResponse;
 			}
-		);
+
+			// We want to allow null responses for empty endpoints
+			if (!currentResponse) {
+				currentResponse = { body: "", contentType: "text/plain" };
+			}
+
+			try {
+				// Try and populate the response headers with the content length and type
+				if (!responseHeaders) {
+					responseHeaders = [
+						{ name: "Content-Length", value: currentResponse.body.length.toString() },
+						{ name: "Content-Type", value: currentResponse.contentType },
+					];
+				} else {
+					responseHeaders = responseHeaders.map(({ name, value }) => {
+						if (name.toLowerCase() === "content-length") value = currentResponse.body.length.toString();
+						else if (name.toLowerCase() === "content-type") value = currentResponse.contentType;
+						return { name, value };
+					});
+				}
+			} catch (e) {
+				logDebug(JSON.stringify(responseHeaders));
+				logError(e);
+			}
+
+			// Extract a response code if provided
+			const responseCode = currentResponse.responseCode || 200;
+
+			// Finally we can send the fulfilled request back to the browser
+			logDebug(`Fulfilling ${request.url} {interception id: ${interceptionId}}, ${currentResponse.body.length} bytes, ${currentResponse.contentType}`);
+			await cdpClient.send("Fetch.fulfillRequest", { requestId: interceptionId, responseCode, responseHeaders, body: currentResponse.body });
+		});
 	} catch (e) {
 		logError(e);
 		process.exit(1);
@@ -1258,6 +1215,8 @@ async function initializeModloader() {
 	if (config.logging.logToFile) {
 		fs.writeFileSync(globalThis.resolvedLogPath, "", "utf8");
 	}
+
+	log(`Starting modloader v${globalThis.modloaderVersion}..`);
 
 	if (!fs.existsSync(config.paths.executable)) {
 		logError(`Game executable not found: ${config.paths.executable}`);
