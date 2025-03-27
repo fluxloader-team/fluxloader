@@ -7,21 +7,34 @@ globalThis.asar = require("asar");
 
 // ------------- MOD DOCUMENTATION -------------
 
-// Mods must export:
+// (electron environment) Mods must define mod info:
 // - exports.modinfo = { name: string, version: string }
 
-globalThis.requiredModInfo = ["name", "version"];
+globalThis.modInfoRequirements = ["name", "version"];
 
-// Events that can be listened to through modloaderAPI.events.on(event, func)
-// : Inside electron app environment
-//   - ml:onModLoaded            When this mod is finished being loaded
-//   - ml:onAllModsLoaded        When all mods are finished being loaded
-//   - ml:onSetActive(isActive)  When mod set active / inactive
-// : Inside game window environment
-//   - ml:onMenuLoaded           When the game is loaded into the menu
-//   - ml:onGameLoaded           When the game is loaded into the game
+// (electron environment) Mods can add patches through modloaderAPI.addPatch(patch)
+// patch: { file?: string, expectedMatches?: number, ... }
+// - { ... type: "replace", from: string, to: string }
+// - { ... type: "regex", match: string, replace: string }
 
-globalThis.allowedModEvents = ["onModLoaded", "onAllModsLoaded", "onMenuLoaded", "onGameLoaded", "onSetActive"];
+globalThis.patchTypeRequirements = {
+	replace: ["from", "to"],
+	regex: ["match", "replace"],
+};
+
+// Events can be listened to with modloaderAPI.events.on(event, func)
+//
+// (electron environment)
+//   - ml:onModLoaded             When this mod is loaded
+//   - ml:onAllModsLoaded         When all mods are loaded
+//   - ml:onSetActive(isActive)   When mod set active / inactive
+//   - ml:onModUnloaded           When this mod is being unloaded (e.g. refresh)
+//
+// (browser environment)
+//   - ml:onMenuLoaded   When the game is loaded into the menu
+//   - ml:onGameLoaded   When the game is loaded into the game
+
+globalThis.modEvents = ["ml:onModLoaded", "ml:onAllModsLoaded", "ml:onSetActive", "ml:onModUnloaded", "ml:onMenuLoaded", "ml:onGameLoaded"];
 
 // ------------- GLOBALS -------------
 
@@ -32,7 +45,8 @@ globalThis.preConfigLogLevel = "info";
 globalThis.configPath = "modloader-config.json";
 globalThis.config = undefined;
 globalThis.tempDirectory = undefined;
-globalThis.mods = [];
+globalThis.mods = {};
+globalThis.modsOrder = [];
 globalThis.baseGameAsarPath = undefined;
 globalThis.extractedAsarPath = undefined;
 globalThis.extractedGamePath = undefined;
@@ -61,7 +75,7 @@ globalThis.log = function (level, tag, message) {
 
 	const levelIndex = logLevels.indexOf(level);
 	const timestamp = new Date().toISOString().split("T")[1].split("Z")[0];
-	const finalMessage = `[${level.toUpperCase().padEnd(6, " ")}${tag ? " (" + tag + ")" : ""} ${timestamp}] ${message}`;
+	const finalMessage = `[${level.toUpperCase().padEnd(6, " ")} ${timestamp}${tag ? "  " + tag : ""}] ${message}`;
 
 	// Only log to file if defined by the config and level is allowed
 	if (config && config.logging.logToFile) {
@@ -177,11 +191,15 @@ function stringToHash(string) {
 
 // ------------ MODLOADER API ------------
 
-class EventBus {
+// TODO: This section probably needs to be moved to a separate file for browser / electron
+
+class ModloaderEvents {
 	events = [];
 	listeners = {};
 
 	registerEvent(event) {
+		logDebug(`Registering event: ${event}`);
+
 		if (this.events.includes(event)) {
 			throw new Error(`Event already registered: ${event}`);
 		}
@@ -191,6 +209,8 @@ class EventBus {
 	}
 
 	trigger(event, ...args) {
+		logDebug(`Triggering event: ${event}`);
+
 		if (!this.events.includes(event)) {
 			throw new Error(`Unallowed event called: ${event}`);
 		}
@@ -203,6 +223,8 @@ class EventBus {
 	}
 
 	triggerFor(event, listener, ...args) {
+		logDebug(`Triggering event for: ${event} -> ${listener}`);
+
 		if (!this.events.includes(event)) {
 			throw new Error(`Unallowed event called: ${event}`);
 		}
@@ -214,7 +236,9 @@ class EventBus {
 		}
 	}
 
-	on(event, listener, func) {
+	on(listener, event, func) {
+		logDebug(`Adding listener: ${event} -> ${listener}`);
+
 		if (!this.events.includes(event)) {
 			throw new Error(`Unallowed event called: ${event}`);
 		}
@@ -226,7 +250,9 @@ class EventBus {
 		this.listeners[event][listener].push(func);
 	}
 
-	off(event, listener) {
+	off(listener, event) {
+		logDebug(`Removing listener: ${event} -> ${listener}`);
+
 		if (!this.events.includes(event)) {
 			throw new Error(`Unallowed event called: ${event}`);
 		}
@@ -235,15 +261,43 @@ class EventBus {
 			delete this.listeners[event][listener];
 		}
 	}
+
+	clearListeners() {
+		for (const event in this.listeners) {
+			this.listeners[event] = {};
+		}
+	}
+}
+
+class ModloaderConfig {
+	get(modName) {
+		// TODO: Implement once decided on design
+		return {};
+	}
 }
 
 class ModloaderAPI {
-	events = new EventBus();
+	environmentType = undefined;
+	events = new ModloaderEvents();
+	config = new ModloaderConfig();
 
-	constructor() {
-		for (const event of allowedModEvents) {
-			this.events.registerEvent("ml:" + event);
+	constructor(environmentType) {
+		this.environmentType = environmentType;
+		for (const event of modEvents) {
+			this.events.registerEvent(event);
 		}
+	}
+
+	clear() {
+		this.events.clearListeners();
+	}
+
+	addPatch(modName, patch) {
+		// TODO: Implement once decided on design
+	}
+
+	performPatch(modName, patch) {
+		// TODO: Implement once decided on design
 	}
 }
 
@@ -341,24 +395,20 @@ function findAndVerifyGameExists() {
 function setModActive(modName, isActive) {
 	logDebug(`Setting mod active: ${modname}.active = ${isActive}`);
 
-	let mod = mods.find((m) => m.name == modName);
-	if (!mod) {
-		throw new Error(`Mod not found: ${modName}`);
-	}
+	// TODO
+
 	mod.isActive = isActive;
 
-	modloaderAPI.events.triggerFor("onSetActive", modName, isActive);
+	modloaderAPI.events.triggerFor("ml:onSetActive", modName, isActive);
 }
 
 function loadMod(modPath) {
 	// Try and extract mod exports
 	let modExports = {};
 	try {
-		const modContent = fs.readFileSync(modPath, "utf8");
-		const modFunction = new Function("exports", modContent);
-		modFunction(modExports);
+		modExports = require(modPath);
 	} catch (e) {
-		logWarn(`Error loading mod ${modPath}: ${e.message}`);
+		logWarn(`Error loading mod ${modPath}: ${e.stack}`);
 		return null;
 	}
 	if (!modExports) {
@@ -371,7 +421,7 @@ function loadMod(modPath) {
 
 function validateMod(modExports) {
 	// Ensure mod has required modinfo
-	if (!modExports.modinfo || requiredModInfo.some((p) => !Object.hasOwn(modExports.modinfo, p))) {
+	if (!modExports.modinfo || modInfoRequirements.some((p) => !Object.hasOwn(modExports.modinfo, p))) {
 		logWarn(`Invalid exports.modinfo for mod: ${modExports.modinfo?.name || "unknown"}`);
 		return false;
 	}
@@ -380,7 +430,17 @@ function validateMod(modExports) {
 }
 
 function reloadAllMods() {
-	mods = [];
+	if (Object.keys(mods).length > 0) {
+		logDebug(`Unloading ${Object.keys(mods).length} mod(s)...`);
+		for (const modName in mods) {
+			modloaderAPI.events.triggerFor("ml:onModUnloaded", modName);
+			mods[modName].isActive = false;
+		}
+	}
+
+	modloaderAPI.clear();
+	mods = {};
+	modsOrder = [];
 
 	const baseModsPath = resolvePathRelativeToModloader(config.modsPath);
 	logDebug(`Checking for mods in folder: ${baseModsPath}`);
@@ -399,53 +459,54 @@ function reloadAllMods() {
 
 	logDebug(`Found ${modPaths.length} mod(s) in folder: ${baseModsPath}`);
 
+	// Try load and validate each mod, continue with warning otherwise
 	for (const modPath of modPaths) {
-		// Try load and validate each mod, continue with warning otherwise
 		const modExports = loadMod(modPath);
 		if (!modExports) continue;
 		const isValid = validateMod(modExports);
 		if (!isValid) continue;
 
-		// Ensure theres no mods with the same name
-		const conflict = mods.find((otherMod) => otherMod.name == modExports.modinfo.name);
-		if (conflict) {
-			throw new Error(`Mod conflict: ${conflict.path} with ${modPath} on name ${conflict.name}`);
+		// Also ensure theres no mods with the same name
+		const modName = modExports.modinfo.name;
+		if (Object.hasOwn(mods, modName)) {
+			throw new Error(`Mod at path ${modPath} has the same name as another mod: ${modName}`);
 		}
 
 		const mod = { exports: modExports, path: modPath, isActive: true };
-		modloaderAPI.events.triggerFor("ml:onModLoaded", mod.exports.name);
-		mods.push(mod);
+		modloaderAPI.events.triggerFor("ml:onModLoaded", modName);
+		mods[modName] = mod;
+		modsOrder.push(modName);
 	}
 
-	logInfo(`Loaded ${mods.length} mod(s) from ${baseModsPath}: [ ${mods.map((m) => m.exports.modinfo.name).join(", ")} ]`);
-
-	for (const mod of mods) {
-		modloaderAPI.events.trigger("ml:onAllModsLoaded");
-	}
+	logInfo(`Loaded ${Object.keys(mods).length} mod(s) from ${baseModsPath}: [ ${modsOrder.join(", ")} ]`);
+	modloaderAPI.events.trigger("ml:onAllModsLoaded");
 }
 
 function getModData() {
-	return mods.map((mod) => {
-		return {
-			...mod.exports.modinfo,
-			isActive: mod.isActive,
-		};
-	});
+	let modData = [];
+	for (const modName of modsOrder) {
+		modData.push({
+			...mods[modName].exports.modinfo,
+			isActive: mods[modName].isActive,
+		});
+	}
+	return modData;
 }
 
-function reorderModLoadOrder(modNameOrder) {
+function reorderModsOrder(newModsOrder) {
 	logDebug("Reordering mod load order...");
 
-	if (modNameOrder.length != mods.length) {
-		logError(`New mod load order wrong length: ${modNameOrder.length} != ${mod.length}`);
+	if (newModsOrder.length !== modsOrder.length) {
+		throw new Error(`Invalid new mod order length: ${newModsOrder.length} vs ${modsOrder.length}`);
 	}
 
-	// Grab each mod based on the name
-	let modsNewOrder = [];
+	for (const modName of newModsOrder) {
+		if (!Object.hasOwn(mods, modName)) {
+			throw new Error(`Invalid mod name in new order: ${modName}`);
+		}
+	}
 
-	// TODO
-
-	mods = modsNewOrder;
+	modsOrder = newModsOrder;
 }
 
 function extractGame() {
@@ -534,19 +595,52 @@ function processGameAppMain() {
 
 function applyModPatches() {
 	logInfo(`Applying mod patches...`);
-	// TODO: Refactor to the new system and only consider active mods
-	// if (modExports.api) {
-	// 	Object.keys(modExports.api).forEach((key) => {
-	// 		const list = modExports.api[key] instanceof Array ? modExports.api[key] : [modExports.api[key]];
-	// 		if (key in intercepts) intercepts[key].push(...list);
-	// 		else intercepts[key] = list;
-	// 		log(`Mod "${modPath}" added ${list.length} rule(s) to API endpoint: ${key}`);
-	// 	});
-	// }
-	// if (modExports.patches) {
-	// 	bundlePatches = bundlePatches.concat(modExports.patches);
-	// 	for (const patch of modExports.patches) {
-	// 		log(`Mod "${modPath}" added patch: ${patch.type}`);
+
+	// TODO: Implement once decided on design
+
+	// for (const modName of modsOrder) {
+	// 	const mod = mods[modName];
+	// 	if (!mod.exports.patches) continue;
+
+	// 	for (const patch of mod.exports.patches) {
+	// 		const patchPath = path.join(extractedGamePath, patch.file || "bundle.js");
+	// 		let patchContent;
+
+	// 		try {
+	// 			patchContent = fs.readFileSync(patchPath, "utf8");
+	// 		} catch (e) {
+	// 			throw new Error(`Error reading patch file ${patchPath}: ${e.stack}`);
+	// 		}
+
+	// 		if (patch.type == "replace") {
+	// 			const expectedMatches = patch.expectedMatches || 1;
+	// 			let matchCount = 0;
+	// 			let startIndex = 0;
+	// 			while (startIndex < patchContent.length) {
+	// 				const index = patchContent.indexOf(patch.from, startIndex);
+	// 				if (index === -1) break;
+	// 				matchCount++;
+	// 				startIndex = index + patch.from.length;
+	// 			}
+	// 			if (matchCount !== expectedMatches) {
+	// 				throw new Error(`Patch failed: Expected ${expectedMatches} matches, but found ${matchCount} for patch in ${patchPath}`);
+	// 			}
+	// 			patchContent = patchContent.replaceAll(patch.from, patch.to);
+	// 		} else if (patch.type == "regex") {
+	// 			const expectedMatches = patch.expectedMatches || 1;
+	// 			const regex = new RegExp(patch.match, "g");
+	// 			const matches = patchContent.match(regex);
+	// 			if (matches.length !== expectedMatches) {
+	// 				throw new Error(`Patch failed: Expected ${expectedMatches} matches, but found ${matches.length} for patch in ${patchPath}`);
+	// 			}
+	// 			patchContent = patchContent.replace(regex, patch.replace);
+	// 		}
+
+	// 		try {
+	// 			fs.writeFileSync(patchPath, patchContent, "utf8");
+	// 		} catch (e) {
+	// 			throw new Error(`Error writing patch file ${patchPath}: ${e.stack}`);
+	// 		}
 	// 	}
 	// }
 }
@@ -575,21 +669,6 @@ function setupModloaderIPC() {
 		logDebug("Received ml:start-game");
 		startGameWindow();
 	});
-}
-
-async function setupApp() {
-	process.env["ELECTRON_DISABLE_SECURITY_WARNINGS"] = "true";
-
-	await app.whenReady();
-
-	app.on("window-all-closed", () => {
-		logInfo("All windows closed, exiting...");
-		if (process.platform !== "darwin") {
-			closeApp();
-		}
-	});
-
-	setupModloaderIPC();
 }
 
 function startModloaderWindow() {
@@ -625,18 +704,36 @@ function startGameWindow() {
 	extractGame();
 	processGameAppMain();
 	applyModPatches();
-	// TODO
 
 	logInfo("Starting game window...");
+
+	// TODO: Start game window
 }
 
 function closeGameWindow() {
 	gameWindow.close();
 	gameWindow = null;
+
+	// TODO: Handle game window closing
 }
 
 function onGameWindowClosed() {
-	// TODO
+	// TODO: Handle game window closing
+}
+
+async function setupApp() {
+	process.env["ELECTRON_DISABLE_SECURITY_WARNINGS"] = "true";
+
+	await app.whenReady();
+
+	app.on("window-all-closed", () => {
+		logInfo("All windows closed, exiting...");
+		if (process.platform !== "darwin") {
+			closeApp();
+		}
+	});
+
+	setupModloaderIPC();
 }
 
 function closeApp() {
@@ -673,7 +770,7 @@ async function startApp() {
 	catchUnexpectedExits();
 
 	// Start modloader
-	modloaderAPI = new ModloaderAPI();
+	modloaderAPI = new ModloaderAPI("electron");
 	readAndLoadConfig();
 	findAndVerifyGameExists();
 	reloadAllMods();
