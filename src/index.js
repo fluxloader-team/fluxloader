@@ -701,6 +701,10 @@ function onModloaderWindowClosed() {
 }
 
 function startGameWindow() {
+	// TODO: We may want a different control flow here
+	// If the game has already been loaded once we prob dont want to extract again
+	// Instead we want to revert the patches and reapply the new ones
+
 	extractGame();
 	processGameAppMain();
 	applyModPatches();
