@@ -5,9 +5,9 @@ globalThis.process = require("process");
 globalThis.os = require("os");
 globalThis.asar = require("asar");
 
-// NOTE: This file and branch is WIP, at no specific commit does it reflect the planned expected behaviour.
+// ------------- MODDING DOCUMENTATION -------------
 
-// ------------- MOD DOCUMENTATION -------------
+// NOTE: This file and branch is WIP, at no specific commit does it reflect the planned expected behaviour.
 
 // Mods are defined in a /MODFOLDER directory with a required modinfo.json
 
@@ -23,26 +23,24 @@ globalThis.asar = require("asar");
 // Mods are ran inside the (electron) and the (browser) environment with their entrypoints.
 // See the Modloader API section for how to interact with the modloader.
 
-// ------------- GLOBALS -------------
+// ------------- VARIABLES -------------
 
 globalThis.modloaderVersion = "2.0.0";
-globalThis.logLevels = ["debug", "info", "warn", "error"];
-globalThis.logFilePath = undefined;
-globalThis.preConfigLogLevel = "info";
-globalThis.configPath = "modloader-config.json";
-globalThis.config = undefined;
-globalThis.tempDirectory = undefined;
-globalThis.mods = {};
-globalThis.modsOrder = [];
-globalThis.baseGameAsarPath = undefined;
-globalThis.extractedAsarPath = undefined;
-globalThis.extractedGamePath = undefined;
 globalThis.gameElectronFuncs = undefined;
-globalThis.gameWindow = undefined;
-globalThis.modloaderWindow = undefined;
 globalThis.modloaderAPI = undefined;
-globalThis.defaultConfig = {
-	gameDirectory: ".",
+
+let logLevels = ["debug", "info", "warn", "error"];
+let logFilePath = undefined;
+let preConfigLogLevel = "info";
+let configPath = "modloader-config.json";
+let config = undefined;
+let mods = {};
+let modsOrder = [];
+let gameFileManager = undefined;
+let gameWindow = undefined;
+let modloaderWindow = undefined;
+let defaultConfig = {
+	gamePath: ".",
 	modsPath: "./mods",
 	logging: {
 		logToFile: true,
@@ -124,44 +122,26 @@ function ensureDirectoryExists(dirPath) {
 	}
 }
 
-function createNewTempDirectory() {
-	if (tempDirectory) {
-		deleteCurrentTempDirectory();
-	}
-
-	const tempDir = path.join(os.tmpdir(), `sandustry-modloader-${Date.now()}`);
-	logDebug(`Creating new temp directory: ${tempDir}`);
-	ensureDirectoryExists(tempDir);
-	tempDirectory = tempDir;
-	return tempDir;
-}
-
-function deleteCurrentTempDirectory() {
-	if (!tempDirectory) return;
-
-	logDebug(`Deleting temp directory: ${tempDirectory}`);
-
-	try {
-		fs.rmSync(tempDirectory, { recursive: true });
-	} catch (e) {
-		throw new Error(`Failed to delete temp directory ${tempDirectory}: ${e.stack}`);
-	}
-
-	logDebug(`Temp directory deleted: ${tempDirectory}`);
-	tempDirectory = undefined;
-}
-
 function catchUnexpectedExits() {
 	process.on("uncaughtException", (err) => {
 		logError(`Uncaught exception: ${err.stack}`);
 		unexpectedCleanupApp();
 		process.exit(1);
 	});
-
 	process.on("unhandledRejection", (err) => {
 		logError(`Unhandled rejection: ${err.stack}`);
 		unexpectedCleanupApp();
 		process.exit(1);
+	});
+	process.on("SIGINT", () => {
+		logInfo("SIGINT received, exiting...");
+		cleanupApp();
+		process.exit(0);
+	});
+	process.on("SIGTERM", () => {
+		logInfo("SIGTERM received, exiting...");
+		cleanupApp();
+		process.exit(0);
 	});
 }
 
@@ -179,8 +159,8 @@ function stringToHash(string) {
 // ------------ MODLOADER API ------------
 
 class ModloaderEvents {
-	static electronEvents = [ "ml:onModLoaded", "ml:onModUnloaded", "ml:onAllModsLoaded", "ml:onSetActive" ];
-	static browserEvents = [ "ml:onMenuLoaded", "ml:onGameLoaded" ];
+	static electronEvents = ["ml:onModLoaded", "ml:onModUnloaded", "ml:onAllModsLoaded", "ml:onSetActive"];
+	static browserEvents = ["ml:onMenuLoaded", "ml:onGameLoaded"];
 
 	events = [];
 	listeners = {};
@@ -194,22 +174,18 @@ class ModloaderEvents {
 
 	registerEvent(event) {
 		logDebug(`Registering event: ${event}`);
-
 		if (this.events.includes(event)) {
 			throw new Error(`Event already registered: ${event}`);
 		}
-
 		this.events.push(event);
 		this.listeners[event] = {};
 	}
 
 	trigger(event, ...args) {
 		logDebug(`Triggering event: ${event}`);
-
 		if (!this.events.includes(event)) {
 			throw new Error(`Unallowed event called: ${event}`);
 		}
-
 		for (const listener in this.listeners[event]) {
 			for (const func of this.listeners[event][listener]) {
 				func(...args);
@@ -219,11 +195,9 @@ class ModloaderEvents {
 
 	triggerFor(event, listener, ...args) {
 		logDebug(`Triggering event for: ${event} -> ${listener}`);
-
 		if (!this.events.includes(event)) {
 			throw new Error(`Unallowed event called: ${event}`);
 		}
-
 		if (Object.hasOwn(this.listeners[event], listener)) {
 			for (const func of this.listeners[event][listener]) {
 				func(...args);
@@ -247,11 +221,9 @@ class ModloaderEvents {
 
 	off(listener, event) {
 		logDebug(`Removing listener: ${event} -> ${listener}`);
-
 		if (!this.events.includes(event)) {
 			throw new Error(`Unallowed event called: ${event}`);
 		}
-
 		if (Object.hasOwn(this.listeners[event], listener)) {
 			delete this.listeners[event][listener];
 		}
@@ -277,29 +249,333 @@ class ModloaderAPI {
 	config = undefined;
 
 	constructor(environmentType) {
+		logDebug(`Initializing modloader API for environment: ${environmentType}`);
 		this.environmentType = environmentType;
 		this.events = new ModloaderEvents(environmentType);
 		this.config = new ModloaderConfig();
 	}
 
+	addPatch(source, file, patch) {
+		if (this.environmentType !== "electron") {
+			throw new Error("addPatch can only be called in the electron environment");
+		}
+		if (modsOrder.length === 0 || !Object.hasOwn(mods, source)) {
+			throw new Error(`Mod not found: ${source}`);
+		}
+		gameFileManager.addPatch(file, patch);
+	}
+
+	repatchAll() {
+		if (this.environmentType !== "electron") {
+			throw new Error("addPatch can only be called in the electron environment");
+		}
+		gameFileManager.repatchAll();
+	}
+
+	repatch(file) {
+		if (this.environmentType !== "electron") {
+			throw new Error("addPatch can only be called in the electron environment");
+		}
+		gameFileManager.repatch(file);
+	}
+
 	clear() {
 		this.events.clearListeners();
-	}
-
-	addPatch(modName, file, patch) {
-		// TODO: Implement once decided on design
-	}
-
-	performPatch(modName, file, patch) {
-		// TODO: Implement once decided on design
-	}
-
-	forceRepatch(file) {
-		// TODO: Implement once decided on design
 	}
 }
 
 // ------------ MAIN ------------
+
+class GameFileManager {
+	gameBasePath = undefined;
+	gameAsarPath = undefined;
+	tempBasePath = undefined;
+	tempExtractedPath = undefined;
+	fileData = {};
+	isTempInitialized = false;
+	isGameExtracted = false;
+	isGameModified = false;
+
+	constructor(gameBasePath, gameAsarPath) {
+		// The game base / asar path must be absolute and verified to exist
+		this.gameBasePath = gameBasePath;
+		this.gameAsarPath = gameAsarPath;
+	}
+
+	reinitialize() {
+		logDebug("Resetting game files to base...");
+
+		// Do not need to reset if we are extracted and not modified
+		if (this.isGameExtracted && !this.isGameModified) return;
+
+		// Ensure we have a temp directory (if not already)
+		this._createTempDirectory();
+
+		// Ensure the game is extracted (if not already)
+		this._extractFiles();
+
+		// If the files are modified then reset them specific files
+		if (this.isGameModified) this._resetFiles();
+
+		// With the updated files now extract the games main.js electron app
+		this._processGameAppMain();
+
+		logDebug("Game files reset to base and initialized");
+	}
+
+	addPatch(file, patch) {
+		logDebug(`Adding patch to file: ${file}`);
+		if (!this.isGameExtracted) {
+			throw new Error("Game files not extracted yet cannot add patch");
+		}
+		if (!this.fileData[file]) this._initializeFileData(file);
+		this.fileData[file].patches.push(patch);
+	}
+
+	repatchAll() {
+		if (!this.isGameExtracted) {
+			throw new Error("Game files not extracted yet cannot repatch all");
+		}
+		for (const file in this.fileData) {
+			this.repatch(file);
+		}
+	}
+
+	repatch(file) {
+		logDebug(`Repatching file: ${file}`);
+		if (!this.isGameExtracted) {
+			throw new Error("Game files not extracted yet cannot repatch");
+		}
+		if (!this.fileData[file]) {
+			throw new Error(`File not initialized: ${file}`);
+		}
+		this._resetFile(file);
+		this._applyFilePatches(file);
+	}
+
+	cleanup() {
+		logDebug("Cleaning up game files...");
+		this._deleteTempDirectory();
+		this.fileData = {};
+		this.tempBasePath = undefined;
+		this.tempExtractedPath = undefined;
+		this.isTempInitialized = false;
+		this.isGameExtracted = false;
+		this.isGameModified = false;
+	}
+
+	static deleteOldTempDirectories() {
+		logDebug("Finding and deleting all old temp directories...");
+		let basePath;
+		let files;
+		try {
+			basePath = os.tmpdir();
+			files = fs.readdirSync(basePath);
+		} catch (e) {
+			throw new Error(`Error reading temp directory: ${e.stack}`);
+		}
+		for (const file of files) {
+			try {
+				if (file.startsWith("sandustry-modloader-")) {
+					const fullPath = path.join(basePath, file);
+					logDebug(`Deleting old temp directory: ${fullPath}`);
+					fs.rmSync(fullPath, { recursive: true });
+				}
+			} catch (e) {
+				throw new Error(`Error deleting old temp directory: ${e.stack}`);
+			}
+		}
+	}
+
+	// ------------ INTERNAL ------------
+
+	_createTempDirectory() {
+		if (this.isTempInitialized) return;
+		const newTempBasePath = path.join(os.tmpdir(), `sandustry-modloader-${Date.now()}`);
+		logDebug(`Creating new temp directory: ${newTempBasePath}`);
+		ensureDirectoryExists(newTempBasePath);
+		this.tempBasePath = newTempBasePath;
+		this.isTempInitialized = true;
+		this.isGameExtracted = false;
+		this.isGameModified = false;
+	}
+
+	_deleteTempDirectory() {
+		if (!this.isTempInitialized) return;
+		logDebug(`Deleting temp directory: ${this.tempBasePath}`);
+		try {
+			fs.rmSync(this.tempBasePath, { recursive: true });
+		} catch (e) {
+			throw new Error(`Failed to delete temp directory ${this.tempBasePath}: ${e.stack}`);
+		}
+		logDebug(`Temp directory deleted: ${this.tempBasePath}`);
+		this.tempBasePath = undefined;
+		this.isTempInitialized = false;
+	}
+
+	_extractFiles() {
+		logDebug("Extracting game files...");
+		if (!this.isTempInitialized) {
+			throw new Error("Temp directory not initialized yet cannot extract files");
+		}
+		if (this.isGameExtracted) return;
+		this.tempExtractedPath = path.join(this.tempBasePath, "extracted");
+		ensureDirectoryExists(this.tempExtractedPath);
+		logInfo(`Extracting game.asar from ${this.gameAsarPath} to ${this.tempExtractedPath}`);
+		try {
+			asar.extractAll(this.gameAsarPath, this.tempExtractedPath);
+		} catch (e) {
+			throw new Error(`Error extracting game.asar: ${e.stack}`);
+		}
+		logDebug(`Successfully extracted game to ${this.tempExtractedPath}`);
+		this.isGameExtracted = true;
+		this.isGameModified = false;
+	}
+
+	_processGameAppMain() {
+		if (!this.isGameExtracted) {
+			throw new Error("Game files not extracted cannot process game app");
+		}
+
+		gameElectronFuncs = {};
+
+		// Read the main.js file contents
+		const mainPath = path.join(this.tempExtractedPath, "main.js");
+		logInfo(`Processing game electron app: ${mainPath}`);
+		let mainContent;
+		try {
+			mainContent = fs.readFileSync(mainPath, "utf8");
+		} catch (e) {
+			throw new Error(`Error reading main.js: ${e.stack}`);
+		}
+
+		// Rename and expose the games main electron functions
+		mainContent = mainContent.replaceAll("function createWindow ()", "globalThis.gameElectronFuncs.createWindow = function()");
+		mainContent = mainContent.replaceAll("function setupIpcHandlers()", "globalThis.gameElectronFuncs.setupIpcHandlers = function()");
+		mainContent = mainContent.replaceAll("function loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync = function()");
+		mainContent = mainContent.replaceAll("loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync()");
+
+		// Block the automatic app listeners so we control when things happen
+		mainContent = mainContent.replaceAll("app.whenReady().then(() => {", "var _ = (() => {");
+		mainContent = mainContent.replaceAll("app.on('window-all-closed', function () {", "var _ = (() => {");
+
+		// Ensure that the app thinks it is still running inside the app.asar
+		// - Fix the userData path to be 'sandustrydemo' instead of 'mod-loader'
+		// - Override relative "preload.js" to absolute
+		// - Override relative "index.html" to absolute
+		mainContent = mainContent.replaceAll('getPath("userData")', 'getPath("userData").replace("mod-loader", "sandustrydemo")');
+		mainContent = mainContent.replaceAll("path.join(__dirname, 'preload.js')", `'${path.join(this.tempExtractedPath, "preload.js").replaceAll("\\", "/")}'`);
+		mainContent = mainContent.replaceAll("loadFile('index.html')", `loadFile('${path.join(this.tempExtractedPath, "index.html").replaceAll("\\", "/")}')`);
+
+		// Expose the games main window to be global
+		mainContent = mainContent.replaceAll("const mainWindow", "globalThis.gameWindow");
+		mainContent = mainContent.replaceAll("mainWindow", "globalThis.gameWindow");
+
+		const mainHash = stringToHash(mainContent);
+
+		// Run the code to register their functions with eval
+		// Using Function(...) doesn't work well due to not being able to access require or the global scope
+		logDebug(`Executing eval(...) on modified game electron main.js with hash ${mainHash}`);
+		try {
+			gameElectronFuncs = {};
+			eval(mainContent);
+		} catch (e) {
+			throw new Error(`Error evaluating game main.js: ${e.stack}`);
+		}
+	}
+
+	_initializeFileData(file) {
+		logDebug(`Initializing file data: ${file}`);
+		if (!this.isGameExtracted) {
+			throw new Error(`Game files not extracted yet cannot initialize file: ${file}`);
+		}
+		if (this.fileData[file]) {
+			throw new Error(`File already initialized: ${file}`);
+		}
+		const fullPath = path.join(this.tempExtractedPath, file);
+		if (!fs.existsSync(fullPath)) {
+			throw new Error(`File not found: ${fullPath}`);
+		}
+		this.fileData[file] = { fullPath, isModified: false, patches: [] };
+	}
+
+	_resetFiles() {
+		logDebug("Resetting all modified files...");
+		if (!this.isGameExtracted) {
+			throw new Error("Game files not extracted yet cannot reset files");
+		}
+		for (const file in this.fileData) {
+			this._resetFile(file);
+		}
+	}
+
+	_resetFile(file) {
+		if (!this.isGameExtracted) {
+			throw new Error("Game files not extracted yet cannot reset file");
+		}
+		if (!this.fileData[file]) {
+			throw new Error(`File not initialized ${file} cannot reset`);
+		}
+		if (!this.fileData[file].isModified) return;
+		logDebug(`Resetting file: ${file}`);
+
+		try {
+			// Delete existing file
+			const fullPath = this.fileData[file].fullPath;
+			logDebug(`Deleting modified file: ${fullPath}`);
+			fs.rmSync(fullPath);
+	
+			// Copy the original from the asar
+			const asarPath = path.join(this.gameBasePath, file);
+			logDebug(`Copying original file from asar: ${asarPath} to ${fullPath}`);
+			fs.copyFileSync(asarPath, fullPath);
+		} catch (e) {
+			throw new Error(`Error resetting file: ${e.stack}`);
+		}
+
+		this.fileData[file].isModified = false;
+		this.isGameModified = Object.values(this.fileData).some((f) => f.isModified);
+	}
+
+	_applyFilePatches(file) {
+		if (!this.isGameExtracted) {
+			throw new Error("Game files not extracted yet cannot apply patches");
+		}
+		if (!this.fileData[file]) {
+			throw new Error(`File not initialized ${file} cannot apply patches`);
+		}
+
+		const fullPath = this.fileData[file].fullPath;
+		logDebug(`Applying patches to file: ${fullPath}`);
+		const patches = this.fileData[file].patches;
+		let fileContent;
+		try {
+			fileContent = fs.readFileSync(fullPath, "utf8");
+		} catch (e) {
+			throw new Error(`Error reading file: ${fullPath}`);
+		}
+
+		for (const patch of patches) {
+			fileContent = this._applyPatchToContent(fileContent, patch);
+		}
+
+		logDebug(`Writing patched content to file: ${fullPath}`);
+		try {
+			fs.writeFileSync(fullPath, fileContent, "utf8");
+		} catch (e) {
+			throw new Error(`Error writing patched content to file: ${fullPath}`);
+		}
+
+		this.fileData[file].isModified = true;
+		this.isGameModified	= true;
+	}
+
+	_applyPatchToContent(fileContent, patch) {
+		logDebug(`Applying patch: ${JSON.stringify(patch)}`);
+		// TODO: Implement patching logic
+		return fileContent;
+	}
+}
 
 function readAndLoadConfig() {
 	configPath = resolvePathRelativeToModloader(configPath);
@@ -359,35 +635,42 @@ function updateConfig() {
 	logDebug(`Config '${configPath}' updated successfully`);
 }
 
-function findAndVerifyGameExists() {
-	function checkDirectoryHasGameAsar(dir) {
-		if (!fs.existsSync(dir)) return false;
+function initializeGameFiles() {
+	// First cleanup any old temp directories
+	GameFileManager.deleteOldTempDirectories();
+
+	function findGameAsarInDirectory(dir) {
+		if (!fs.existsSync(dir)) return null;
 		const asarPath = path.join(dir, "resources", "app.asar");
-		if (!fs.existsSync(asarPath)) return false;
-		return true;
+		if (!fs.existsSync(asarPath)) return null;
+		return asarPath;
 	}
 
-	// If the game is where the config says then exit out
-	if (checkDirectoryHasGameAsar(config.gameDirectory)) {
-		baseGameAsarPath = path.join(config.gameDirectory, "resources", "app.asar");
-		logInfo(`Sandustry app.asar found: ${config.gameDirectory}`);
-		return;
-	}
+	// Look in the configured directory for the games app.asar
+	let fullGamePath = resolvePathRelativeToModloader(config.gamePath);
+	let asarPath = findGameAsarInDirectory(fullGamePath);
+	if (!asarPath) {
+		logDebug(`Cannot find app.asar in configured directory: ${fullGamePath}`);
 
-	logDebug(`Sandustry app.asar not found: ${config.gameDirectory}`);
+		// Look in the default steam directory for the games app.asar
+		logDebug("checking default steam directory...");
+		const steamGamePath = path.join(process.env["ProgramFiles(x86)"], "Steam", "steamapps", "common", "Sandustry Demo");
+		asarPath = findGameAsarInDirectory(steamGamePath);
+		if (!asarPath) {
+			throw new Error(`Cannot find app.asar in configured or default steam directory: ${fullGamePath} or ${steamGamePath}`);
+		}
 
-	// Next we should check the default steam install location
-	logDebug("checking default steam directory...");
-	const steamPath = path.join(process.env["ProgramFiles(x86)"], "Steam", "steamapps", "common", "Sandustry Demo");
-	if (checkDirectoryHasGameAsar(steamPath)) {
-		baseGameAsarPath = path.join(steamPath, "resources", "app.asar");
-		logInfo(`Sandustry app.asar found inside steam path, updating config: ${steamPath}`);
-		config.gameDirectory = steamPath;
+		// Update the config if we found the game in the default steam directory
+		fullGamePath = steamGamePath;
+		config.gamePath = steamGamePath;
 		updateConfig();
-		return;
 	}
 
-	throw new Error(`Sandustry app.asar not found in configured path or default steam path: ${config.gameDirectory} or ${steamPath}`);
+	logInfo(`Found game app.asar: ${asarPath}, extracting...`);
+
+	// Now initialize the file manager with the base / asar path
+	gameFileManager = new GameFileManager(fullGamePath, asarPath);
+	gameFileManager.reinitialize();
 }
 
 function setModActive(modName, isActive) {
@@ -409,7 +692,6 @@ function loadModInfo(modPath) {
 	const modInfo = JSON.parse(modInfoContent);
 
 	// Ensure mod has required modinfo
-
 	if (!modInfo || !modInfo.name || !modInfo.version || !modInfo.author) {
 		throw new Error(`Invalid modInfo.json found: ${modInfoPath}`);
 	}
@@ -418,11 +700,11 @@ function loadModInfo(modPath) {
 
 	// If mod info defines entrypoints check they both exist
 	if (modInfo.electronEntrypoint && !fs.existsSync(path.join(modPath, modInfo.electronEntrypoint))) {
-		throw new Error(`Mod defines electron entrypoint ${modInfo.electronEntrypoint } but file not found: ${modPath}`);
+		throw new Error(`Mod defines electron entrypoint ${modInfo.electronEntrypoint} but file not found: ${modPath}`);
 	}
 
-	if (modInfo.browserEntrypoint && !fs.existsSync(path.join(modPath, modInfo.browserEntrypoint ))) {
-		throw new Error(`Mod defines browser entrypoint ${modInfo.browserEntrypoint } but file none found: ${modPath}`);
+	if (modInfo.browserEntrypoint && !fs.existsSync(path.join(modPath, modInfo.browserEntrypoint))) {
+		throw new Error(`Mod defines browser entrypoint ${modInfo.browserEntrypoint} but file none found: ${modPath}`);
 	}
 
 	return modInfo;
@@ -441,6 +723,8 @@ function unloadMod(modName) {
 }
 
 function reloadAllMods() {
+	logDebug("Reloading all mods...");
+
 	// Unload all the current mods
 	for (const modName in mods) {
 		unloadMod(modName);
@@ -502,6 +786,11 @@ function reloadAllMods() {
 	modloaderAPI.events.trigger("ml:onAllModsLoaded");
 }
 
+function initializeModloader() {
+	modloaderAPI = new ModloaderAPI("electron");
+	reloadAllMods();
+}
+
 function getModData() {
 	let modData = [];
 	for (const modName of modsOrder) {
@@ -527,141 +816,6 @@ function reorderModsOrder(newModsOrder) {
 	}
 
 	modsOrder = newModsOrder;
-}
-
-function extractGame() {
-	const extractedBasePath = createNewTempDirectory();
-
-	logInfo(`Extracting game.asar to ${extractedBasePath}`);
-
-	extractedGamePath = path.join(extractedBasePath, "extracted");
-	ensureDirectoryExists(extractedGamePath);
-
-	if (!extractedAsarPath) {
-		extractedAsarPath = path.join(extractedBasePath, "app.asar");
-		logDebug(`Copying game.asar from ${baseGameAsarPath} to ${extractedAsarPath}`);
-		try {
-			if (!fs.existsSync(baseGameAsarPath)) {
-				throw new Error(`Game.asar not found: ${baseGameAsarPath}`);
-			}
-			logDebug(`File exists at ${baseGameAsarPath}`);
-			// This is needed otherwise the copy tries to do funky virtual .asar fs stuff
-			process.noAsar = true;
-			fs.copyFileSync(baseGameAsarPath, extractedAsarPath);
-			process.noAsar = false;
-		} catch (e) {
-			throw new Error(`Error copying game.asar: ${e.stack}`);
-		}
-	}
-
-	try {
-		logDebug(`Extracting game.asar from ${extractedAsarPath} to ${extractedGamePath}`);
-		asar.extractAll(extractedAsarPath, extractedGamePath);
-	} catch (e) {
-		throw new Error(`Error extracting game.asar: ${e.stack}`);
-	}
-
-	logDebug(`Successfully extracted game to ${extractedGamePath}`);
-}
-
-function processGameAppMain() {
-	// Find the main.js inside the game.asar
-	const basePath = extractedGamePath;
-	const mainPath = path.join(basePath, "main.js");
-	let mainContent;
-
-	logInfo(`Processing game electron app: ${mainPath}`);
-
-	try {
-		mainContent = fs.readFileSync(mainPath, "utf8");
-	} catch (e) {
-		throw new Error(`Error reading main.js: ${e.stack}`);
-	}
-
-	// Rename and expose the games main electron functions
-	mainContent = mainContent.replaceAll("function createWindow ()", "globalThis.gameElectronFuncs.createWindow = function()");
-	mainContent = mainContent.replaceAll("function setupIpcHandlers()", "globalThis.gameElectronFuncs.setupIpcHandlers = function()");
-	mainContent = mainContent.replaceAll("function loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync = function()");
-	mainContent = mainContent.replaceAll("loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync()");
-
-	// Block the automatic app listeners so we control when things happen
-	mainContent = mainContent.replaceAll("app.whenReady().then(() => {", "var _ = (() => {");
-	mainContent = mainContent.replaceAll("app.on('window-all-closed', function () {", "var _ = (() => {");
-
-	// Ensure that the app thinks it is still running inside the app.asar
-	// - Fix the userData path to be 'sandustrydemo' instead of 'mod-loader'
-	// - Override relative "preload.js" to absolute
-	// - Override relative "index.html" to absolute
-	mainContent = mainContent.replaceAll('getPath("userData")', 'getPath("userData").replace("mod-loader", "sandustrydemo")');
-	mainContent = mainContent.replaceAll("path.join(__dirname, 'preload.js')", `'${path.join(basePath, "preload.js").replaceAll("\\", "/")}'`);
-	mainContent = mainContent.replaceAll("loadFile('index.html')", `loadFile('${path.join(basePath, "index.html").replaceAll("\\", "/")}')`);
-
-	// Expose the games main window to be global
-	mainContent = mainContent.replaceAll("const mainWindow", "globalThis.gameWindow");
-	mainContent = mainContent.replaceAll("mainWindow", "globalThis.gameWindow");
-
-	const mainHash = stringToHash(mainContent);
-
-	// Run the code to register their functions with eval
-	// Using Function(...) doesn't work well due to not being able to access require or the global scope
-	logDebug(`Executing eval(...) on modified game electron main.js with hash ${mainHash}`);
-	try {
-		gameElectronFuncs = {};
-		eval(mainContent);
-	} catch (e) {
-		throw new Error(`Error evaluating game main.js: ${e.stack}`);
-	}
-}
-
-function applyModPatches() {
-	logInfo(`Applying mod patches...`);
-
-	// TODO: Implement once decided on design
-
-	// for (const modName of modsOrder) {
-	// 	const mod = mods[modName];
-
-	// 	for (const patch of mod.exports.patches) {
-	// 		const patchPath = path.join(extractedGamePath, patch.file || "bundle.js");
-	// 		let patchContent;
-
-	// 		try {
-	// 			patchContent = fs.readFileSync(patchPath, "utf8");
-	// 		} catch (e) {
-	// 			throw new Error(`Error reading patch file ${patchPath}: ${e.stack}`);
-	// 		}
-
-	// 		if (patch.type == "replace") {
-	// 			const expectedMatches = patch.expectedMatches || 1;
-	// 			let matchCount = 0;
-	// 			let startIndex = 0;
-	// 			while (startIndex < patchContent.length) {
-	// 				const index = patchContent.indexOf(patch.from, startIndex);
-	// 				if (index === -1) break;
-	// 				matchCount++;
-	// 				startIndex = index + patch.from.length;
-	// 			}
-	// 			if (matchCount !== expectedMatches) {
-	// 				throw new Error(`Patch failed: Expected ${expectedMatches} matches, but found ${matchCount} for patch in ${patchPath}`);
-	// 			}
-	// 			patchContent = patchContent.replaceAll(patch.from, patch.to);
-	// 		} else if (patch.type == "regex") {
-	// 			const expectedMatches = patch.expectedMatches || 1;
-	// 			const regex = new RegExp(patch.match, "g");
-	// 			const matches = patchContent.match(regex);
-	// 			if (matches.length !== expectedMatches) {
-	// 				throw new Error(`Patch failed: Expected ${expectedMatches} matches, but found ${matches.length} for patch in ${patchPath}`);
-	// 			}
-	// 			patchContent = patchContent.replace(regex, patch.replace);
-	// 		}
-
-	// 		try {
-	// 			fs.writeFileSync(patchPath, patchContent, "utf8");
-	// 		} catch (e) {
-	// 			throw new Error(`Error writing patch file ${patchPath}: ${e.stack}`);
-	// 		}
-	// 	}
-	// }
 }
 
 // ------------ ELECTRON  ------------
@@ -720,17 +874,9 @@ function onModloaderWindowClosed() {
 }
 
 function startGameWindow() {
-	// TODO: We may want a different control flow here
-	// If the game has already been loaded once we prob dont want to extract again
-	// Instead we want to revert the patches and reapply the new ones
-
-	extractGame();
-	processGameAppMain();
-	applyModPatches();
-
 	logInfo("Starting game window...");
-
-	// TODO: Start game window
+	gameFileManager.repatchAll();
+	
 }
 
 function closeGameWindow() {
@@ -774,7 +920,8 @@ function cleanupApp() {
 	if (modloaderWindow) closeModloaderWindow();
 	if (gameWindow) closeGameWindow();
 
-	deleteCurrentTempDirectory();
+	modloaderAPI.clear();
+	gameFileManager.cleanup();
 
 	logDebug("Cleanup complete");
 }
@@ -791,24 +938,21 @@ function unexpectedCleanupApp() {
 	logDebug("Unexpected cleanup complete");
 }
 
-// ------------ MAIN ------------
-
 async function startApp() {
 	logInfo(`Starting modloader ${modloaderVersion}...`);
 
 	catchUnexpectedExits();
-
-	// Start modloader
-	modloaderAPI = new ModloaderAPI("electron");
 	readAndLoadConfig();
-	findAndVerifyGameExists();
-	reloadAllMods();
 
-	// Start electron
+	initializeGameFiles();
+	initializeModloader();
+
 	await setupApp();
 	// startModloaderWindow();
 	startGameWindow();
 }
+
+// ------------ MAIN ------------
 
 (async () => {
 	await startApp();
