@@ -1,0 +1,8 @@
+{
+	"name": "testmod",
+	"version": "1.0.0",
+	"author": "tomster12",
+	"description": "A test mod for the Electron Modloader",
+	"electronEntrypoint": "testmod.electron.js",
+	"browserEntrypoint": "testmod.browser.js"
+}

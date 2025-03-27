@@ -5,6 +5,8 @@ globalThis.process = require("process");
 globalThis.os = require("os");
 globalThis.asar = require("asar");
 
+// NOTE: This file is work in progress as is this entire branch - at no specific commit does it reflect the final or current expected behaviour
+
 // ------------- MOD DOCUMENTATION -------------
 
 // (electron environment) Mods must define mod info:
@@ -434,7 +436,6 @@ function reloadAllMods() {
 		logDebug(`Unloading ${Object.keys(mods).length} mod(s)...`);
 		for (const modName in mods) {
 			modloaderAPI.events.triggerFor("ml:onModUnloaded", modName);
-			mods[modName].isActive = false;
 		}
 	}
 
@@ -679,7 +680,7 @@ function startModloaderWindow() {
 			width: 850,
 			height: 500,
 			webPreferences: {
-				preload: resolvePathRelativeToModloader("modloader-preload.js"),
+				preload: resolvePathRelativeToModloader("modloader/modloader-preload.js")
 			},
 		});
 
@@ -746,9 +747,15 @@ function closeApp() {
 }
 
 function cleanupApp() {
-	deleteCurrentTempDirectory();
+	logDebug(`Unloading ${Object.keys(mods).length} mod(s)...`);
+	for (const modName in mods) {
+		modloaderAPI.events.triggerFor("ml:onModUnloaded", modName);
+	}
+
 	if (modloaderWindow) closeModloaderWindow();
 	if (gameWindow) closeGameWindow();
+
+	deleteCurrentTempDirectory();
 	logDebug("Cleanup complete");
 }
 
@@ -757,9 +764,13 @@ function unexpectedCleanupApp() {
 	// At this point we have caught an error and logged it already
 	// It is possible we want to be more careful here
 	try {
-		deleteCurrentTempDirectory();
+		for (const modName in mods) {
+			modloaderAPI.events.triggerFor("ml:onModUnloaded", modName);
+		}
 		if (modloaderWindow) closeModloaderWindow();
 		if (gameWindow) closeGameWindow();
+
+		deleteCurrentTempDirectory();
 	} catch (e) {
 		logError(`Error during unexpected cleanup: ${e.stack}`);
 	}
@@ -781,8 +792,8 @@ async function startApp() {
 
 	// Start electron
 	await setupApp();
-	// startModloaderWindow();
-	startGameWindow();
+	startModloaderWindow();
+	// startGameWindow();
 }
 
 (async () => {
