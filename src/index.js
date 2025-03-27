@@ -5,38 +5,23 @@ globalThis.process = require("process");
 globalThis.os = require("os");
 globalThis.asar = require("asar");
 
-// NOTE: This file is work in progress as is this entire branch - at no specific commit does it reflect the final or current expected behaviour
+// NOTE: This file and branch is WIP, at no specific commit does it reflect the planned expected behaviour.
 
 // ------------- MOD DOCUMENTATION -------------
 
-// (electron environment) Mods must define mod info:
-// - exports.modinfo = { name: string, version: string }
+// Mods are defined in a /MODFOLDER directory with a required modinfo.json
 
-globalThis.modInfoRequirements = ["name", "version"];
+// /MODFOLDER/modinfo.json: {
+//   name: string,
+//   version: string,
+//   author: string,
+//   description?: string,
+//   electronEntrypoint?: boolean,
+//   browserEntrypoint?: boolean
+// }
 
-// (electron environment) Mods can add patches through modloaderAPI.addPatch(patch)
-// patch: { file?: string, expectedMatches?: number, ... }
-// - { ... type: "replace", from: string, to: string }
-// - { ... type: "regex", match: string, replace: string }
-
-globalThis.patchTypeRequirements = {
-	replace: ["from", "to"],
-	regex: ["match", "replace"],
-};
-
-// Events can be listened to with modloaderAPI.events.on(event, func)
-//
-// (electron environment)
-//   - ml:onModLoaded             When this mod is loaded
-//   - ml:onAllModsLoaded         When all mods are loaded
-//   - ml:onSetActive(isActive)   When mod set active / inactive
-//   - ml:onModUnloaded           When this mod is being unloaded (e.g. refresh)
-//
-// (browser environment)
-//   - ml:onMenuLoaded   When the game is loaded into the menu
-//   - ml:onGameLoaded   When the game is loaded into the game
-
-globalThis.modEvents = ["ml:onModLoaded", "ml:onAllModsLoaded", "ml:onSetActive", "ml:onModUnloaded", "ml:onMenuLoaded", "ml:onGameLoaded"];
+// Mods are ran inside the (electron) and the (browser) environment with their entrypoints.
+// See the Modloader API section for how to interact with the modloader.
 
 // ------------- GLOBALS -------------
 
@@ -193,11 +178,19 @@ function stringToHash(string) {
 
 // ------------ MODLOADER API ------------
 
-// TODO: This section probably needs to be moved to a separate file for browser / electron
-
 class ModloaderEvents {
+	static electronEvents = [ "ml:onModLoaded", "ml:onModUnloaded", "ml:onAllModsLoaded", "ml:onSetActive" ];
+	static browserEvents = [ "ml:onMenuLoaded", "ml:onGameLoaded" ];
+
 	events = [];
 	listeners = {};
+
+	constructor(environmentType) {
+		let envEvents = environmentType === "electron" ? ModloaderEvents.electronEvents : ModloaderEvents.browserEvents;
+		for (const event of envEvents) {
+			this.registerEvent(event);
+		}
+	}
 
 	registerEvent(event) {
 		logDebug(`Registering event: ${event}`);
@@ -280,25 +273,28 @@ class ModloaderConfig {
 
 class ModloaderAPI {
 	environmentType = undefined;
-	events = new ModloaderEvents();
-	config = new ModloaderConfig();
+	events = undefined;
+	config = undefined;
 
 	constructor(environmentType) {
 		this.environmentType = environmentType;
-		for (const event of modEvents) {
-			this.events.registerEvent(event);
-		}
+		this.events = new ModloaderEvents(environmentType);
+		this.config = new ModloaderConfig();
 	}
 
 	clear() {
 		this.events.clearListeners();
 	}
 
-	addPatch(modName, patch) {
+	addPatch(modName, file, patch) {
 		// TODO: Implement once decided on design
 	}
 
-	performPatch(modName, patch) {
+	performPatch(modName, file, patch) {
+		// TODO: Implement once decided on design
+	}
+
+	forceRepatch(file) {
 		// TODO: Implement once decided on design
 	}
 }
@@ -396,87 +392,110 @@ function findAndVerifyGameExists() {
 
 function setModActive(modName, isActive) {
 	logDebug(`Setting mod active: ${modname}.active = ${isActive}`);
-
-	// TODO
-
 	mod.isActive = isActive;
-
 	modloaderAPI.events.triggerFor("ml:onSetActive", modName, isActive);
 }
 
-function loadMod(modPath) {
-	// Try and extract mod exports
-	let modExports = {};
-	try {
-		modExports = require(modPath);
-	} catch (e) {
-		logWarn(`Error loading mod ${modPath}: ${e.stack}`);
-		return null;
+function loadModInfo(modPath) {
+	// Try and read the modinfo.json
+	logDebug(`Loading modinfo.json from: ${modPath}`);
+	const modInfoPath = path.join(modPath, "modInfo.json");
+
+	if (!fs.existsSync(modInfoPath)) {
+		throw new Error(`modInfo.json not found: ${modInfoPath}`);
 	}
-	if (!modExports) {
-		logWarn(`No mod exports found for mod: ${modPath}`);
-		return null;
+
+	const modInfoContent = fs.readFileSync(modInfoPath, "utf8");
+	const modInfo = JSON.parse(modInfoContent);
+
+	// Ensure mod has required modinfo
+
+	if (!modInfo || !modInfo.name || !modInfo.version || !modInfo.author) {
+		throw new Error(`Invalid modInfo.json found: ${modInfoPath}`);
 	}
-	logDebug(`Loaded mod: ${modPath}`);
-	return modExports;
+
+	logDebug(`Loaded modinfo.json: ${modInfo.name}`);
+
+	// If mod info defines entrypoints check they both exist
+	if (modInfo.electronEntrypoint && !fs.existsSync(path.join(modPath, modInfo.electronEntrypoint))) {
+		throw new Error(`Mod defines electron entrypoint ${modInfo.electronEntrypoint } but file not found: ${modPath}`);
+	}
+
+	if (modInfo.browserEntrypoint && !fs.existsSync(path.join(modPath, modInfo.browserEntrypoint ))) {
+		throw new Error(`Mod defines browser entrypoint ${modInfo.browserEntrypoint } but file none found: ${modPath}`);
+	}
+
+	return modInfo;
 }
 
-function validateMod(modExports) {
-	// Ensure mod has required modinfo
-	if (!modExports.modinfo || modInfoRequirements.some((p) => !Object.hasOwn(modExports.modinfo, p))) {
-		logWarn(`Invalid exports.modinfo for mod: ${modExports.modinfo?.name || "unknown"}`);
-		return false;
+function unloadMod(modName) {
+	if (!Object.hasOwn(mods, modName)) {
+		throw new Error(`Mod not found: ${modName}`);
 	}
-	logDebug(`Validated mod: ${modExports.modinfo.name}`);
-	return true;
+
+	logDebug(`Unloading mod: ${modName}`);
+	modloaderAPI.events.triggerFor("ml:onModUnloaded", modName);
+
+	delete mods[modName];
+	modsOrder = modsOrder.filter((m) => m !== modName);
 }
 
 function reloadAllMods() {
-	if (Object.keys(mods).length > 0) {
-		logDebug(`Unloading ${Object.keys(mods).length} mod(s)...`);
-		for (const modName in mods) {
-			modloaderAPI.events.triggerFor("ml:onModUnloaded", modName);
-		}
+	// Unload all the current mods
+	for (const modName in mods) {
+		unloadMod(modName);
 	}
 
+	// Clear out the modloader API
 	modloaderAPI.clear();
 	mods = {};
 	modsOrder = [];
 
+	// Find all folders in the base mod folder and try load them as mods
 	const baseModsPath = resolvePathRelativeToModloader(config.modsPath);
 	logDebug(`Checking for mods in folder: ${baseModsPath}`);
 	ensureDirectoryExists(baseModsPath);
-
-	// Find all mod files in the mod folder
 	let modPaths = [];
 	try {
-		modPaths = fs
-			.readdirSync(baseModsPath)
-			.filter((file) => file.endsWith(".js"))
-			.map((file) => path.join(baseModsPath, file));
+		modPaths = fs.readdirSync(baseModsPath).map((p) => path.join(baseModsPath, p));
+		modPaths = modPaths.filter((p) => fs.statSync(p).isDirectory());
 	} catch (e) {
-		throw new Error(`Error loading mods: ${e.stack}`);
+		throw new Error(`Error finding mods: ${e.stack}`);
 	}
-
 	logDebug(`Found ${modPaths.length} mod(s) in folder: ${baseModsPath}`);
 
-	// Try load and validate each mod, continue with warning otherwise
 	for (const modPath of modPaths) {
-		const modExports = loadMod(modPath);
-		if (!modExports) continue;
-		const isValid = validateMod(modExports);
-		if (!isValid) continue;
-
-		// Also ensure theres no mods with the same name
-		const modName = modExports.modinfo.name;
-		if (Object.hasOwn(mods, modName)) {
-			throw new Error(`Mod at path ${modPath} has the same name as another mod: ${modName}`);
+		// Try and load the mod, but continue with warning otherwise
+		let modInfo;
+		try {
+			modInfo = loadModInfo(modPath);
+		} catch (e) {
+			logWarn(`Error loading mod at path ${modPath}: ${e.stack}`);
+			continue;
 		}
 
-		const mod = { exports: modExports, path: modPath, isActive: true };
-		modloaderAPI.events.triggerFor("ml:onModLoaded", modName);
-		mods[modName] = mod;
-		modsOrder.push(modName);
+		// Ensure theres no mods with the same name
+		if (Object.hasOwn(mods, modInfo.name)) {
+			throw new Error(`Mod at path ${modPath} has the same name as another mod: ${modInfo.name}`);
+		}
+
+		// Officially save the mod into the load order
+		const mod = { info: modInfo, path: modPath, isActive: true };
+		mods[modInfo.name] = mod;
+		modsOrder.push(modInfo.name);
+
+		// Load the mods electron entrypoint then trigger the mod loaded event
+		try {
+			if (modInfo.electronEntrypoint) {
+				const electronEntrypoint = path.join(mod.path, mod.info.electronEntrypoint);
+				logDebug(`Loading electron entrypoint: ${electronEntrypoint}`);
+				require(electronEntrypoint);
+			}
+		} catch (e) {
+			throw new Error(`Error loading electron entrypoint for mod ${modInfo.name}: ${e.stack}`);
+		}
+
+		modloaderAPI.events.triggerFor("ml:onModLoaded", modInfo.name);
 	}
 
 	logInfo(`Loaded ${Object.keys(mods).length} mod(s) from ${baseModsPath}: [ ${modsOrder.join(", ")} ]`);
@@ -487,7 +506,7 @@ function getModData() {
 	let modData = [];
 	for (const modName of modsOrder) {
 		modData.push({
-			...mods[modName].exports.modinfo,
+			...mods[modName].info,
 			isActive: mods[modName].isActive,
 		});
 	}
@@ -601,7 +620,6 @@ function applyModPatches() {
 
 	// for (const modName of modsOrder) {
 	// 	const mod = mods[modName];
-	// 	if (!mod.exports.patches) continue;
 
 	// 	for (const patch of mod.exports.patches) {
 	// 		const patchPath = path.join(extractedGamePath, patch.file || "bundle.js");
@@ -680,7 +698,7 @@ function startModloaderWindow() {
 			width: 850,
 			height: 500,
 			webPreferences: {
-				preload: resolvePathRelativeToModloader("modloader/modloader-preload.js")
+				preload: resolvePathRelativeToModloader("modloader/modloader-preload.js"),
 			},
 		});
 
@@ -748,6 +766,7 @@ function closeApp() {
 
 function cleanupApp() {
 	logDebug(`Unloading ${Object.keys(mods).length} mod(s)...`);
+
 	for (const modName in mods) {
 		modloaderAPI.events.triggerFor("ml:onModUnloaded", modName);
 	}
@@ -756,6 +775,7 @@ function cleanupApp() {
 	if (gameWindow) closeGameWindow();
 
 	deleteCurrentTempDirectory();
+
 	logDebug("Cleanup complete");
 }
 
@@ -764,13 +784,7 @@ function unexpectedCleanupApp() {
 	// At this point we have caught an error and logged it already
 	// It is possible we want to be more careful here
 	try {
-		for (const modName in mods) {
-			modloaderAPI.events.triggerFor("ml:onModUnloaded", modName);
-		}
-		if (modloaderWindow) closeModloaderWindow();
-		if (gameWindow) closeGameWindow();
-
-		deleteCurrentTempDirectory();
+		cleanupApp();
 	} catch (e) {
 		logError(`Error during unexpected cleanup: ${e.stack}`);
 	}
@@ -792,8 +806,8 @@ async function startApp() {
 
 	// Start electron
 	await setupApp();
-	startModloaderWindow();
-	// startGameWindow();
+	// startModloaderWindow();
+	startGameWindow();
 }
 
 (async () => {
