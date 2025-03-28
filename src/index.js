@@ -28,6 +28,7 @@ globalThis.asar = require("asar");
 globalThis.modloaderVersion = "2.0.0";
 globalThis.gameElectronFuncs = undefined;
 globalThis.modloaderAPI = undefined;
+globalThis.gameWindow = undefined;
 
 let logLevels = ["debug", "info", "warn", "error"];
 let logFilePath = undefined;
@@ -37,7 +38,6 @@ let config = undefined;
 let mods = {};
 let modsOrder = [];
 let gameFileManager = undefined;
-let gameWindow = undefined;
 let modloaderWindow = undefined;
 let defaultConfig = {
 	gamePath: ".",
@@ -48,6 +48,9 @@ let defaultConfig = {
 		consoleLogLevel: "info",
 		fileLogLevel: "debug",
 		logFilePath: "modloader.log",
+	},
+	application: {
+		loadIntoModloader: true,
 	},
 };
 
@@ -318,7 +321,7 @@ class GameFileManager {
 		if (this.isGameModified) this._resetFiles();
 
 		// With the updated files now extract the games main.js electron app
-		this._processGameAppMain();
+		this._extractGameElectronFunctions();
 
 		logDebug("Game files reset to base and initialized");
 	}
@@ -382,7 +385,7 @@ class GameFileManager {
 					fs.rmSync(fullPath, { recursive: true });
 				}
 			} catch (e) {
-				throw new Error(`Error deleting old temp directory: ${e.stack}`);
+				logWarn(`Error deleting old temp directory: ${e.stack}`);
 			}
 		}
 	}
@@ -432,7 +435,7 @@ class GameFileManager {
 		this.isGameModified = false;
 	}
 
-	_processGameAppMain() {
+	_extractGameElectronFunctions() {
 		if (!this.isGameExtracted) {
 			throw new Error("Game files not extracted cannot process game app");
 		}
@@ -448,6 +451,11 @@ class GameFileManager {
 		} catch (e) {
 			throw new Error(`Error reading main.js: ${e.stack}`);
 		}
+
+		// Here we basically want to isolate createWindow(), setupIpcHandlers(), and loadSettingsSync()
+		// This is potentially very brittle and may need fixing in the future if main.js changes
+		// We need to disable the default app listeners (so they're not ran when we run eval(...))
+		// The main point is we want to ensure we open the game the same way the game does
 
 		// Rename and expose the games main electron functions
 		mainContent = mainContent.replaceAll("function createWindow ()", "globalThis.gameElectronFuncs.createWindow = function()");
@@ -524,7 +532,7 @@ class GameFileManager {
 			const fullPath = this.fileData[file].fullPath;
 			logDebug(`Deleting modified file: ${fullPath}`);
 			fs.rmSync(fullPath);
-	
+
 			// Copy the original from the asar
 			const asarPath = path.join(this.gameBasePath, file);
 			logDebug(`Copying original file from asar: ${asarPath} to ${fullPath}`);
@@ -546,8 +554,8 @@ class GameFileManager {
 		}
 
 		const fullPath = this.fileData[file].fullPath;
-		logDebug(`Applying patches to file: ${fullPath}`);
 		const patches = this.fileData[file].patches;
+		logDebug(`Applying ${patches.length} patches to file: ${fullPath}`);
 		let fileContent;
 		try {
 			fileContent = fs.readFileSync(fullPath, "utf8");
@@ -559,7 +567,7 @@ class GameFileManager {
 			fileContent = this._applyPatchToContent(fileContent, patch);
 		}
 
-		logDebug(`Writing patched content to file: ${fullPath}`);
+		logDebug(`Writing patched content back to file: ${fullPath}`);
 		try {
 			fs.writeFileSync(fullPath, fileContent, "utf8");
 		} catch (e) {
@@ -567,7 +575,7 @@ class GameFileManager {
 		}
 
 		this.fileData[file].isModified = true;
-		this.isGameModified	= true;
+		this.isGameModified = true;
 	}
 
 	_applyPatchToContent(fileContent, patch) {
@@ -786,11 +794,6 @@ function reloadAllMods() {
 	modloaderAPI.events.trigger("ml:onAllModsLoaded");
 }
 
-function initializeModloader() {
-	modloaderAPI = new ModloaderAPI("electron");
-	reloadAllMods();
-}
-
 function getModData() {
 	let modData = [];
 	for (const modName of modsOrder) {
@@ -818,9 +821,21 @@ function reorderModsOrder(newModsOrder) {
 	modsOrder = newModsOrder;
 }
 
+function initializeModloader() {
+	modloaderAPI = new ModloaderAPI("electron");
+	reloadAllMods();
+}
+
 // ------------ ELECTRON  ------------
 
-function setupModloaderIPC() {
+function setupElectronIPC() {
+	logDebug("Setting up electron IPC handlers");
+
+	// We may want to call this everytime we open the game due to the games
+	// electron functions being potentially re-patched
+
+	ipcMain.removeAllListeners();
+
 	ipcMain.handle("ml:get-mods", async (event, args) => {
 		logDebug("Received ml:get-mods");
 		return getModData();
@@ -842,6 +857,13 @@ function setupModloaderIPC() {
 		logDebug("Received ml:start-game");
 		startGameWindow();
 	});
+
+	try {
+		logDebug("Calling games electron setupIpcHandlers()");
+		gameElectronFuncs.setupIpcHandlers();
+	} catch (e) {
+		throw new Error(`Error during setup of games electron setupIpcHandlers(), see _extractGameElectronFunctions(): ${e.stack}`);
+	}
 }
 
 function startModloaderWindow() {
@@ -874,20 +896,31 @@ function onModloaderWindowClosed() {
 }
 
 function startGameWindow() {
+	if (gameWindow != null) {
+		logWarn("Cannot start game, already running");
+		return;
+	}
+
 	logInfo("Starting game window...");
 	gameFileManager.repatchAll();
-	
+
+	try {
+		logDebug("Calling games electron createWindow()");
+		gameElectronFuncs.createWindow();
+
+		gameWindow.on("closed", onGameWindowClosed);
+	} catch (e) {
+		throw new Error(`Error during games electron createWindow(), see _extractGameElectronFunctions(): ${e.stack}`);
+	}
 }
 
 function closeGameWindow() {
 	gameWindow.close();
 	gameWindow = null;
-
-	// TODO: Handle game window closing
 }
 
 function onGameWindowClosed() {
-	// TODO: Handle game window closing
+	gameWindow = null;
 }
 
 async function setupApp() {
@@ -901,8 +934,6 @@ async function setupApp() {
 			closeApp();
 		}
 	});
-
-	setupModloaderIPC();
 }
 
 function closeApp() {
@@ -943,13 +974,18 @@ async function startApp() {
 
 	catchUnexpectedExits();
 	readAndLoadConfig();
-
 	initializeGameFiles();
 	initializeModloader();
 
 	await setupApp();
-	// startModloaderWindow();
-	startGameWindow();
+
+	setupElectronIPC();
+
+	if (config.application.loadIntoModloader) {
+		startModloaderWindow();
+	} else {
+		startGameWindow();
+	}
 }
 
 // ------------ MAIN ------------
