@@ -35,6 +35,7 @@ let logFilePath = undefined;
 let preConfigLogLevel = "info";
 let configPath = "modloader-config.json";
 let config = undefined;
+let baseModsPath = undefined;
 let mods = {};
 let modsOrder = [];
 let gameFileManager = undefined;
@@ -159,6 +160,33 @@ function stringToHash(string) {
 	return hash;
 }
 
+function updateObjectWithDefaults(defaultValues, target) {
+	let modified = false;
+	// If target doesn't have a property in the defaults then add it
+	for (const key in defaultValues) {
+		if (typeof defaultValues[key] === "object" && defaultValues[key] !== null) {
+			if (!Object.hasOwn(target, key)) {
+				target[key] = {};
+				modified = true;
+			}
+			updateObjectWithDefaults(defaultValues[key], target[key]);
+		} else {
+			if (!Object.hasOwn(target, key)) {
+				target[key] = defaultValues[key];
+				modified = true;
+			}
+		}
+	}
+	// If target has a property source doesn't have, then remove it
+	for (const key in target) {
+		if (!Object.hasOwn(defaultValues, key)) {
+			delete target[key];
+			modified = true;
+		}
+	}
+	return modified;
+}
+
 // ------------ MODLOADER API ------------
 
 class ModloaderEvents {
@@ -232,7 +260,16 @@ class ModloaderEvents {
 		}
 	}
 
-	clearListeners() {
+	removeListener(listener) {
+		logDebug(`Removing listener: ${listener}`);
+		for (const event of this.events) {
+			if (Object.hasOwn(this.listeners[event], listener)) {
+				delete this.listeners[event][listener];
+			}
+		}
+	}
+
+	removeListeners() {
 		for (const event in this.listeners) {
 			this.listeners[event] = {};
 		}
@@ -240,9 +277,44 @@ class ModloaderEvents {
 }
 
 class ModloaderConfig {
-	get(modName) {
-		// TODO: Implement once decided on design
+	async get(modName) {
+		modNamePath = sanitizeModpath(modName);
+		try {
+			const modConfigPath = fs.join(baseModsPath, "config", `${modNamePath}.json`);
+			if (fs.existsSync(modConfigPath)) {
+				return JSON.parse(fs.readFileSync(modConfigPath, "utf8"));
+			}
+		} catch (e) {
+			logWarn(`Error while parsing mod config: ${e.stack}`);
+		}
 		return {};
+	}
+
+	async set(modName, config) {
+		modNamePath = this.sanitizeModNamePath(modName);
+		try {
+			const modConfigPath = fs.join(baseModsPath, "config", `${modNamePath}.json`);
+			fs.writeFileSync(modConfigPath, JSON.stringify(config), "utf8");
+			return true;
+		} catch (e) {
+			logWarn(`Error while writing mod config: ${e.stack}`);
+		}
+		return false;
+	}
+
+	async defineDefaults(modName, defaultConfig) {
+		let existingConfig = get(modName);
+		if (Object.keys(existingConfig).length == 0) {
+			await set(modName, defaultConfig);
+		}
+		const modified = updateObjectWithDefaults(defaultConfig, existingConfig);
+		if (modified) {
+			await set(modName, existingConfig);
+		}
+	}
+
+	sanitizeModNamePath(modName) {
+		return modName;
 	}
 }
 
@@ -265,7 +337,7 @@ class ModloaderAPI {
 		if (modsOrder.length === 0 || !Object.hasOwn(mods, source)) {
 			throw new Error(`Mod not found: ${source}`);
 		}
-		gameFileManager.addPatch(file, patch);
+		gameFileManager.addPatch(source, file, patch);
 	}
 
 	repatchAll() {
@@ -283,7 +355,7 @@ class ModloaderAPI {
 	}
 
 	clear() {
-		this.events.clearListeners();
+		this.events.removeListeners();
 	}
 }
 
@@ -326,13 +398,20 @@ class GameFileManager {
 		logDebug("Game files reset to base and initialized");
 	}
 
-	addPatch(file, patch) {
+	addPatch(source, file, patch) {
 		logDebug(`Adding patch to file: ${file}`);
 		if (!this.isGameExtracted) {
 			throw new Error("Game files not extracted yet cannot add patch");
 		}
 		if (!this.fileData[file]) this._initializeFileData(file);
-		this.fileData[file].patches.push(patch);
+		this.fileData[file].patches.push({ source, patch });
+	}
+
+	removePatchSource(source) {
+		logDebug(`Removing patch source: ${source}`);
+		for (const file in this.fileData) {
+			this.fileData[file].patches = this.fileData[file].patches.filter((p) => p.source != source);
+		}
 	}
 
 	repatchAll() {
@@ -564,7 +643,7 @@ class GameFileManager {
 		}
 
 		for (const patch of patches) {
-			fileContent = this._applyPatchToContent(fileContent, patch);
+			fileContent = this._applyPatchToContent(fileContent, patch.patch);
 		}
 
 		logDebug(`Writing patched content back to file: ${fullPath}`);
@@ -598,36 +677,9 @@ function readAndLoadConfig() {
 
 	// If a config file exists compare it to the default
 	else {
-		function updateConfigData(reference, target) {
-			let modified = false;
-			// If target doesn't have a property source has, then add it
-			for (const key in reference) {
-				if (typeof reference[key] === "object" && reference[key] !== null) {
-					if (!Object.hasOwn(target, key)) {
-						target[key] = {};
-						modified = true;
-					}
-					updateConfigData(reference[key], target[key]);
-				} else {
-					if (!Object.hasOwn(target, key)) {
-						target[key] = reference[key];
-						modified = true;
-					}
-				}
-			}
-			// If target has a property source doesn't have, then remove it
-			for (const key in target) {
-				if (!Object.hasOwn(reference, key)) {
-					delete target[key];
-					modified = true;
-				}
-			}
-			return modified;
-		}
-
 		const configContent = fs.readFileSync(configPath, "utf8");
 		config = JSON.parse(configContent);
-		let modified = updateConfigData(defaultConfig, config);
+		let modified = updateObjectWithDefaults(defaultConfig, config);
 
 		if (!modified) {
 			logDebug(`Config '${configPath}' is up-to-date`);
@@ -726,8 +778,11 @@ function unloadMod(modName) {
 	logDebug(`Unloading mod: ${modName}`);
 	modloaderAPI.events.triggerFor("ml:onModUnloaded", modName);
 
-	delete mods[modName];
+	modloaderAPI.events.removeListener(modName);
+	gameFileManager.removePatchSource(modName);
 	modsOrder = modsOrder.filter((m) => m !== modName);
+
+	delete mods[modName];
 }
 
 function reloadAllMods() {
@@ -744,7 +799,7 @@ function reloadAllMods() {
 	modsOrder = [];
 
 	// Find all folders in the base mod folder and try load them as mods
-	const baseModsPath = resolvePathRelativeToModloader(config.modsPath);
+	baseModsPath = resolvePathRelativeToModloader(config.modsPath);
 	logDebug(`Checking for mods in folder: ${baseModsPath}`);
 	ensureDirectoryExists(baseModsPath);
 	let modPaths = [];

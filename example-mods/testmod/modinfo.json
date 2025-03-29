@@ -4,5 +4,9 @@
 	"author": "tomster12",
 	"description": "A test mod for the Electron Modloader",
 	"electronEntrypoint": "testmod.electron.js",
-	"browserEntrypoint": "testmod.browser.js"
+	"browserEntrypoint": "testmod.browser.js",
+	"defaultConfig": {
+		"someSetting": true,
+		"someValue": 203
+	}
 }
