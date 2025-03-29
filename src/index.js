@@ -54,11 +54,10 @@ let logFilePath = undefined;
 let preConfigLogLevel = "info";
 let configPath = "modloader-config.json";
 let config = undefined;
-let baseModsPath = undefined;
-let mods = {};
-let modsOrder = [];
+let modsManager = undefined;
 let gameFileManager = undefined;
 let modloaderWindow = undefined;
+
 let defaultConfig = {
 	gamePath: ".",
 	modsPath: "./mods",
@@ -227,9 +226,9 @@ function updateObjectWithDefaults(defaultValues, target) {
 	return modified;
 }
 
-// ------------ MODLOADER API ------------
+// ------------ MAIN ------------
 
-class ModloaderEvents {
+class ModloaderEventsAPI {
 	events = {};
 	participants = {};
 
@@ -349,10 +348,16 @@ class ModloaderEvents {
 	}
 }
 
-class ModloaderConfig {
+class ModloaderConfigAPI {
+	modsManager = undefined;
+
+	constructor(modsManager) {
+		this.modsManager = modsManager;
+	}
+
 	get(modName) {
 		const modNamePath = this.sanitizeModNamePath(modName);
-		const modsConfigPath = path.join(baseModsPath, "config");
+		const modsConfigPath = path.join(this.modsManager.baseModsPath, "config");
 		ensureDirectoryExists(modsConfigPath);
 		const modConfigPath = path.join(modsConfigPath, `${modNamePath}.json`);
 		logDebug(`Getting mod config: ${modNamePath} -> ${modConfigPath}`);
@@ -368,7 +373,7 @@ class ModloaderConfig {
 
 	set(modName, config) {
 		const modNamePath = this.sanitizeModNamePath(modName);
-		const modsConfigPath = path.join(baseModsPath, "config");
+		const modsConfigPath = path.join(this.modsManager.baseModsPath, "config");
 		ensureDirectoryExists(modsConfigPath);
 		const modConfigPath = path.join(modsConfigPath, `${modNamePath}.json`);
 		logDebug(`Setting mod config: ${modNamePath} -> ${modConfigPath}`);
@@ -411,15 +416,17 @@ class ModloaderAPI {
 	static electronEvents = ["ml:onModLoaded", "ml:onModUnloaded", "ml:onAllModsLoaded", "ml:onSetActive", "ml:onModloaderClosed"];
 	static browserEvents = ["ml:onMenuLoaded", "ml:onGameLoaded"];
 
+	modsManager = undefined;
 	environmentType = undefined;
 	events = undefined;
 	config = undefined;
 
-	constructor(environmentType) {
+	constructor(environmentType, modsManager) {
 		logDebug(`Initializing modloader API for environment: ${environmentType}`);
+		this.modsManager = modsManager;
 		this.environmentType = environmentType;
-		this.events = new ModloaderEvents();
-		this.config = new ModloaderConfig();
+		this.events = new ModloaderEventsAPI();
+		this.config = new ModloaderConfigAPI(this.modsManager);
 
 		let envEvents = environmentType === "electron" ? ModloaderAPI.electronEvents : ModloaderAPI.browserEvents;
 		for (const event of envEvents) {
@@ -431,7 +438,7 @@ class ModloaderAPI {
 		if (this.environmentType !== "electron") {
 			throw new Error("addPatch can only be called in the electron environment");
 		}
-		if (modsOrder.length === 0 || !Object.hasOwn(mods, source)) {
+		if (modsManager.modsOrder.length === 0 || !modsManager.modsOrder.includes(source)) {
 			throw new Error(`Mod not found: ${source}`);
 		}
 		gameFileManager.addPatch(source, file, patch);
@@ -451,8 +458,6 @@ class ModloaderAPI {
 		gameFileManager.repatch(file);
 	}
 }
-
-// ------------ MAIN ------------
 
 class GameFileManager {
 	gameBasePath = undefined;
@@ -819,6 +824,180 @@ class GameFileManager {
 	}
 }
 
+class ModsManager {
+	baseModsPath = undefined;
+	mods = {};
+	modsOrder = [];
+
+	reloadAllMods() {
+		logDebug("Reloading all mods...");
+
+		// Unload all the current mods
+		for (const modName in this.mods) {
+			this.unloadMod(modName);
+		}
+
+		// Clear out the mod data
+		this.mods = {};
+		this.modsOrder = [];
+
+		// Find all potential mod folders in the base mod folder
+		this.baseModsPath = resolvePathRelativeToModloader(config.modsPath);
+		logDebug(`Checking for mods in folder: ${this.baseModsPath}`);
+		ensureDirectoryExists(this.baseModsPath);
+		let modPaths = [];
+		try {
+			// Ensure isnt 'config', map to absolute, and ensure is directory
+			modPaths = fs.readdirSync(this.baseModsPath);
+			modPaths = modPaths.filter((p) => p !== "config");
+			modPaths = modPaths.map((p) => path.join(this.baseModsPath, p));
+			modPaths = modPaths.filter((p) => fs.statSync(p).isDirectory());
+		} catch (e) {
+			throw new Error(`Error finding mods: ${e.stack}`);
+		}
+
+		// load each mod, and skip if it fails
+		logDebug(`Found ${modPaths.length} mod${modPaths.length === 1 ? "" : "s"} to load`);
+		for (const modPath of modPaths) {
+			try {
+				this.loadMod(modPath);
+			} catch (e) {
+				logWarn(`Error loading mod at path ${modPath}: ${e.stack}`);
+			}
+		}
+
+		logInfo(`Loaded ${Object.keys(this.mods).length} mod(s) from ${this.baseModsPath}: [ ${this.modsOrder.join(", ")} ]`);
+		modloaderAPI.events.trigger("ml:onAllModsLoaded");
+	}
+
+	loadModInfo(modPath) {
+		// Try and read the modinfo.json
+		const modInfoPath = path.join(modPath, "modInfo.json");
+		logDebug(`Loading modinfo.json: ${modInfoPath}`);
+
+		if (!fs.existsSync(modInfoPath)) {
+			throw new Error(`modInfo.json not found: ${modInfoPath}`);
+		}
+
+		const modInfoContent = fs.readFileSync(modInfoPath, "utf8");
+		const modInfo = JSON.parse(modInfoContent);
+
+		// Ensure mod has required modinfo
+		if (!modInfo || !modInfo.name || !modInfo.version || !modInfo.author) {
+			throw new Error(`Invalid modInfo.json found: ${modInfoPath}`);
+		}
+
+		// If mod info defines entrypoints check they both exist
+		if (modInfo.electronEntrypoint && !fs.existsSync(path.join(modPath, modInfo.electronEntrypoint))) {
+			throw new Error(`Mod defines electron entrypoint ${modInfo.electronEntrypoint} but file not found: ${modPath}`);
+		}
+		if (modInfo.browserEntrypoint && !fs.existsSync(path.join(modPath, modInfo.browserEntrypoint))) {
+			throw new Error(`Mod defines browser entrypoint ${modInfo.browserEntrypoint} but file none found: ${modPath}`);
+		}
+
+		return modInfo;
+	}
+
+	loadMod(modPath) {
+		logDebug(`Loading mod from path: ${modPath}`);
+
+		// Try load mod info - this can error if the mod info is invalid
+		let modInfo = this.loadModInfo(modPath);
+
+		// Ensure theres no mods with the same name
+		if (this.hasMod(modInfo.name)) {
+			throw new Error(`Mod at path ${modPath} has the same name as another mod: ${modInfo.name}`);
+		}
+
+		// Officially save the mod into the load order
+		const mod = { info: modInfo, path: modPath, isActive: true };
+		this.mods[modInfo.name] = mod;
+		this.modsOrder.push(modInfo.name);
+
+		// Load the mods default config
+		modloaderAPI.config.defineDefaults(modInfo.name, modInfo.defaultConfig);
+
+		// Load and run the electron entrypoint
+		// Here mods will be able to add their patches / event listeners
+		try {
+			if (modInfo.electronEntrypoint) {
+				const electronEntrypoint = path.join(mod.path, mod.info.electronEntrypoint);
+				logDebug(`Loading electron entrypoint: ${electronEntrypoint}`);
+				require(electronEntrypoint);
+			}
+		} catch (e) {
+			throw new Error(`Error loading electron entrypoint for mod ${modInfo.name}: ${e.stack}`);
+		}
+
+		// Trigger the mod loaded event finally
+		modloaderAPI.events.triggerFor("ml:onModLoaded", modInfo.name);
+	}
+
+	unloadMod(modName) {
+		if (!this.hasMod(modName)) {
+			throw new Error(`Mod not found: ${modName}`);
+		}
+
+		logDebug(`Unloading mod: ${modName}`);
+
+		modloaderAPI.events.removeParticipant(modName);
+		gameFileManager.removePatchSource(modName);
+		this.modsOrder = modsOrder.filter((m) => m !== modName);
+
+		modloaderAPI.events.triggerFor("ml:onModUnloaded", modName);
+
+		delete this.mods[modName];
+	}
+
+	reorderModsOrder(newModsOrder) {
+		logDebug("Reordering mod load order...");
+
+		if (newModsOrder.length !== this.modsOrder.length) {
+			throw new Error(`Invalid new mod order length: ${newModsOrder.length} vs ${this.modsOrder.length}`);
+		}
+
+		for (const modName of newModsOrder) {
+			if (!this.hasMod(modName)) {
+				throw new Error(`Invalid mod name in new order: ${modName}`);
+			}
+		}
+
+		this.modsOrder = newModsOrder;
+	}
+
+	setModActive(modName, isActive) {
+		logDebug(`Setting mod active: ${modName} -> ${isActive}`);
+		if (!this.hasMod(modName)) {
+			throw new Error(`Mod not found: ${modName}`);
+		}
+		if (this.mods[modName].isActive === isActive) {
+			logDebug(`Mod already set to ${isActive}: ${modName}`);
+			return;
+		}
+
+		this.mods[modName].isActive = isActive;
+
+		modloaderAPI.events.triggerFor("ml:onSetActive", modName, isActive);
+		modloaderAPI.events.setParticipantActive(modName, isActive);
+		gameFileManager.setPatchSourceActive(modName, isActive);
+	}
+
+	getModData() {
+		let modData = [];
+		for (const modName of this.modsOrder) {
+			modData.push({
+				...this.mods[modName].info,
+				isActive: this.mods[modName].isActive,
+			});
+		}
+		return modData;
+	}
+
+	hasMod(modName) {
+		return Object.hasOwn(this.mods, modName);
+	}
+}
+
 function readAndLoadConfig() {
 	configPath = resolvePathRelativeToModloader(configPath);
 	logDebug(`Reading config from: ${configPath}`);
@@ -847,7 +1026,7 @@ function updateConfig() {
 	logDebug(`Modloader config updated successfully: ${configPath}`);
 }
 
-function initializeGameFiles() {
+function initializeGameFileManager() {
 	// First cleanup any old temp directories
 	GameFileManager.deleteOldTempDirectories();
 
@@ -885,175 +1064,7 @@ function initializeGameFiles() {
 	gameFileManager.reset();
 }
 
-function setModActive(modName, isActive) {
-	logDebug(`Setting mod active: ${modName} -> ${isActive}`);
-	if (!Object.hasOwn(mods, modName)) {
-		throw new Error(`Mod not found: ${modName}`);
-	}
-	if (mods[modName].isActive === isActive) {
-		logDebug(`Mod already set to ${isActive}: ${modName}`);
-		return;
-	}
-
-	mods[modName].isActive = isActive;
-
-	modloaderAPI.events.triggerFor("ml:onSetActive", modName, isActive);
-	modloaderAPI.events.setParticipantActive(modName, isActive);
-	gameFileManager.setPatchSourceActive(modName, isActive);
-}
-
-function loadModInfo(modPath) {
-	// Try and read the modinfo.json
-	const modInfoPath = path.join(modPath, "modInfo.json");
-	logDebug(`Loading modinfo.json: ${modInfoPath}`);
-
-	if (!fs.existsSync(modInfoPath)) {
-		throw new Error(`modInfo.json not found: ${modInfoPath}`);
-	}
-
-	const modInfoContent = fs.readFileSync(modInfoPath, "utf8");
-	const modInfo = JSON.parse(modInfoContent);
-
-	// Ensure mod has required modinfo
-	if (!modInfo || !modInfo.name || !modInfo.version || !modInfo.author) {
-		throw new Error(`Invalid modInfo.json found: ${modInfoPath}`);
-	}
-
-	// If mod info defines entrypoints check they both exist
-	if (modInfo.electronEntrypoint && !fs.existsSync(path.join(modPath, modInfo.electronEntrypoint))) {
-		throw new Error(`Mod defines electron entrypoint ${modInfo.electronEntrypoint} but file not found: ${modPath}`);
-	}
-
-	if (modInfo.browserEntrypoint && !fs.existsSync(path.join(modPath, modInfo.browserEntrypoint))) {
-		throw new Error(`Mod defines browser entrypoint ${modInfo.browserEntrypoint} but file none found: ${modPath}`);
-	}
-
-	return modInfo;
-}
-
-function loadMod(modPath) {
-	logDebug(`Loading mod from path: ${modPath}`);
-
-	// Try load mod info - this can error if the mod info is invalid
-	let modInfo = loadModInfo(modPath);
-
-	// Ensure theres no mods with the same name
-	if (Object.hasOwn(mods, modInfo.name)) {
-		throw new Error(`Mod at path ${modPath} has the same name as another mod: ${modInfo.name}`);
-	}
-
-	// Officially save the mod into the load order
-	const mod = { info: modInfo, path: modPath, isActive: true };
-	mods[modInfo.name] = mod;
-	modsOrder.push(modInfo.name);
-
-	// Load the mods default config
-	modloaderAPI.config.defineDefaults(modInfo.name, modInfo.defaultConfig);
-
-	// Load and run the electron entrypoint
-	// Here mods will be able to add their patches / event listeners
-	try {
-		if (modInfo.electronEntrypoint) {
-			const electronEntrypoint = path.join(mod.path, mod.info.electronEntrypoint);
-			logDebug(`Loading electron entrypoint: ${electronEntrypoint}`);
-			require(electronEntrypoint);
-		}
-	} catch (e) {
-		throw new Error(`Error loading electron entrypoint for mod ${modInfo.name}: ${e.stack}`);
-	}
-
-	// Trigger the mod loaded event finally
-	modloaderAPI.events.triggerFor("ml:onModLoaded", modInfo.name);
-}
-
-function unloadMod(modName) {
-	if (!Object.hasOwn(mods, modName)) {
-		throw new Error(`Mod not found: ${modName}`);
-	}
-
-	logDebug(`Unloading mod: ${modName}`);
-
-	modloaderAPI.events.removeParticipant(modName);
-	gameFileManager.removePatchSource(modName);
-	modsOrder = modsOrder.filter((m) => m !== modName);
-
-	modloaderAPI.events.triggerFor("ml:onModUnloaded", modName);
-
-	delete mods[modName];
-}
-
-function reloadAllMods() {
-	logDebug("Reloading all mods...");
-
-	// Unload all the current mods
-	for (const modName in mods) {
-		unloadMod(modName);
-	}
-
-	// Clear out the mod data
-	mods = {};
-	modsOrder = [];
-
-	// Find all potential mod folders in the base mod folder
-	baseModsPath = resolvePathRelativeToModloader(config.modsPath);
-	logDebug(`Checking for mods in folder: ${baseModsPath}`);
-	ensureDirectoryExists(baseModsPath);
-	let modPaths = [];
-	try {
-		// Ensure isnt 'config', map to absolute, and ensure is directory
-		modPaths = fs.readdirSync(baseModsPath);
-		modPaths = modPaths.filter((p) => p !== "config");
-		modPaths = modPaths.map((p) => path.join(baseModsPath, p));
-		modPaths = modPaths.filter((p) => fs.statSync(p).isDirectory());
-	} catch (e) {
-		throw new Error(`Error finding mods: ${e.stack}`);
-	}
-
-	// load each mod, and skip if it fails
-	logDebug(`Found ${modPaths.length} mod${modPaths.length === 1 ? "" : "s"} to load`);
-	for (const modPath of modPaths) {
-		try {
-			loadMod(modPath);
-		} catch (e) {
-			logWarn(`Error loading mod at path ${modPath}: ${e.stack}`);
-		}
-	}
-
-	logInfo(`Loaded ${Object.keys(mods).length} mod(s) from ${baseModsPath}: [ ${modsOrder.join(", ")} ]`);
-	modloaderAPI.events.trigger("ml:onAllModsLoaded");
-}
-
-function getModData() {
-	let modData = [];
-	for (const modName of modsOrder) {
-		modData.push({
-			...mods[modName].info,
-			isActive: mods[modName].isActive,
-		});
-	}
-	return modData;
-}
-
-function reorderModsOrder(newModsOrder) {
-	logDebug("Reordering mod load order...");
-
-	if (newModsOrder.length !== modsOrder.length) {
-		throw new Error(`Invalid new mod order length: ${newModsOrder.length} vs ${modsOrder.length}`);
-	}
-
-	for (const modName of newModsOrder) {
-		if (!Object.hasOwn(mods, modName)) {
-			throw new Error(`Invalid mod name in new order: ${modName}`);
-		}
-	}
-
-	modsOrder = newModsOrder;
-}
-
-function initializeModloader() {
-	modloaderAPI = new ModloaderAPI("electron");
-	reloadAllMods();
-}
+function addModloaderPatches() {}
 
 // ------------ ELECTRON  ------------
 
@@ -1067,19 +1078,19 @@ function setupElectronIPC() {
 
 	ipcMain.handle("ml:get-mods", async (event, args) => {
 		logDebug("Received ml:get-mods");
-		return getModData();
+		return modsManager.getModData();
 	});
 
 	ipcMain.handle("ml:toggle-mod", async (event, args) => {
 		logDebug("Received ml:toggle-mod");
 		const modName = args.name;
 		const isActive = args.active;
-		setModActive(modName, isActive);
+		modsManager.setModActive(modName, isActive);
 	});
 
 	ipcMain.handle("ml:reload-mods", async (event, args) => {
 		logDebug("Received ml:reload-mods");
-		reloadAllMods();
+		modsManager.reloadAllMods();
 	});
 
 	ipcMain.handle("ml:start-game", async (event, args) => {
@@ -1187,11 +1198,15 @@ async function startApp() {
 
 	catchUnexpectedExits();
 	readAndLoadConfig();
-	initializeGameFiles();
-	initializeModloader();
 
-	setModActive("disabledmod", false);
+	initializeGameFileManager();
+	modsManager = new ModsManager();
+	modloaderAPI = new ModloaderAPI("electron", modsManager);
+	modsManager.reloadAllMods();
+	addModloaderPatches();
 
+	// TODO: Remove these debug lines
+	modsManager.setModActive("disabledmod", false);
 	modloaderAPI.events.logContents();
 	gameFileManager.logContents();
 
