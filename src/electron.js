@@ -819,7 +819,45 @@ class GameFileManager {
 
 	_applyPatchToContent(fileContent, patch) {
 		logDebug(`Applying patch: ${JSON.stringify(patch)}`);
-		// TODO: Implement patching logic
+
+		// Replaces matches of the regex with the replacement string
+		if (patch.type === "regex") {
+			if (!Object.hasOwn(patch, "pattern") || !Object.hasOwn(patch, "replace")) {
+				throw new Error(`Failed to apply regex patch. Missing "pattern" or "replace" field.`);
+			}
+			const regex = new RegExp(patch.pattern, "g");
+			const matches = fileContent.match(regex);
+			let actualMatches = matches ? matches.length : 0;
+			let expectedMatches = patch.expectedMatches || 1;
+			if (actualMatches != expectedMatches) {
+				throw new Error(`Failed to apply regex patch: "${patch.pattern}" -> "${patch.replace}", ${actualMatches} != ${expectedMatches} match(s).`);
+			}
+			fileContent = fileContent.replace(regex, patch.replace);
+		}
+
+		// Run the function over the patch
+		else if (patch.type === "process") {
+			fileContent = patch.func(fileContent);
+		}
+
+		// Replace all instances of the string with the replacement string
+		else if (patch.type === "replace") {
+			if (!Object.hasOwn(patch, "from") || !Object.hasOwn(patch, "to")) {
+				throw new Error(`Failed to apply replace patch. Missing "from" or "to" field.`);
+			}
+			let index = fileContent.indexOf(patch.from);
+			let actualMatches = 0;
+			while (index !== -1) {
+				actualMatches++;
+				fileContent = fileContent.slice(0, index) + patch.to + fileContent.slice(index + patch.from.length);
+				index = fileContent.indexOf(patch.from, index + patch.to.length);
+			}
+			let expectedMatches = patch.expectedMatches || 1;
+			if (actualMatches != expectedMatches) {
+				throw new Error(`Failed to apply replace patch: "${patch.from}" -> "${patch.to}", ${actualMatches} != ${expectedMatches} match(s).`);
+			}
+		}
+
 		return fileContent;
 	}
 }
@@ -1064,7 +1102,21 @@ function initializeGameFileManager() {
 	gameFileManager.reset();
 }
 
-function addModloaderPatches() {}
+function addModloaderPatches() {
+	// Enable the debug flag
+	gameFileManager.addPatch("modloader", "js/bundle.js", {
+		type: "replace",
+		from: "debug:{active:!1",
+		to: "debug:{active:1",
+	});
+
+	// Add React to globalThis
+	gameFileManager.addPatch("modloader", "js/bundle.js", {
+		type: "replace",
+		from: `var Cl,kl=i(6540)`,
+		to: `globalThis.React=i(6540);var Cl,kl=React`,
+	});
+}
 
 // ------------ ELECTRON  ------------
 

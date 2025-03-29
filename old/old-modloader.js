@@ -1,24 +1,3 @@
-globalThis.bundlePatches = [
-	{
-		// Enable the debug flag
-		type: "regex",
-		pattern: "debug:{active:!1",
-		replace: "debug:{active:1",
-	},
-	{
-		// Add React to globalThis
-		type: "replace",
-		from: `var Cl,kl=i(6540)`,
-		to: `globalThis.React=i(6540);var Cl,kl=React`,
-	},
-	{
-		// Add the Config button to main screen
-		type: "replace",
-		from: `0,Al(e.state,k.Options)}}),`,
-		to: `0,Al(e.state,k.Options)}}),(0,bm.jsx)(V_,{state:e.state,text:"Config",hint:"[C]",onClick:function(){globalThis.openConfigMenu();},}),`,
-		expectedMatches: 1,
-	},
-];
 
 globalThis.intercepts = {
 	"/bundle.js": [
