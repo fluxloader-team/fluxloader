@@ -1,6 +1,4 @@
-modloaderAPI.addPatch("testmod", "js/bundle.js", {
-	// expectedMatches: 1, // Default value
-	files: "336.bundle.js",
+modloaderAPI.addPatch("testmod", "js/336.bundle.js", {
 	type: "replace",
 	from: "Will launch elements upward",
 	to: "Will throw some blocks around",
@@ -10,8 +8,6 @@ const config = modloaderAPI.config.get("testmod");
 
 if (config.someSetting) {
 	modloaderAPI.addPatch("testmod", "js/bundle.js", {
-		// expectedMatches: 1, // Default value
-		// file: "bundle.js", // Default value
 		type: "replace",
 		from: "t.store.resources.artifacts++,",
 		to: `t.store.resources.artifacts++,console.log('You got an artifact, config: ${config.someValue}'),`,

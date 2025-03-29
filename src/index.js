@@ -9,19 +9,38 @@ globalThis.asar = require("asar");
 
 // NOTE: This file and branch is WIP, at no specific commit does it reflect the planned expected behaviour.
 
-// Mods are defined in a /MODFOLDER directory with a required modinfo.json
-
-// /MODFOLDER/modinfo.json: {
+// Mods are defined in /mods/<modname> and require a 'modinfo.json' file:
+// modinfo.json: {
 //   name: string,
 //   version: string,
 //   author: string,
 //   description?: string,
 //   electronEntrypoint?: boolean,
-//   browserEntrypoint?: boolean
+//   browserEntrypoint?: boolean,
+//   defaultConfig?: object,
 // }
 
-// Mods are ran inside the (electron) and the (browser) environment with their entrypoints.
-// See the Modloader API section for how to interact with the modloader.
+// Mods are ran inside the (electron) and the (browser) environment with their entrypoints files.
+// These are alongside this index.js file, and alongside the the frontend browser game code.
+
+// When a mod is 'loaded':
+// - modinfo.json read and validated, exits if invalid
+// - mod added into the mod load order
+// - mod configs initialized with defaults
+// - mod electron entrypoint is loaded to allow mods to register patches / hooks
+//
+// When a mod is set 'active' / 'inactive':
+// - mod is set to active / inactive in its mod data
+// - file manager is notified that the mod patch source is active / inactive
+// - events are notified that the mod is active / inactive
+//
+// This means that loading / unloading adds / removes mod hooks
+// and setting active / inactive only toggles them as active / inactive
+
+// Be aware that the following error is related to an experimental feature in the devtools that is not supported by electron.
+// - "Request Autofill.enable failed. {"code":-32601,"message":"'Autofill.enable' wasn't found"}", source: devtools://devtools/bundled/core/protocol_client/protocol_client.js (1)
+// Is deemed not worthy to fix by the electron team and is not a bug in the modloader:
+// - https://github.com/electron/electron/issues/41614#issuecomment-2006678760
 
 // ------------- VARIABLES -------------
 
@@ -57,54 +76,74 @@ let defaultConfig = {
 
 // ------------ UTILTY ------------
 
+function colour(text, colour) {
+	const COLOUR_MAP = {
+		red: "\x1b[31m",
+		green: "\x1b[32m",
+		yellow: "\x1b[33m",
+		blue: "\x1b[34m",
+		magenta: "\x1b[35m",
+		cyan: "\x1b[36m",
+		white: "\x1b[37m",
+		grey: "\x1b[90m",
+		black: "\x1b[30m",
+		brightRed: "\x1b[91m",
+		brightGreen: "\x1b[92m",
+		brightYellow: "\x1b[93m",
+		brightBlue: "\x1b[94m",
+		brightMagenta: "\x1b[95m",
+		brightCyan: "\x1b[96m",
+		brightWhite: "\x1b[97m",
+		reset: "\x1b[0m",
+	};
+	return `${COLOUR_MAP[colour]}${text}\x1b[0m`;
+}
+
 globalThis.log = function (level, tag, message) {
+	function setupLogFile() {
+		if (logFilePath) return;
+		logFilePath = resolvePathRelativeToModloader(config.logging.logFilePath);
+		try {
+			fs.appendFileSync(logFilePath, new Date().toISOString() + "\n");
+		} catch (e) {
+			throw new Error(`Error writing to log file: ${e.stack}`);
+		}
+		const stat = fs.statSync(logFilePath);
+		const fileSize = stat.size / 1024 / 1024;
+		if (fileSize > 2) {
+			logWarn(`Log file is over 2MB: ${logFilePath} (${fileSize.toFixed(2)}MB)`);
+		}
+		logDebug(`Modloader log path: ${logFilePath}`);
+	}
+
+	// Back out early if given wrong log level
 	if (!logLevels.includes(level)) {
 		throw new Error(`Invalid log level: ${level}`);
 	}
 
 	const levelIndex = logLevels.indexOf(level);
 	const timestamp = new Date().toISOString().split("T")[1].split("Z")[0];
-	const finalMessage = `[${level.toUpperCase().padEnd(6, " ")} ${timestamp}${tag ? "  " + tag : ""}] ${message}`;
+	const levelText = level.toUpperCase(); //.padEnd(5, " ");
+	let header = `[${tag ? tag + " " : ""}${levelText} ${timestamp}]`;
+	let headerColoured = colour("[", "grey") + colour(tag ? `${tag} ` : "", "blue") + colour(`${levelText} ${timestamp}]`, "grey");
 
 	// Only log to file if defined by the config and level is allowed
 	if (config && config.logging.logToFile) {
-		const fileLogLevel = logLevels.indexOf(config.logging.fileLogLevel);
-		if (levelIndex >= fileLogLevel) {
-			// Setup the global log file path the first time we need it
-			if (!logFilePath) {
-				logFilePath = resolvePathRelativeToModloader(config.logging.logFilePath);
-				try {
-					fs.appendFileSync(logFilePath, new Date().toISOString() + "\n");
-				} catch (e) {
-					throw new Error(`Error writing to log file: ${e.stack}`);
-				}
-
-				// Check the size of the log file for a warning
-				const stat = fs.statSync(logFilePath);
-				const fileSize = stat.size / 1024 / 1024;
-				if (fileSize > 2) {
-					logWarn(`Log file is over 2MB: ${logFilePath} (${fileSize.toFixed(2)}MB)`);
-				}
-
-				logDebug(`Log file path set to: ${logFilePath}`);
-			}
-
-			fs.appendFileSync(logFilePath, finalMessage + "\n");
+		if (levelIndex >= logLevels.indexOf(config.logging.fileLogLevel)) {
+			if (!logFilePath) setupLogFile();
+			fs.appendFileSync(logFilePath, `${header} ${message}\n`);
 		}
 	}
 
-	// If config is not loaded then use the pre-config log level and always log to console
-	// Otherwise only log to console if defined by the config and level is allowed
-	let consoleLevel = preConfigLogLevel;
-	if (config) consoleLevel = config.logging.consoleLogLevel;
+	// If config is not loaded then use the pre-config log level as the filter
+	// Otherwise only log to console based on config level and console log flag
+	let consoleLevelLimit = preConfigLogLevel;
+	if (config) consoleLevelLimit = config.logging.consoleLogLevel;
 	if (!config || config.logging.logToConsole) {
-		const consoleLevelIndex = logLevels.indexOf(consoleLevel);
-		if (levelIndex >= consoleLevelIndex) {
-			console.log(finalMessage);
+		if (levelIndex >= logLevels.indexOf(consoleLevelLimit)) {
+			console.log(`${headerColoured} ${message}`);
 		}
 	}
-
-	return finalMessage;
 };
 
 globalThis.logDebug = (...args) => log("debug", "", args.join(" "));
@@ -113,7 +152,10 @@ globalThis.logWarn = (...args) => log("warn", "", args.join(" "));
 globalThis.logError = (...args) => log("error", "", args.join(" "));
 
 function resolvePathRelativeToModloader(name) {
-	// Relative to mod-loader.exe
+	// If absolute then return the path as is
+	if (path.isAbsolute(name)) return name;
+
+	// Otherwise relative to mod-loader.exe
 	return path.join(__dirname, name);
 }
 
@@ -121,20 +163,18 @@ function ensureDirectoryExists(dirPath) {
 	if (!fs.existsSync(dirPath)) {
 		fs.mkdirSync(dirPath, { recursive: true });
 		logDebug(`Directory created: ${dirPath}`);
-	} else {
-		logDebug(`Directory already exists: ${dirPath}`);
 	}
 }
 
 function catchUnexpectedExits() {
 	process.on("uncaughtException", (err) => {
 		logError(`Uncaught exception: ${err.stack}`);
-		unexpectedCleanupApp();
+		cleanupApp();
 		process.exit(1);
 	});
 	process.on("unhandledRejection", (err) => {
 		logError(`Unhandled rejection: ${err.stack}`);
-		unexpectedCleanupApp();
+		cleanupApp();
 		process.exit(1);
 	});
 	process.on("SIGINT", () => {
@@ -190,97 +230,133 @@ function updateObjectWithDefaults(defaultValues, target) {
 // ------------ MODLOADER API ------------
 
 class ModloaderEvents {
-	static electronEvents = ["ml:onModLoaded", "ml:onModUnloaded", "ml:onAllModsLoaded", "ml:onSetActive"];
-	static browserEvents = ["ml:onMenuLoaded", "ml:onGameLoaded"];
+	events = {};
+	participants = {};
 
-	events = [];
-	listeners = {};
-
-	constructor(environmentType) {
-		let envEvents = environmentType === "electron" ? ModloaderEvents.electronEvents : ModloaderEvents.browserEvents;
-		for (const event of envEvents) {
-			this.registerEvent(event);
+	setParticipantActive(participant, isActive) {
+		// This is for enabling / disabling sources / listeners
+		// Primarily for enabling / disabling mods
+		if (!this.participants[participant]) {
+			this.participants[participant] = { isActive };
+		} else {
+			this.participants[participant].isActive = isActive;
 		}
 	}
 
-	registerEvent(event) {
-		logDebug(`Registering event: ${event}`);
-		if (this.events.includes(event)) {
+	registerEvent(source, event) {
+		logDebug(`Registering new event from source: ${source} -> ${event}`);
+		if (this.events[event]) {
 			throw new Error(`Event already registered: ${event}`);
 		}
-		this.events.push(event);
-		this.listeners[event] = {};
+		if (!this.participants[source]) this.participants[source] = { isActive: true };
+		this.events[event] = { source, listeners: {} };
 	}
 
 	trigger(event, ...args) {
+		// When triggering an event generally if the source is inactive we error, but if the listener is inactive we ignore it
 		logDebug(`Triggering event: ${event}`);
-		if (!this.events.includes(event)) {
-			throw new Error(`Unallowed event called: ${event}`);
+		if (!this.events[event]) {
+			throw new Error(`Cannot trigger non-existent event: ${event}`);
 		}
-		for (const listener in this.listeners[event]) {
-			for (const func of this.listeners[event][listener]) {
-				func(...args);
+		if (!this.participants[this.events[event].source]) {
+			throw new Error(`Event source participant not active: ${this.events[event].source}`);
+		}
+		for (const listener in this.events[event].listeners) {
+			if (this.participants[listener].isActive) {
+				for (const func of this.events[event].listeners[listener]) {
+					func(...args);
+				}
 			}
 		}
 	}
 
 	triggerFor(event, listener, ...args) {
+		// When directly triggering an event for a listener it is an error to specify inactive source / listeners
 		logDebug(`Triggering event for: ${event} -> ${listener}`);
-		if (!this.events.includes(event)) {
-			throw new Error(`Unallowed event called: ${event}`);
+		if (!this.events[event]) {
+			throw new Error(`Cannot trigger non-existent event: ${event}`);
 		}
-		if (Object.hasOwn(this.listeners[event], listener)) {
-			for (const func of this.listeners[event][listener]) {
-				func(...args);
-			}
+		if (!this.participants[this.events[event].source].isActive) {
+			throw new Error(`Event source participant not active: ${this.events[event].source}`);
+		}
+		if (!this.events[event].listeners[listener]) {
+			throw new Error(`Event listener not found: ${listener}`);
+		}
+		if (!this.participants[listener].isActive) {
+			throw new Error(`Event listener participant not active: ${listener}`);
+		}
+		for (const func of this.events[event].listeners[listener]) {
+			func(...args);
 		}
 	}
 
 	on(listener, event, func) {
-		logDebug(`Adding listener: ${event} -> ${listener}`);
-
-		if (!this.events.includes(event)) {
-			throw new Error(`Unallowed event called: ${event}`);
+		// When adding a listener we need to ensure the event source is active
+		logDebug(`Adding event listener: ${event} -> ${listener}`);
+		if (!this.events[event]) {
+			throw new Error(`Cannot add listener to non-existent event: ${event}`);
 		}
-
-		if (!Object.hasOwn(this.listeners[event], listener)) {
-			this.listeners[event][listener] = [];
+		if (!this.participants[this.events[event].source]) {
+			logWarn(`Event source participant not active: ${this.events[event].source}`);
 		}
-
-		this.listeners[event][listener].push(func);
+		if (!this.events[event].listeners[listener]) {
+			this.events[event].listeners[listener] = [];
+		}
+		if (!this.participants[listener]) this.participants[listener] = { isActive: true };
+		this.events[event].listeners[listener].push(func);
 	}
 
 	off(listener, event) {
-		logDebug(`Removing listener: ${event} -> ${listener}`);
-		if (!this.events.includes(event)) {
-			throw new Error(`Unallowed event called: ${event}`);
+		// When removing a listener we need to ensure the event source is active
+		logDebug(`Removing event listener: ${event} -> ${listener}`);
+		if (!this.events[event]) {
+			throw new Error(`Cannot remove listener from non-existent event: ${event}`);
 		}
-		if (Object.hasOwn(this.listeners[event], listener)) {
-			delete this.listeners[event][listener];
+		if (!this.events[event].listeners[listener]) {
+			throw new Error(`Event listener not found: ${listener}`);
 		}
+		this.events[event].listeners[listener] = [];
 	}
 
-	removeListener(listener) {
-		logDebug(`Removing listener: ${listener}`);
-		for (const event of this.events) {
-			if (Object.hasOwn(this.listeners[event], listener)) {
-				delete this.listeners[event][listener];
-			}
+	removeParticipant(participant) {
+		logDebug(`Removing event participant: ${participant}`);
+		for (const event in this.events) {
+			if (this.events[event].source === participant) delete this.events[event];
+			else if (this.events[event].listeners[participant]) delete this.events[event].listeners[participant];
 		}
+		delete this.participants[participant];
 	}
 
-	removeListeners() {
-		for (const event in this.listeners) {
-			this.listeners[event] = {};
+	logContents() {
+		let outputString = "ModloaderEvent Content\n\n";
+
+		outputString += `  |  Participants (${Object.keys(this.participants).length})\n`;
+		for (const participant in this.participants) {
+			outputString += `  |  |  ${participant}: ${this.participants[participant].isActive ? "ACTIVE" : "INACTIVE"}\n`;
 		}
+
+		outputString += `  |  \n`;
+		outputString += `  |  Events (${Object.keys(this.events).length})\n`;
+		for (const event in this.events) {
+			outputString += `  |  |   ${!this.participants[this.events[event].source].isActive ? "(OFF) " : ""} ${this.events[event].source} -> ${event} [ `;
+			outputString += Object.keys(this.events[event].listeners)
+				.map((l) => `${!this.participants[l].isActive ? "(OFF) " : ""}${l}:${this.events[event].listeners[l].length}`)
+				.join(", ");
+			outputString += ` ]\n`;
+		}
+
+		logDebug(outputString);
 	}
 }
 
 class ModloaderConfig {
-	async get(modName) {
-		modNamePath = sanitizeModpath(modName);
+	get(modName) {
+		const modNamePath = this.sanitizeModNamePath(modName);
+		const modsConfigPath = path.join(baseModsPath, "config");
+		ensureDirectoryExists(modsConfigPath);
+		const modConfigPath = path.join(modsConfigPath, `${modNamePath}.json`);
+		logDebug(`Getting mod config: ${modNamePath} -> ${modConfigPath}`);
 		try {
-			const modConfigPath = fs.join(baseModsPath, "config", `${modNamePath}.json`);
 			if (fs.existsSync(modConfigPath)) {
 				return JSON.parse(fs.readFileSync(modConfigPath, "utf8"));
 			}
@@ -290,26 +366,39 @@ class ModloaderConfig {
 		return {};
 	}
 
-	async set(modName, config) {
-		modNamePath = this.sanitizeModNamePath(modName);
+	set(modName, config) {
+		const modNamePath = this.sanitizeModNamePath(modName);
+		const modsConfigPath = path.join(baseModsPath, "config");
+		ensureDirectoryExists(modsConfigPath);
+		const modConfigPath = path.join(modsConfigPath, `${modNamePath}.json`);
+		logDebug(`Setting mod config: ${modNamePath} -> ${modConfigPath}`);
+
 		try {
-			const modConfigPath = fs.join(baseModsPath, "config", `${modNamePath}.json`);
-			fs.writeFileSync(modConfigPath, JSON.stringify(config), "utf8");
+			fs.writeFileSync(modConfigPath, JSON.stringify(config, null, 4), "utf8");
 			return true;
 		} catch (e) {
 			logWarn(`Error while writing mod config: ${e.stack}`);
 		}
+
 		return false;
 	}
 
-	async defineDefaults(modName, defaultConfig) {
-		let existingConfig = get(modName);
-		if (Object.keys(existingConfig).length == 0) {
-			await set(modName, defaultConfig);
-		}
-		const modified = updateObjectWithDefaults(defaultConfig, existingConfig);
-		if (modified) {
-			await set(modName, existingConfig);
+	defineDefaults(modName, defaultConfig) {
+		logDebug(`Defining default config for mod: ${modName}`);
+		let existingConfig = this.get(modName);
+
+		// If existingConfig is {} and defaultConfig is not {}
+		if (Object.keys(existingConfig).length === 0 && Object.keys(defaultConfig).length > 0) {
+			logDebug(`No existing config found for mod so initializing to defaults: ${modName}`);
+			this.set(modName, defaultConfig);
+		} else {
+			const modified = updateObjectWithDefaults(defaultConfig, existingConfig);
+			if (!modified) {
+				logDebug(`Mod config is up-to-date: ${modName}`);
+			} else {
+				this.set(modName, existingConfig);
+				logDebug(`Mod config updated to defaults successfully: ${modName}`);
+			}
 		}
 	}
 
@@ -319,6 +408,9 @@ class ModloaderConfig {
 }
 
 class ModloaderAPI {
+	static electronEvents = ["ml:onModLoaded", "ml:onModUnloaded", "ml:onAllModsLoaded", "ml:onSetActive", "ml:onModloaderClosed"];
+	static browserEvents = ["ml:onMenuLoaded", "ml:onGameLoaded"];
+
 	environmentType = undefined;
 	events = undefined;
 	config = undefined;
@@ -326,8 +418,13 @@ class ModloaderAPI {
 	constructor(environmentType) {
 		logDebug(`Initializing modloader API for environment: ${environmentType}`);
 		this.environmentType = environmentType;
-		this.events = new ModloaderEvents(environmentType);
+		this.events = new ModloaderEvents();
 		this.config = new ModloaderConfig();
+
+		let envEvents = environmentType === "electron" ? ModloaderAPI.electronEvents : ModloaderAPI.browserEvents;
+		for (const event of envEvents) {
+			this.events.registerEvent("modloader", event);
+		}
 	}
 
 	addPatch(source, file, patch) {
@@ -353,10 +450,6 @@ class ModloaderAPI {
 		}
 		gameFileManager.repatch(file);
 	}
-
-	clear() {
-		this.events.removeListeners();
-	}
 }
 
 // ------------ MAIN ------------
@@ -367,6 +460,7 @@ class GameFileManager {
 	tempBasePath = undefined;
 	tempExtractedPath = undefined;
 	fileData = {};
+	patchSources = {};
 	isTempInitialized = false;
 	isGameExtracted = false;
 	isGameModified = false;
@@ -377,8 +471,8 @@ class GameFileManager {
 		this.gameAsarPath = gameAsarPath;
 	}
 
-	reinitialize() {
-		logDebug("Resetting game files to base...");
+	reset() {
+		logDebug("Resetting extracted app.asar to default...");
 
 		// Do not need to reset if we are extracted and not modified
 		if (this.isGameExtracted && !this.isGameModified) return;
@@ -395,7 +489,7 @@ class GameFileManager {
 		// With the updated files now extract the games main.js electron app
 		this._extractGameElectronFunctions();
 
-		logDebug("Game files reset to base and initialized");
+		logDebug("Extracted app.asar set to default successfully");
 	}
 
 	addPatch(source, file, patch) {
@@ -403,15 +497,16 @@ class GameFileManager {
 		if (!this.isGameExtracted) {
 			throw new Error("Game files not extracted yet cannot add patch");
 		}
-		if (!this.fileData[file]) this._initializeFileData(file);
-		this.fileData[file].patches.push({ source, patch });
-	}
-
-	removePatchSource(source) {
-		logDebug(`Removing patch source: ${source}`);
-		for (const file in this.fileData) {
-			this.fileData[file].patches = this.fileData[file].patches.filter((p) => p.source != source);
+		if (!this.fileData[file]) {
+			this._initializeFileData(file);
 		}
+		if (!this.patchSources[source]) {
+			this.patchSources[source] = { isActive: true };
+		}
+		if (!this.patchSources[source].isActive) {
+			logDebug(`Patch source not active: ${source}`);
+		}
+		this.fileData[file].patches.push({ source, patch });
 	}
 
 	repatchAll() {
@@ -435,10 +530,31 @@ class GameFileManager {
 		this._applyFilePatches(file);
 	}
 
-	cleanup() {
-		logDebug("Cleaning up game files...");
+	setPatchSourceActive(source, isActive) {
+		logDebug(`Setting patch source active: ${source} -> ${isActive}`);
+		if (this.isGameModified) {
+			throw new Error("Game files are modified cannot set patch source active");
+		}
+		if (!this.patchSources[source]) this.patchSources[source] = { isActive };
+		else this.patchSources[source].isActive = isActive;
+	}
+
+	removePatchSource(source) {
+		logDebug(`Removing patch source: ${source}`);
+		if (!this.patchSources[source]) {
+			throw new Error(`Patch source not found: ${source}`);
+		}
+		for (const file in this.fileData) {
+			this.fileData[file].patches = this.fileData[file].patches.filter((p) => p.source != source);
+		}
+		delete this.patchSources[source];
+	}
+
+	deleteFiles() {
+		logDebug("Deleting game files...");
 		this._deleteTempDirectory();
 		this.fileData = {};
+		this.patchSources = {};
 		this.tempBasePath = undefined;
 		this.tempExtractedPath = undefined;
 		this.isTempInitialized = false;
@@ -446,8 +562,39 @@ class GameFileManager {
 		this.isGameModified = false;
 	}
 
+	logContents() {
+		let outputString = "GameFileManager Content\n\n";
+		outputString += `  |  Variables\n`;
+		outputString += `  |  |  Game Base Path: ${this.gameBasePath}\n`;
+		outputString += `  |  |  Game Asar Path: ${this.gameAsarPath}\n`;
+		outputString += `  |  |  Temp Base Path: ${this.tempBasePath}\n`;
+		outputString += `  |  |  Temp Extracted Path: ${this.tempExtractedPath}\n`;
+		outputString += `  |  |  Is Temp Initialized: ${this.isTempInitialized}\n`;
+		outputString += `  |  |  Is Game Extracted: ${this.isGameExtracted}\n`;
+		outputString += `  |  |  Is Game Modified: ${this.isGameModified}\n`;
+
+		outputString += `  |  \n`;
+		outputString += `  |  Patch Sources (${Object.keys(this.patchSources).length})\n`;
+		for (const source in this.patchSources) {
+			outputString += `  |  |  ${source}: ${this.patchSources[source].isActive ? "ACTIVE" : "INACTIVE"}\n`;
+		}
+
+		outputString += `  |  \n`;
+		outputString += `  |  File Data (${Object.keys(this.fileData).length})\n`;
+		for (const file in this.fileData) {
+			outputString += `  |  |  '${file}': ${this.fileData[file].isModified ? "MODIFIED" : "UNMODIFIED"}, patches (${this.fileData[file].patches.length})\n`;
+			if (this.fileData[file].patches.length == 0) {
+			} else {
+				for (const patch of this.fileData[file].patches) {
+					outputString += `  |  |  |  ${!this.patchSources[patch.source].isActive ? "(OFF) " : ""}${patch.source} -> ${JSON.stringify(patch.patch)}\n`;
+				}
+			}
+		}
+		logDebug(outputString);
+	}
+
 	static deleteOldTempDirectories() {
-		logDebug("Finding and deleting all old temp directories...");
+		logDebug("Deleting old temp directories...");
 		let basePath;
 		let files;
 		try {
@@ -503,13 +650,13 @@ class GameFileManager {
 		if (this.isGameExtracted) return;
 		this.tempExtractedPath = path.join(this.tempBasePath, "extracted");
 		ensureDirectoryExists(this.tempExtractedPath);
-		logInfo(`Extracting game.asar from ${this.gameAsarPath} to ${this.tempExtractedPath}`);
+		logInfo(`Extracting game.asar to ${this.tempExtractedPath}`);
 		try {
 			asar.extractAll(this.gameAsarPath, this.tempExtractedPath);
 		} catch (e) {
 			throw new Error(`Error extracting game.asar: ${e.stack}`);
 		}
-		logDebug(`Successfully extracted game to ${this.tempExtractedPath}`);
+		logDebug(`Successfully extracted app.asar`);
 		this.isGameExtracted = true;
 		this.isGameModified = false;
 	}
@@ -523,7 +670,7 @@ class GameFileManager {
 
 		// Read the main.js file contents
 		const mainPath = path.join(this.tempExtractedPath, "main.js");
-		logInfo(`Processing game electron app: ${mainPath}`);
+		logInfo(`Processing games electron main.js: ${mainPath}`);
 		let mainContent;
 		try {
 			mainContent = fs.readFileSync(mainPath, "utf8");
@@ -562,7 +709,7 @@ class GameFileManager {
 
 		// Run the code to register their functions with eval
 		// Using Function(...) doesn't work well due to not being able to access require or the global scope
-		logDebug(`Executing eval(...) on modified game electron main.js with hash ${mainHash}`);
+		logDebug(`Executing eval(...) on modified game electron main.js (hash=${mainHash})`);
 		try {
 			gameElectronFuncs = {};
 			eval(mainContent);
@@ -643,6 +790,14 @@ class GameFileManager {
 		}
 
 		for (const patch of patches) {
+			if (!this.patchSources[patch.source]) {
+				logDebug(`Patch source not found: ${patch.source}`);
+				continue;
+			}
+			if (!this.patchSources[patch.source].isActive) {
+				logDebug(`Patch source not active: ${patch.source}`);
+				continue;
+			}
 			fileContent = this._applyPatchToContent(fileContent, patch.patch);
 		}
 
@@ -677,22 +832,19 @@ function readAndLoadConfig() {
 
 	// If a config file exists compare it to the default
 	else {
-		const configContent = fs.readFileSync(configPath, "utf8");
-		config = JSON.parse(configContent);
+		config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 		let modified = updateObjectWithDefaults(defaultConfig, config);
-
 		if (!modified) {
-			logDebug(`Config '${configPath}' is up-to-date`);
+			logDebug(`Modloader config is up-to-date: ${configPath}`);
 		} else {
-			fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf8");
-			logDebug(`Config '${configPath}' updated successfully`);
+			updateConfig();
 		}
 	}
 }
 
 function updateConfig() {
-	fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf8");
-	logDebug(`Config '${configPath}' updated successfully`);
+	fs.writeFileSync(configPath, JSON.stringify(config, null, 4), "utf8");
+	logDebug(`Modloader config updated successfully: ${configPath}`);
 }
 
 function initializeGameFiles() {
@@ -726,23 +878,34 @@ function initializeGameFiles() {
 		updateConfig();
 	}
 
-	logInfo(`Found game app.asar: ${asarPath}, extracting...`);
+	logInfo(`Found game app.asar: ${asarPath}`);
 
 	// Now initialize the file manager with the base / asar path
 	gameFileManager = new GameFileManager(fullGamePath, asarPath);
-	gameFileManager.reinitialize();
+	gameFileManager.reset();
 }
 
 function setModActive(modName, isActive) {
-	logDebug(`Setting mod active: ${modname}.active = ${isActive}`);
-	mod.isActive = isActive;
+	logDebug(`Setting mod active: ${modName} -> ${isActive}`);
+	if (!Object.hasOwn(mods, modName)) {
+		throw new Error(`Mod not found: ${modName}`);
+	}
+	if (mods[modName].isActive === isActive) {
+		logDebug(`Mod already set to ${isActive}: ${modName}`);
+		return;
+	}
+
+	mods[modName].isActive = isActive;
+
 	modloaderAPI.events.triggerFor("ml:onSetActive", modName, isActive);
+	modloaderAPI.events.setParticipantActive(modName, isActive);
+	gameFileManager.setPatchSourceActive(modName, isActive);
 }
 
 function loadModInfo(modPath) {
 	// Try and read the modinfo.json
-	logDebug(`Loading modinfo.json from: ${modPath}`);
 	const modInfoPath = path.join(modPath, "modInfo.json");
+	logDebug(`Loading modinfo.json: ${modInfoPath}`);
 
 	if (!fs.existsSync(modInfoPath)) {
 		throw new Error(`modInfo.json not found: ${modInfoPath}`);
@@ -756,8 +919,6 @@ function loadModInfo(modPath) {
 		throw new Error(`Invalid modInfo.json found: ${modInfoPath}`);
 	}
 
-	logDebug(`Loaded modinfo.json: ${modInfo.name}`);
-
 	// If mod info defines entrypoints check they both exist
 	if (modInfo.electronEntrypoint && !fs.existsSync(path.join(modPath, modInfo.electronEntrypoint))) {
 		throw new Error(`Mod defines electron entrypoint ${modInfo.electronEntrypoint} but file not found: ${modPath}`);
@@ -770,17 +931,53 @@ function loadModInfo(modPath) {
 	return modInfo;
 }
 
+function loadMod(modPath) {
+	logDebug(`Loading mod from path: ${modPath}`);
+
+	// Try load mod info - this can error if the mod info is invalid
+	let modInfo = loadModInfo(modPath);
+
+	// Ensure theres no mods with the same name
+	if (Object.hasOwn(mods, modInfo.name)) {
+		throw new Error(`Mod at path ${modPath} has the same name as another mod: ${modInfo.name}`);
+	}
+
+	// Officially save the mod into the load order
+	const mod = { info: modInfo, path: modPath, isActive: true };
+	mods[modInfo.name] = mod;
+	modsOrder.push(modInfo.name);
+
+	// Load the mods default config
+	modloaderAPI.config.defineDefaults(modInfo.name, modInfo.defaultConfig);
+
+	// Load and run the electron entrypoint
+	// Here mods will be able to add their patches / event listeners
+	try {
+		if (modInfo.electronEntrypoint) {
+			const electronEntrypoint = path.join(mod.path, mod.info.electronEntrypoint);
+			logDebug(`Loading electron entrypoint: ${electronEntrypoint}`);
+			require(electronEntrypoint);
+		}
+	} catch (e) {
+		throw new Error(`Error loading electron entrypoint for mod ${modInfo.name}: ${e.stack}`);
+	}
+
+	// Trigger the mod loaded event finally
+	modloaderAPI.events.triggerFor("ml:onModLoaded", modInfo.name);
+}
+
 function unloadMod(modName) {
 	if (!Object.hasOwn(mods, modName)) {
 		throw new Error(`Mod not found: ${modName}`);
 	}
 
 	logDebug(`Unloading mod: ${modName}`);
-	modloaderAPI.events.triggerFor("ml:onModUnloaded", modName);
 
-	modloaderAPI.events.removeListener(modName);
+	modloaderAPI.events.removeParticipant(modName);
 	gameFileManager.removePatchSource(modName);
 	modsOrder = modsOrder.filter((m) => m !== modName);
+
+	modloaderAPI.events.triggerFor("ml:onModUnloaded", modName);
 
 	delete mods[modName];
 }
@@ -793,56 +990,33 @@ function reloadAllMods() {
 		unloadMod(modName);
 	}
 
-	// Clear out the modloader API
-	modloaderAPI.clear();
+	// Clear out the mod data
 	mods = {};
 	modsOrder = [];
 
-	// Find all folders in the base mod folder and try load them as mods
+	// Find all potential mod folders in the base mod folder
 	baseModsPath = resolvePathRelativeToModloader(config.modsPath);
 	logDebug(`Checking for mods in folder: ${baseModsPath}`);
 	ensureDirectoryExists(baseModsPath);
 	let modPaths = [];
 	try {
-		modPaths = fs.readdirSync(baseModsPath).map((p) => path.join(baseModsPath, p));
+		// Ensure isnt 'config', map to absolute, and ensure is directory
+		modPaths = fs.readdirSync(baseModsPath);
+		modPaths = modPaths.filter((p) => p !== "config");
+		modPaths = modPaths.map((p) => path.join(baseModsPath, p));
 		modPaths = modPaths.filter((p) => fs.statSync(p).isDirectory());
 	} catch (e) {
 		throw new Error(`Error finding mods: ${e.stack}`);
 	}
-	logDebug(`Found ${modPaths.length} mod(s) in folder: ${baseModsPath}`);
 
+	// load each mod, and skip if it fails
+	logDebug(`Found ${modPaths.length} mod${modPaths.length === 1 ? "" : "s"} to load`);
 	for (const modPath of modPaths) {
-		// Try and load the mod, but continue with warning otherwise
-		let modInfo;
 		try {
-			modInfo = loadModInfo(modPath);
+			loadMod(modPath);
 		} catch (e) {
 			logWarn(`Error loading mod at path ${modPath}: ${e.stack}`);
-			continue;
 		}
-
-		// Ensure theres no mods with the same name
-		if (Object.hasOwn(mods, modInfo.name)) {
-			throw new Error(`Mod at path ${modPath} has the same name as another mod: ${modInfo.name}`);
-		}
-
-		// Officially save the mod into the load order
-		const mod = { info: modInfo, path: modPath, isActive: true };
-		mods[modInfo.name] = mod;
-		modsOrder.push(modInfo.name);
-
-		// Load the mods electron entrypoint then trigger the mod loaded event
-		try {
-			if (modInfo.electronEntrypoint) {
-				const electronEntrypoint = path.join(mod.path, mod.info.electronEntrypoint);
-				logDebug(`Loading electron entrypoint: ${electronEntrypoint}`);
-				require(electronEntrypoint);
-			}
-		} catch (e) {
-			throw new Error(`Error loading electron entrypoint for mod ${modInfo.name}: ${e.stack}`);
-		}
-
-		modloaderAPI.events.triggerFor("ml:onModLoaded", modInfo.name);
 	}
 
 	logInfo(`Loaded ${Object.keys(mods).length} mod(s) from ${baseModsPath}: [ ${modsOrder.join(", ")} ]`);
@@ -997,31 +1171,15 @@ function closeApp() {
 }
 
 function cleanupApp() {
-	logDebug(`Unloading ${Object.keys(mods).length} mod(s)...`);
-
-	for (const modName in mods) {
-		modloaderAPI.events.triggerFor("ml:onModUnloaded", modName);
-	}
-
-	if (modloaderWindow) closeModloaderWindow();
-	if (gameWindow) closeGameWindow();
-
-	modloaderAPI.clear();
-	gameFileManager.cleanup();
-
-	logDebug("Cleanup complete");
-}
-
-function unexpectedCleanupApp() {
-	// This is explicitly a different function on purpose
-	// At this point we have caught an error and logged it already
-	// It is possible we want to be more careful here
 	try {
-		cleanupApp();
+		modloaderAPI.events.trigger("ml:onModloaderClosed");
+		if (modloaderWindow) closeModloaderWindow();
+		if (gameWindow) closeGameWindow();
+		gameFileManager.deleteFiles();
 	} catch (e) {
-		logError(`Error during unexpected cleanup: ${e.stack}`);
+		logError(`Error during cleanup: ${e.stack}`);
 	}
-	logDebug("Unexpected cleanup complete");
+	logDebug("Cleanup complete");
 }
 
 async function startApp() {
@@ -1032,10 +1190,13 @@ async function startApp() {
 	initializeGameFiles();
 	initializeModloader();
 
+	setModActive("disabledmod", false);
+
+	modloaderAPI.events.logContents();
+	gameFileManager.logContents();
+
 	await setupApp();
-
 	setupElectronIPC();
-
 	if (config.application.loadIntoModloader) {
 		startModloaderWindow();
 	} else {
