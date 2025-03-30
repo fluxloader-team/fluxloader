@@ -55,6 +55,17 @@ class ModloaderBrowserConfigAPI {
 	}
 }
 
+globalThis.onGameWorldInitialized = function (s) {
+	logInfo("Browser saw game world initialized");
+	globalThis.gameWorld = s;
+
+	// gameWorld.environment.multithreading.simulation.postAll(gameWorld, ["modloaderEvent", "hello world"])
+};
+
+globalThis.onWorkerMessage = function (m) {
+	logDebug(`Browser received message from worker: ${JSON.stringify(m.data)}`);
+};
+
 async function loadAllMods() {
 	const mods = await modloaderAPI.sendMessage("ml:get-mods");
 	logDebug(`Loading ${mods.length} mods...`);

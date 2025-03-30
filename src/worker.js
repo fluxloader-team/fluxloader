@@ -32,6 +32,10 @@ class ModloaderBrowserAPI {
 	}
 }
 
+globalThis.onWorkerMessage = function (m) {
+	logDebug(`Worker received message from browser: ${JSON.stringify(m.data)}`);
+};
+
 async function loadAllMods() {
 	const mods = await modloaderAPI.sendMessage("ml:get-mods");
 	// logDebug(`Loading ${mods.length} mods...`);

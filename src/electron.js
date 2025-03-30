@@ -82,7 +82,7 @@ let defaultConfig = {
 	debug: {
 		enableDebugMenu: false,
 		debugMenuZoom: 0.8,
-		openDevTools: false
+		openDevTools: false,
 	},
 };
 
@@ -1041,9 +1041,31 @@ function addModloaderPatches() {
 		to: `import "${browserScriptPath}";(()=>{var e,t,n={8916`,
 	});
 
-	// Add worker.js to each worker
+	// Expose the games world to bundle.js
+	gameFileManager.addPatch("modloader", "js/bundle.js", {
+		type: "replace",
+		from: `s.environment.multithreading.simulation.startManager(s),`,
+		to: `s.environment.multithreading.simulation.startManager(s),globalThis.onGameWorldInitialized(s),`,
+	});
+
+	// Listen for modloader worker messages in bundle.js
+	gameFileManager.addPatch("modloader", "js/bundle.js", {
+		type: "replace",
+		from: "case f.InitFinished:",
+		to: "case 'modloaderEvent':globalThis.onWorkerMessage(r);break;case f.InitFinished:",
+	});
+
 	const workers = ["546", "336"];
 	for (const worker of workers) {
+
+		// Listen for modloader worker messages in each worker
+		gameFileManager.addPatch("modloader", `js/${worker}.bundle.js`, {
+			type: "replace",
+			from: `case i.dD.Init:`,
+			to: `case 'modloaderEvent':globalThis.onWorkerMessage(e);break;case i.dD.Init:`,
+		});
+
+		// Add worker.js to each worker
 		const workerScriptPath = resolvePathRelativeToModloader(`worker.js`).replaceAll("\\", "/");
 		gameFileManager.addPatch("modloader", `js/${worker}.bundle.js`, {
 			type: "replace",
