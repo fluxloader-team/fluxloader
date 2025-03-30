@@ -85,7 +85,7 @@ let defaultConfig = {
 	},
 };
 
-// ------------ UTILTY ------------
+// ------------- UTILTY -------------
 
 function colour(text, colour) {
 	const COLOUR_MAP = {
@@ -240,9 +240,56 @@ function updateObjectWithDefaults(defaultValues, target) {
 	return modified;
 }
 
-// ------------ MAIN ------------
+// ------------- MAIN -------------
+
+class ModloaderElectronAPI {
+	events = undefined;
+	config = undefined;
+
+	constructor() {
+		logDebug(`Initializing electron modloader API`);
+
+		this.events = new EventBus();
+		this.config = new ModloaderElectronConfigAPI(this);
+
+		for (const event of ["ml:onModLoaded", "ml:onModUnloaded", "ml:onAllModsLoaded", "ml:onSetActive", "ml:onModloaderClosed"]) {
+			this.events.registerEvent("modloader", event);
+		}
+	}
+
+	addPatch(source, file, patch) {
+		gameFileManager.addPatch(source, file, patch);
+	}
+
+	repatchAll() {
+		gameFileManager.repatchAll();
+	}
+
+	repatch(file) {
+		gameFileManager.repatch(file);
+	}
+
+	async sendMessage(msg, ...args) {
+		return await ipcMain.invoke(msg, ...args);
+	}
+
+	async listenMessage(msg, func) {
+		return await ipcMain.handle(msg, func);
+	}
+}
 
 class ModloaderElectronConfigAPI {
+	constructor(modloaderAPI) {
+		modloaderAPI.listenMessage("ml:get-config", async (modName) => {
+			logDebug(`Getting mod config for ${modName}`);
+			return this.get(modName);
+		});
+		modloaderAPI.listenMessage("ml:set-config", async (modName, config) => {
+			logDebug(`Setting mod config for ${modName}`);
+			return this.set(modName, config);
+		});
+	}
+
 	get(modName) {
 		const modNamePath = this.sanitizeModNamePath(modName);
 		const baseModsPath = resolvePathRelativeToModloader(config.modsPath);
@@ -299,40 +346,6 @@ class ModloaderElectronConfigAPI {
 
 	sanitizeModNamePath(modName) {
 		return modName;
-	}
-}
-
-class ModloaderElectronAPI {
-	events = undefined;
-	config = undefined;
-
-	constructor() {
-		logDebug(`Initializing electron modloader API`);
-		this.events = new EventBus();
-		this.config = new ModloaderElectronConfigAPI();
-		for (const event of ["ml:onModLoaded", "ml:onModUnloaded", "ml:onAllModsLoaded", "ml:onSetActive", "ml:onModloaderClosed"]) {
-			this.events.registerEvent("modloader", event);
-		}
-	}
-
-	addPatch(source, file, patch) {
-		gameFileManager.addPatch(source, file, patch);
-	}
-
-	repatchAll() {
-		gameFileManager.repatchAll();
-	}
-
-	repatch(file) {
-		gameFileManager.repatch(file);
-	}
-	
-	async sendMessage(msg, ...args) {
-		return await ipcMain.invoke(msg, ...args);
-	}
-
-	async listenMessage(msg, func) {
-		return await ipcMain.handle(msg, func);
 	}
 }
 
