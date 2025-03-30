@@ -42,6 +42,12 @@ globalThis.asar = require("asar");
 // Is deemed not worthy to fix by the electron team and is not a bug in the modloader:
 // - https://github.com/electron/electron/issues/41614#issuecomment-2006678760
 
+// Before any modding occurs we patch the games electron main.js
+// - Disable any immediately ran functions
+// - Make the useful functions global so we can call them
+// - Ensure the app thinks it is still running inside the app.asar
+// These are all potentially flaky but is needed if we want to run the game as the original does
+
 // ------------- VARIABLES -------------
 
 globalThis.modloaderVersion = "2.0.0";
@@ -349,15 +355,10 @@ class ModloaderEventsAPI {
 }
 
 class ModloaderConfigAPI {
-	modsManager = undefined;
-
-	constructor(modsManager) {
-		this.modsManager = modsManager;
-	}
-
 	get(modName) {
 		const modNamePath = this.sanitizeModNamePath(modName);
-		const modsConfigPath = path.join(this.modsManager.baseModsPath, "config");
+		const baseModsPath = resolvePathRelativeToModloader(config.modsPath);
+		const modsConfigPath = path.join(baseModsPath, "config");
 		ensureDirectoryExists(modsConfigPath);
 		const modConfigPath = path.join(modsConfigPath, `${modNamePath}.json`);
 		logDebug(`Getting mod config: ${modNamePath} -> ${modConfigPath}`);
@@ -373,7 +374,8 @@ class ModloaderConfigAPI {
 
 	set(modName, config) {
 		const modNamePath = this.sanitizeModNamePath(modName);
-		const modsConfigPath = path.join(this.modsManager.baseModsPath, "config");
+		const baseModsPath = resolvePathRelativeToModloader(config.modsPath);
+		const modsConfigPath = path.join(baseModsPath, "config");
 		ensureDirectoryExists(modsConfigPath);
 		const modConfigPath = path.join(modsConfigPath, `${modNamePath}.json`);
 		logDebug(`Setting mod config: ${modNamePath} -> ${modConfigPath}`);
@@ -416,17 +418,19 @@ class ModloaderAPI {
 	static electronEvents = ["ml:onModLoaded", "ml:onModUnloaded", "ml:onAllModsLoaded", "ml:onSetActive", "ml:onModloaderClosed"];
 	static browserEvents = ["ml:onMenuLoaded", "ml:onGameLoaded"];
 
-	modsManager = undefined;
 	environmentType = undefined;
 	events = undefined;
 	config = undefined;
 
-	constructor(environmentType, modsManager) {
+	constructor(environmentType) {
 		logDebug(`Initializing modloader API for environment: ${environmentType}`);
-		this.modsManager = modsManager;
+		if (environmentType !== "electron" && environmentType !== "browser") {
+			throw new Error(`Invalid environment type: ${environmentType}`);
+		}
+
 		this.environmentType = environmentType;
 		this.events = new ModloaderEventsAPI();
-		this.config = new ModloaderConfigAPI(this.modsManager);
+		this.config = new ModloaderConfigAPI();
 
 		let envEvents = environmentType === "electron" ? ModloaderAPI.electronEvents : ModloaderAPI.browserEvents;
 		for (const event of envEvents) {
@@ -437,9 +441,6 @@ class ModloaderAPI {
 	addPatch(source, file, patch) {
 		if (this.environmentType !== "electron") {
 			throw new Error("addPatch can only be called in the electron environment");
-		}
-		if (modsManager.modsOrder.length === 0 || !modsManager.modsOrder.includes(source)) {
-			throw new Error(`Mod not found: ${source}`);
 		}
 		gameFileManager.addPatch(source, file, patch);
 	}
@@ -492,7 +493,7 @@ class GameFileManager {
 		if (this.isGameModified) this._resetFiles();
 
 		// With the updated files now extract the games main.js electron app
-		this._extractGameElectronFunctions();
+		this._extractAndPatchGameElectronFunctions();
 
 		logDebug("Extracted app.asar set to default successfully");
 	}
@@ -666,7 +667,7 @@ class GameFileManager {
 		this.isGameModified = false;
 	}
 
-	_extractGameElectronFunctions() {
+	_extractAndPatchGameElectronFunctions() {
 		if (!this.isGameExtracted) {
 			throw new Error("Game files not extracted cannot process game app");
 		}
@@ -765,9 +766,9 @@ class GameFileManager {
 			fs.rmSync(fullPath);
 
 			// Copy the original from the asar
-			const asarPath = path.join(this.gameBasePath, file);
-			logDebug(`Copying original file from asar: ${asarPath} to ${fullPath}`);
-			fs.copyFileSync(asarPath, fullPath);
+			const asarFilePath = path.join(this.gameAsarPath, file);
+			logDebug(`Copying original file from asar: ${asarFilePath} to ${fullPath}`);
+			fs.copyFileSync(asarFilePath, fullPath);
 		} catch (e) {
 			throw new Error(`Error resetting file: ${e.stack}`);
 		}
@@ -1110,6 +1111,14 @@ function addModloaderPatches() {
 		to: "debug:{active:1",
 	});
 
+	// Add browser.js to index.html
+	const browserScriptPath = resolvePathRelativeToModloader("browser.js").replaceAll("\\", "/");
+	gameFileManager.addPatch("modloader", "js/bundle.js", {
+		type: "replace",
+		from: `(()=>{var e,t,n={8916`,
+		to: `import "${browserScriptPath}";(()=>{var e,t,n={8916`,
+	});
+
 	// Add React to globalThis
 	gameFileManager.addPatch("modloader", "js/bundle.js", {
 		type: "replace",
@@ -1165,6 +1174,7 @@ function startModloaderWindow() {
 		modloaderWindow = new BrowserWindow({
 			width: 850,
 			height: 500,
+			autoHideMenuBar: true,
 			webPreferences: {
 				preload: resolvePathRelativeToModloader("modloader/modloader-preload.js"),
 			},
@@ -1199,7 +1209,7 @@ function startGameWindow() {
 	try {
 		logDebug("Calling games electron createWindow()");
 		gameElectronFuncs.createWindow();
-
+		gameWindow.openDevTools();
 		gameWindow.on("closed", onGameWindowClosed);
 	} catch (e) {
 		throw new Error(`Error during games electron createWindow(), see _extractGameElectronFunctions(): ${e.stack}`);
@@ -1252,10 +1262,11 @@ async function startApp() {
 	readAndLoadConfig();
 
 	initializeGameFileManager();
-	modsManager = new ModsManager();
-	modloaderAPI = new ModloaderAPI("electron", modsManager);
-	modsManager.reloadAllMods();
 	addModloaderPatches();
+
+	modloaderAPI = new ModloaderAPI("electron");
+	modsManager = new ModsManager();
+	modsManager.reloadAllMods();
 
 	// TODO: Remove these debug lines
 	modsManager.setModActive("disabledmod", false);
