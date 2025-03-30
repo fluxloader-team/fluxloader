@@ -34,7 +34,7 @@ modloaderAPI.events.on("testmod", "ml:onModloaderClosed", () => {
 	log("info", "testmod", "Modloader closed");
 });
 
-electron.handle("testmod:doSomething", () => {
-	console.log("Doing something in the main process");
+modloaderAPI.listenMessage("testmod:doSomething", (msg) => {
+	console.log("Doing something in the main process: ", msg);
 	return "Done something";
 });

@@ -31,6 +31,14 @@ class ModloaderBrowserAPI {
 			this.events.registerEvent("modloader", event);
 		}
 	}
+		
+	async sendMessage(msg, ...args) {
+		return await window.electron.invoke(msg, ...args);
+	}
+
+	async listenMessage(msg, func) {
+		return await window.electron.handle(msg, func);
+	}
 }
 
 (async () => {
@@ -39,6 +47,6 @@ class ModloaderBrowserAPI {
 	modloaderAPI = new ModloaderBrowserAPI();
 
 	// TODO: Remove these debug lines
-    const mods = await window.electron.invoke("ml:get-mods");
+    const mods = await modloaderAPI.sendMessage("ml:get-mods");
 	console.log(mods);
 })();

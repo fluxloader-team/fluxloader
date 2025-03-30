@@ -6,11 +6,7 @@ modloaderAPI.events.on("testmod", "ml:onGameLoaded", () => {
 	log("info", "testmod", "Game has been loaded");
 });
 
-// const element = document.querySelector("#someUIElement");
-// element.addEventListener("click", () => {
-// 	modloaderAPI.addPatch("testmod", "map.png", {
-// 		type: "overwrite",
-// 		with: "my/map/path.png"
-// 	});
-// 	modloaderAPI.repatchFile("testmod", "map.png");
-// });
+(async () => {
+	const res = await modloaderAPI.sendMessage("testmod:doSomething", { a: "hello", b: 10 });
+	console.log("Response: ", res);
+})();

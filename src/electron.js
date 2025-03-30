@@ -85,12 +85,6 @@ let defaultConfig = {
 	},
 };
 
-// Mimic the 'electron' global from preload.js of modloader and game window for electronEntrypoint mods
-globalThis.electron = {
-	invoke: async (msg, ...args) => await ipcMain.invoke(msg, ...args),
-	handle: async (msg, func) => await ipcMain.handle(msg, func),
-};
-
 // ------------ UTILTY ------------
 
 function colour(text, colour) {
@@ -331,6 +325,14 @@ class ModloaderElectronAPI {
 
 	repatch(file) {
 		gameFileManager.repatch(file);
+	}
+	
+	async sendMessage(msg, ...args) {
+		return await ipcMain.invoke(msg, ...args);
+	}
+
+	async listenMessage(msg, func) {
+		return await ipcMain.handle(msg, func);
 	}
 }
 
