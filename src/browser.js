@@ -55,12 +55,27 @@ class ModloaderBrowserConfigAPI {
 	}
 }
 
+async function loadAllMods() {
+	const mods = await modloaderAPI.sendMessage("ml:get-mods");
+	logDebug(`Loading ${mods.length} mods...`);
+
+	for (const mod of mods) {
+		logDebug(`Loading mod ${mod.name}`);
+
+		if (!mod.browserEntrypoint) {
+			logDebug(`Mod ${mod.name} does not have a browser entrypoint`);
+			continue;
+		}
+
+		const entrypointPath = mod.path + "/" + mod.browserEntrypoint;
+		import(`file://${entrypointPath}`);
+	}
+}
+
 (async () => {
 	logInfo(`Starting modloader ${modloaderVersion}...`);
 
 	modloaderAPI = new ModloaderBrowserAPI();
 
-	// TODO: Remove these debug lines
-	const mods = await modloaderAPI.sendMessage("ml:get-mods");
-	console.log(mods);
+	await loadAllMods();
 })();

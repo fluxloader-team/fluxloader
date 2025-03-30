@@ -82,6 +82,7 @@ let defaultConfig = {
 	debug: {
 		enableDebugMenu: false,
 		debugMenuZoom: 0.8,
+		openDevTools: false
 	},
 };
 
@@ -280,11 +281,11 @@ class ModloaderElectronAPI {
 
 class ModloaderElectronConfigAPI {
 	constructor(modloaderAPI) {
-		modloaderAPI.listenMessage("ml:get-config", async (modName) => {
+		modloaderAPI.listenMessage("ml:get-config", async (event, modName) => {
 			logDebug(`Getting mod config for ${modName}`);
 			return this.get(modName);
 		});
-		modloaderAPI.listenMessage("ml:set-config", async (modName, config) => {
+		modloaderAPI.listenMessage("ml:set-config", async (event, modName, config) => {
 			logDebug(`Setting mod config for ${modName}`);
 			return this.set(modName, config);
 		});
@@ -943,6 +944,7 @@ class ModsManager {
 		for (const modName of this.modsOrder) {
 			modData.push({
 				...this.mods[modName].info,
+				path: this.mods[modName].path,
 				isActive: this.mods[modName].isActive,
 			});
 		}
@@ -1091,24 +1093,24 @@ function setupElectronIPC() {
 
 	ipcMain.removeAllListeners();
 
-	ipcMain.handle("ml:get-mods", async (event, args) => {
+	modloaderAPI.listenMessage("ml:get-mods", async (event, args) => {
 		logDebug("Received ml:get-mods");
 		return modsManager.getModData();
 	});
 
-	ipcMain.handle("ml:toggle-mod", async (event, args) => {
+	modloaderAPI.listenMessage("ml:toggle-mod", async (event, args) => {
 		logDebug("Received ml:toggle-mod");
 		const modName = args.name;
 		const isActive = args.active;
 		modsManager.setModActive(modName, isActive);
 	});
 
-	ipcMain.handle("ml:reload-mods", async (event, args) => {
+	modloaderAPI.listenMessage("ml:reload-mods", async (event, args) => {
 		logDebug("Received ml:reload-mods");
 		modsManager.reloadAllMods();
 	});
 
-	ipcMain.handle("ml:start-game", async (event, args) => {
+	modloaderAPI.listenMessage("ml:start-game", async (event, args) => {
 		logDebug("Received ml:start-game");
 		startGameWindow();
 	});
@@ -1163,7 +1165,7 @@ function startGameWindow() {
 	try {
 		logDebug("Calling games electron createWindow()");
 		gameElectronFuncs.createWindow();
-		gameWindow.openDevTools();
+		if (config.debug.openDevTools) gameWindow.openDevTools();
 		gameWindow.on("closed", onGameWindowClosed);
 	} catch (e) {
 		throw new Error(`Error during games electron createWindow(), see _extractGameElectronFunctions(): ${e.stack}`);

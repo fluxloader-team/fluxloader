@@ -8,5 +8,5 @@ modloaderAPI.events.on("testmod", "ml:onGameLoaded", () => {
 
 (async () => {
 	const res = await modloaderAPI.sendMessage("testmod:doSomething", { a: "hello", b: 10 });
-	console.log("Response: ", res);
+	log("info", "testmod", "Response: " + res);
 })();
