@@ -1,5 +1,3 @@
-import { EventBus } from "./common.js";
-
 // ------------- VARIABLES -------------
 
 globalThis.modloaderVersion = "2.0.0";
@@ -22,58 +20,37 @@ globalThis.logError = (...args) => log("error", "", args.join(" "));
 // ------------- MAIN -------------
 
 class ModloaderBrowserAPI {
-	events = undefined;
-	config = undefined;
-
-	constructor() {
-		logDebug(`Initializing electron modloader API`);
-
-		this.events = new EventBus();
-		this.config = new ModloaderBrowserConfigAPI();
-
-		for (const event of ["ml:onMenuLoaded", "ml:onGameLoaded"]) {
-			this.events.registerEvent("modloader", event);
-		}
-	}
-
 	async sendMessage(msg, ...args) {
-		return await window.electron.invoke(msg, ...args);
+		// logDebug(`Sending message ${msg} to main process`);
+		// return await window.electron.invoke(msg, ...args);
+		return [];
 	}
 
 	async listenMessage(msg, func) {
-		return await window.electron.handle(msg, func);
-	}
-}
-
-class ModloaderBrowserConfigAPI {
-	async get(modName) {
-		return await modloaderAPI.sendMessage("ml:get-config", modName);
-	}
-
-	async set(modName, config) {
-		return await modloaderAPI.sendMessage("ml:set-config", modName, config);
+		// logDebug(`Listening message ${msg} from main process`);
+		// return await window.electron.handle(msg, func);
 	}
 }
 
 async function loadAllMods() {
 	const mods = await modloaderAPI.sendMessage("ml:get-mods");
-	logDebug(`Loading ${mods.length} mods...`);
+	// logDebug(`Loading ${mods.length} mods...`);
 
 	for (const mod of mods) {
 		logDebug(`Loading mod ${mod.name}`);
 
-		if (!mod.browserEntrypoint) {
+		if (!mod.workerEntrpoint) {
 			logDebug(`Mod ${mod.name} does not have a browser entrypoint`);
 			continue;
 		}
 
-		const entrypointPath = mod.path + "/" + mod.browserEntrypoint;
+		const entrypointPath = mod.path + "/" + mod.workerEntrypoint;
 		await import(`file://${entrypointPath}`);
 	}
 }
 
 (async () => {
-	logInfo(`Starting modloader browser ${modloaderVersion}...`);
+	logInfo(`Starting modloader worker ${modloaderVersion}...`);
 
 	modloaderAPI = new ModloaderBrowserAPI();
 

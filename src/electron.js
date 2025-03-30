@@ -282,11 +282,11 @@ class ModloaderElectronAPI {
 class ModloaderElectronConfigAPI {
 	constructor(modloaderAPI) {
 		modloaderAPI.listenMessage("ml:get-config", async (event, modName) => {
-			logDebug(`Getting mod config for ${modName}`);
+			logDebug(`Getting mod config remotely for ${modName}`);
 			return this.get(modName);
 		});
 		modloaderAPI.listenMessage("ml:set-config", async (event, modName, config) => {
-			logDebug(`Setting mod config for ${modName}`);
+			logDebug(`Setting mod config remotely for ${modName}`);
 			return this.set(modName, config);
 		});
 	}
@@ -851,6 +851,9 @@ class ModsManager {
 		if (modInfo.browserEntrypoint && !fs.existsSync(path.join(modPath, modInfo.browserEntrypoint))) {
 			throw new Error(`Mod defines browser entrypoint ${modInfo.browserEntrypoint} but file none found: ${modPath}`);
 		}
+		if (modInfo.workerEntrypoint && !fs.existsSync(path.join(modPath, modInfo.workerEntrypoint))) {
+			throw new Error(`Mod defines worker entrypoint ${modInfo.workerEntrypoint} but file none found: ${modPath}`);
+		}
 
 		return modInfo;
 	}
@@ -1030,13 +1033,24 @@ function addModloaderPatches() {
 		to: "debug:{active:1",
 	});
 
-	// Add browser.js to index.html
+	// Add browser.js to bundle.js
 	const browserScriptPath = resolvePathRelativeToModloader("browser.js").replaceAll("\\", "/");
 	gameFileManager.addPatch("modloader", "js/bundle.js", {
 		type: "replace",
 		from: `(()=>{var e,t,n={8916`,
 		to: `import "${browserScriptPath}";(()=>{var e,t,n={8916`,
 	});
+
+	// Add worker.js to each worker
+	const workers = ["546", "336"];
+	for (const worker of workers) {
+		const workerScriptPath = resolvePathRelativeToModloader(`worker.js`).replaceAll("\\", "/");
+		gameFileManager.addPatch("modloader", `js/${worker}.bundle.js`, {
+			type: "replace",
+			from: `(()=>{"use strict"`,
+			to: `importScripts("${workerScriptPath}");(()=>{"use strict"`,
+		});
+	}
 
 	// Add React to globalThis
 	gameFileManager.addPatch("modloader", "js/bundle.js", {
@@ -1212,7 +1226,7 @@ function cleanupApp() {
 }
 
 async function startApp() {
-	logInfo(`Starting modloader ${modloaderVersion}...`);
+	logInfo(`Starting modloader electron ${modloaderVersion}...`);
 
 	catchUnexpectedExits();
 	readAndLoadConfig();
