@@ -13,5 +13,3 @@ We need to be able to have the mods ran alongside the game inside some JS
 - The browser modloaderAPI needs to be triggering events  
 
 Modloader window site and IPC
-
-System for mods to communicate back and forth between browser / electron if needed

@@ -29,3 +29,12 @@ modloaderAPI.events.on("testmod", "ml:onModUnloaded", () => {
 modloaderAPI.events.on("testmod", "ml:onSetActive", (isActive) => {
 	log("info", "testmod", "Set active: " + isActive);
 });
+
+modloaderAPI.events.on("testmod", "ml:onModloaderClosed", () => {
+	log("info", "testmod", "Modloader closed");
+});
+
+electron.handle("testmod:doSomething", () => {
+	console.log("Doing something in the main process");
+	return "Done something";
+});

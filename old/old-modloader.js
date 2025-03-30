@@ -54,42 +54,6 @@ globalThis.intercepts = {
 	],
 };
 
-globalThis.modConfig = {
-	get: async (modName) => {
-		try {
-			modName = modName.replace(/(?:\\+|\/+)|(^|\/)\.+(\/|$)|[?"<>|:*]|(^\/+|\/+$)/g, (match, p1, p2, p3) => {
-				if (p1 || p3) return ""; // Remove leading or trailing slashes or dot sequences
-				if (p2) return "/"; // Remove directory traversal segments (e.g., `.` or `..`)
-				return "/"; // Normalize slashes
-			});
-			var body;
-			const modConfigPath = globalThis.resolvePathRelativeToModloader(`mods/config/${modName}.json`);
-			if (fs.existsSync(modConfigPath)) {
-				body = JSON.parse(fs.readFileSync(modConfigPath, "utf8"));
-			} else {
-				body = {};
-			}
-			return body;
-		} catch (error) {
-			return null;
-		}
-	},
-	set: async (modName, config) => {
-		try {
-			modName = modName.replace(/(?:\\+|\/+)|(^|\/)\.+(\/|$)|[?"<>|:*]|(^\/+|\/+$)/g, (match, p1, p2, p3) => {
-				if (p1 || p3) return ""; // Remove leading or trailing slashes or dot sequences
-				if (p2) return "/"; // Remove directory traversal segments (e.g., `.` or `..`)
-				return "/"; // Normalize slashes
-			});
-			const modConfigPath = globalThis.resolvePathRelativeToModloader(`mods/config/${modName}.json`);
-			fs.writeFileSync(modConfigPath, JSON.stringify(config), "utf8");
-			return true;
-		} catch (error) {
-			return false;
-		}
-	},
-};
-
 class ASTPatchNode {
 	constructor(astNode, action) {
 		this.astNode = astNode;
@@ -674,60 +638,14 @@ class ASTPatchNode {
 }
 
 globalThis.applyBundlePatches = function (data) {
-	for (const patch of globalThis.bundlePatches) {
-		// Match instances of "pattern" and replace with with "replace", expect "expectedMatches" matches
-		if (patch.type === "regex") {
-			if (!Object.hasOwn(patch, "pattern") || !Object.hasOwn(patch, "replace")) {
-				throw new Error(`Failed to apply regex patch. Missing "pattern" or "replace" field.`);
-			}
-			const regex = new RegExp(patch.pattern, "g");
-			const matches = data.match(regex);
-			if (Object.hasOwn(patch, "expectedMatches") && matches && patch.expectedMatches >= 0 && matches.length !== patch.expectedMatches) {
-				throw new Error(`Failed to apply regex patch: "${patch.pattern}" -> "${patch.replace}", ${matches ? matches.length : 0} / ${patch.expectedMatches} match(s).`);
-			} else {
-				data = data.replace(regex, patch.replace);
-				console.log(matches);
-				logDebug(`Applied regex patch: "${patch.pattern}" -> "${patch.replace}", ${matches.length} match(s).`);
-			}
-		}
-
-		// Process data with "func" from the patch
-		else if (patch.type === "process") {
-			data = patch.func(data);
-			logDebug(`Applied process patch.`);
-		}
-
-		// Replace "from" with "to" in the data
-		else if (patch.type === "replace") {
-			if (!Object.hasOwn(patch, "from") || !Object.hasOwn(patch, "to")) {
-				throw new Error(`Failed to apply replace patch. Missing "from" or "to" field.`);
-			}
-			// Find all instances of patch.from
-			let index = data.indexOf(patch.from);
-			let matches = 0;
-			while (index !== -1) {
-				matches++;
-				data = data.slice(0, index) + patch.to + data.slice(index + patch.from.length);
-				index = data.indexOf(patch.from, index + patch.to.length);
-			}
-			if (Object.hasOwn(patch, "expectedMatches") && patch.expectedMatches >= 0 && matches !== patch.expectedMatches) {
-				throw new Error(`Failed to apply replace patch: "${patch.from}" -> "${patch.to}", ${matches} / ${patch.expectedMatches} match(s).`);
-			} else {
-				logDebug(`Applied replace patch: "${patch.from}" -> "${patch.to}".`);
-			}
-		}
-
-		// Apply AST patches to the data
-		else if (patch.type === "ast") {
-			const ast = acorn.parse(data, { ecmaVersion: 2020 });
-			let patcher = new ASTPatchNode(ast, patch.action);
-			patcher.patch();
-			data = escodegen.generate(ast);
-			logDebug(`Applied AST patch.`);
-		}
+	// Apply AST patches to the data
+	if (patch.type === "ast") {
+		const ast = acorn.parse(data, { ecmaVersion: 2020 });
+		let patcher = new ASTPatchNode(ast, patch.action);
+		patcher.patch();
+		data = escodegen.generate(ast);
+		logDebug(`Applied AST patch.`);
 	}
-
-	return data;
 };
 
 async function finalizeModloaderPatches() {

@@ -2,6 +2,7 @@
 	"name": "mod-loader",
 	"version": "1.0.0",
 	"main": "src/electron.js",
+	"type": "module",
 	"scripts": {
 		"start": "electron ."
 	},

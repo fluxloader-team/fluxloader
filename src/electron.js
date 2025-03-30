@@ -1,9 +1,11 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
-globalThis.path = require("path");
-globalThis.fs = require("fs");
-globalThis.process = require("process");
-globalThis.os = require("os");
-globalThis.asar = require("asar");
+import { app, BrowserWindow, ipcMain } from "electron";
+import path from "path";
+import fs from "fs";
+import process from "process";
+import os from "os";
+import asar from "asar";
+import { EventBus } from "./common.js";
+import { fileURLToPath } from "url";
 
 // ------------- MODDING DOCUMENTATION -------------
 
@@ -51,8 +53,8 @@ globalThis.asar = require("asar");
 // ------------- VARIABLES -------------
 
 globalThis.modloaderVersion = "2.0.0";
-globalThis.gameElectronFuncs = undefined;
 globalThis.modloaderAPI = undefined;
+globalThis.gameElectronFuncs = undefined;
 globalThis.gameWindow = undefined;
 
 let logLevels = ["debug", "info", "warn", "error"];
@@ -77,6 +79,16 @@ let defaultConfig = {
 	application: {
 		loadIntoModloader: true,
 	},
+	debug: {
+		enableDebugMenu: false,
+		debugMenuZoom: 0.8,
+	},
+};
+
+// Mimic the 'electron' global from preload.js of modloader and game window for electronEntrypoint mods
+globalThis.electron = {
+	invoke: async (msg, ...args) => await ipcMain.invoke(msg, ...args),
+	handle: async (msg, func) => await ipcMain.handle(msg, func),
 };
 
 // ------------ UTILTY ------------
@@ -161,6 +173,8 @@ function resolvePathRelativeToModloader(name) {
 	if (path.isAbsolute(name)) return name;
 
 	// Otherwise relative to mod-loader.exe
+	const __filename = fileURLToPath(import.meta.url);
+	const __dirname = path.dirname(__filename);
 	return path.join(__dirname, name);
 }
 
@@ -197,8 +211,8 @@ function catchUnexpectedExits() {
 function stringToHash(string) {
 	let hash = 0;
 	if (string.length == 0) return hash;
-	for (i = 0; i < string.length; i++) {
-		char = string.charCodeAt(i);
+	for (let i = 0; i < string.length; i++) {
+		const char = string.charCodeAt(i);
 		hash = (hash << 5) - hash + char;
 		hash = hash & hash;
 	}
@@ -233,126 +247,6 @@ function updateObjectWithDefaults(defaultValues, target) {
 }
 
 // ------------ MAIN ------------
-
-class EventBus {
-	events = {};
-	participants = {};
-
-	setParticipantActive(participant, isActive) {
-		// This is for enabling / disabling sources / listeners
-		// Primarily for enabling / disabling mods
-		if (!this.participants[participant]) {
-			this.participants[participant] = { isActive };
-		} else {
-			this.participants[participant].isActive = isActive;
-		}
-	}
-
-	registerEvent(source, event) {
-		logDebug(`Registering new event from source: ${source} -> ${event}`);
-		if (this.events[event]) {
-			throw new Error(`Event already registered: ${event}`);
-		}
-		if (!this.participants[source]) this.participants[source] = { isActive: true };
-		this.events[event] = { source, listeners: {} };
-	}
-
-	trigger(event, ...args) {
-		// When triggering an event generally if the source is inactive we error, but if the listener is inactive we ignore it
-		logDebug(`Triggering event: ${event}`);
-		if (!this.events[event]) {
-			throw new Error(`Cannot trigger non-existent event: ${event}`);
-		}
-		if (!this.participants[this.events[event].source]) {
-			throw new Error(`Event source participant not active: ${this.events[event].source}`);
-		}
-		for (const listener in this.events[event].listeners) {
-			if (this.participants[listener].isActive) {
-				for (const func of this.events[event].listeners[listener]) {
-					func(...args);
-				}
-			}
-		}
-	}
-
-	triggerFor(event, listener, ...args) {
-		// When directly triggering an event for a listener it is an error to specify inactive source / listeners
-		logDebug(`Triggering event for: ${event} -> ${listener}`);
-		if (!this.events[event]) {
-			throw new Error(`Cannot trigger non-existent event: ${event}`);
-		}
-		if (!this.participants[this.events[event].source].isActive) {
-			throw new Error(`Event source participant not active: ${this.events[event].source}`);
-		}
-		if (!this.events[event].listeners[listener]) {
-			throw new Error(`Event listener not found: ${listener}`);
-		}
-		if (!this.participants[listener].isActive) {
-			throw new Error(`Event listener participant not active: ${listener}`);
-		}
-		for (const func of this.events[event].listeners[listener]) {
-			func(...args);
-		}
-	}
-
-	on(listener, event, func) {
-		// When adding a listener we need to ensure the event source is active
-		logDebug(`Adding event listener: ${event} -> ${listener}`);
-		if (!this.events[event]) {
-			throw new Error(`Cannot add listener to non-existent event: ${event}`);
-		}
-		if (!this.participants[this.events[event].source]) {
-			logWarn(`Event source participant not active: ${this.events[event].source}`);
-		}
-		if (!this.events[event].listeners[listener]) {
-			this.events[event].listeners[listener] = [];
-		}
-		if (!this.participants[listener]) this.participants[listener] = { isActive: true };
-		this.events[event].listeners[listener].push(func);
-	}
-
-	off(listener, event) {
-		// When removing a listener we need to ensure the event source is active
-		logDebug(`Removing event listener: ${event} -> ${listener}`);
-		if (!this.events[event]) {
-			throw new Error(`Cannot remove listener from non-existent event: ${event}`);
-		}
-		if (!this.events[event].listeners[listener]) {
-			throw new Error(`Event listener not found: ${listener}`);
-		}
-		this.events[event].listeners[listener] = [];
-	}
-
-	removeParticipant(participant) {
-		logDebug(`Removing event participant: ${participant}`);
-		for (const event in this.events) {
-			if (this.events[event].source === participant) delete this.events[event];
-			else if (this.events[event].listeners[participant]) delete this.events[event].listeners[participant];
-		}
-		delete this.participants[participant];
-	}
-
-	logContents() {
-		let outputString = "ModloaderEvent Content\n\n";
-
-		outputString += `  |  Participants (${Object.keys(this.participants).length})\n`;
-		for (const participant in this.participants) {
-			outputString += `  |  |  ${participant}: ${this.participants[participant].isActive ? "ACTIVE" : "INACTIVE"}\n`;
-		}
-
-		outputString += `  |  \n`;
-		outputString += `  |  Events (${Object.keys(this.events).length})\n`;
-		for (const event in this.events) {
-			outputString += `  |  |   ${!this.participants[this.events[event].source].isActive ? "(OFF) " : ""} ${this.events[event].source} -> ${event} [ `;
-			outputString += Object.keys(this.events[event].listeners)
-				.map((l) => `${!this.participants[l].isActive ? "(OFF) " : ""}${l}:${this.events[event].listeners[l].length}`)
-				.join(", ");
-			outputString += ` ]\n`;
-		}
-
-		logDebug(outputString);
-	}
-}
 
 class ModloaderElectronConfigAPI {
 	get(modName) {
@@ -422,7 +316,6 @@ class ModloaderElectronAPI {
 		logDebug(`Initializing electron modloader API`);
 		this.events = new EventBus();
 		this.config = new ModloaderElectronConfigAPI();
-
 		for (const event of ["ml:onModLoaded", "ml:onModUnloaded", "ml:onAllModsLoaded", "ml:onSetActive", "ml:onModloaderClosed"]) {
 			this.events.registerEvent("modloader", event);
 		}
@@ -534,10 +427,13 @@ class GameFileManager {
 		delete this.patchSources[source];
 	}
 
-	patchAndRunElectron() {
+	async patchAndRunElectron() {
 		if (!this.isGameExtracted) {
 			throw new Error("Game files not extracted cannot process game app");
 		}
+
+		app.commandLine.appendSwitch("enable-features", "SharedArrayBuffer");
+		app.commandLine.appendSwitch("force_high_performance_gpu");
 
 		gameElectronFuncs = {};
 
@@ -560,6 +456,7 @@ class GameFileManager {
 		} catch (e) {
 			throw new Error(`Error reading preload.js: ${e.stack}`);
 		}
+		const mainHash = stringToHash(mainContent);
 
 		// Here we basically want to isolate createWindow(), setupIpcHandlers(), and loadSettingsSync()
 		// This is potentially very brittle and may need fixing in the future if main.js changes
@@ -588,13 +485,16 @@ class GameFileManager {
 		mainContent = mainContent.replaceAll("const mainWindow", "globalThis.gameWindow");
 		mainContent = mainContent.replaceAll("mainWindow", "globalThis.gameWindow");
 
-		const mainHash = stringToHash(mainContent);
+		// Make the menu bar visible
+		// mainContent = mainContent.replaceAll("autoHideMenuBar: true,", "autoHideMenuBar: false,");
 
 		// We're also gonna expose the ipcMain in preload.js
-		preloadContent = preloadContent.replaceAll("save: (id, name, data)", `
-			invoke: async (msg, ...args) => await ipcRenderer.invoke(msg, ...args),
+		preloadContent = preloadContent.replaceAll(
+			"save: (id, name, data)",
+			`invoke: async (msg, ...args) => await ipcRenderer.invoke(msg, ...args),
 			handle: async (msg, func) => await ipcRenderer.handle(msg, func),
-			save: (id, name, data)`);
+			save: (id, name, data)`
+		);
 
 		// Overwrite the preload.js and main.js files
 		logDebug(`Overwriting preload.js: ${preloadPath}`);
@@ -609,7 +509,7 @@ class GameFileManager {
 		gameElectronFuncs = {};
 		logDebug(`Executing modified game electron main.js (hash=${mainHash})`);
 		try {
-			require(mainPath);
+			await import(`file://${mainPath}`);
 		} catch (e) {
 			throw new Error(`Error evaluating game main.js: ${e.stack}`);
 		}
@@ -870,7 +770,7 @@ class ModsManager {
 	mods = {};
 	modsOrder = [];
 
-	reloadAllMods() {
+	async reloadAllMods() {
 		logDebug("Reloading all mods...");
 
 		// Unload all the current mods
@@ -901,7 +801,7 @@ class ModsManager {
 		logDebug(`Found ${modPaths.length} mod${modPaths.length === 1 ? "" : "s"} to load`);
 		for (const modPath of modPaths) {
 			try {
-				this.loadMod(modPath);
+				await this.loadMod(modPath);
 			} catch (e) {
 				logWarn(`Error loading mod at path ${modPath}: ${e.stack}`);
 			}
@@ -939,7 +839,7 @@ class ModsManager {
 		return modInfo;
 	}
 
-	loadMod(modPath) {
+	async loadMod(modPath) {
 		logDebug(`Loading mod from path: ${modPath}`);
 
 		// Try load mod info - this can error if the mod info is invalid
@@ -964,7 +864,7 @@ class ModsManager {
 			if (modInfo.electronEntrypoint) {
 				const electronEntrypoint = path.join(mod.path, mod.info.electronEntrypoint);
 				logDebug(`Loading electron entrypoint: ${electronEntrypoint}`);
-				require(electronEntrypoint);
+				await import(`file://${electronEntrypoint}`);
 			}
 		} catch (e) {
 			throw new Error(`Error loading electron entrypoint for mod ${modInfo.name}: ${e.stack}`);
@@ -1127,6 +1027,43 @@ function addModloaderPatches() {
 		from: `var Cl,kl=i(6540)`,
 		to: `globalThis.React=i(6540);var Cl,kl=React`,
 	});
+
+	if (config.debug.enableDebugMenu) {
+		// Adds configrable zoom
+		gameFileManager.addPatch("modloader", "js/bundle.js", {
+			type: "replace",
+			from: 'className:"fixed bottom-2 right-2 w-96 pt-12 text-white"',
+			to: `className:"fixed bottom-2 right-2 w-96 pt-12 text-white",style:{zoom:"${config.debug.debugMenuZoom * 100}%"}`,
+		});
+	} else {
+		// Disables the debug menu
+		gameFileManager.addPatch("modloader", "js/bundle.js", {
+			type: "replace",
+			from: "function _m(t){",
+			to: "function _m(t){return;",
+		});
+
+		// Disables the debug keybinds
+		gameFileManager.addPatch("modloader", "js/bundle.js", {
+			type: "replace",
+			from: "spawnElements:function(n,r){",
+			to: "spawnElements:function(n,r){return false;",
+		});
+
+		// Disables the pause camera keybind
+		gameFileManager.addPatch("modloader", "js/bundle.js", {
+			type: "replace",
+			from: "e.debug.active&&(t.session.overrideCamera",
+			to: "return;e.debug.active&&(t.session.overrideCamera",
+		});
+
+		// Disables the pause keybind
+		gameFileManager.addPatch("modloader", "js/bundle.js", {
+			type: "replace",
+			from: "e.debug.active&&(t.session.paused",
+			to: "return;e.debug.active&&(t.session.paused",
+		});
+	}
 }
 
 // ------------ ELECTRON  ------------
@@ -1264,12 +1201,12 @@ async function startApp() {
 	readAndLoadConfig();
 
 	initializeGameFileManager();
-	gameFileManager.patchAndRunElectron();
+	await gameFileManager.patchAndRunElectron();
 	addModloaderPatches();
 
-	modloaderAPI = new ModloaderElectronAPI("electron");
+	modloaderAPI = new ModloaderElectronAPI();
 	modsManager = new ModsManager();
-	modsManager.reloadAllMods();
+	await modsManager.reloadAllMods();
 
 	// TODO: Remove these debug lines
 	modsManager.setModActive("disabledmod", false);
