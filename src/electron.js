@@ -234,7 +234,7 @@ function updateObjectWithDefaults(defaultValues, target) {
 
 // ------------ MAIN ------------
 
-class ModloaderEventsAPI {
+class EventBus {
 	events = {};
 	participants = {};
 
@@ -354,7 +354,7 @@ class ModloaderEventsAPI {
 	}
 }
 
-class ModloaderConfigAPI {
+class ModloaderElectronConfigAPI {
 	get(modName) {
 		const modNamePath = this.sanitizeModNamePath(modName);
 		const baseModsPath = resolvePathRelativeToModloader(config.modsPath);
@@ -414,48 +414,29 @@ class ModloaderConfigAPI {
 	}
 }
 
-class ModloaderAPI {
-	static electronEvents = ["ml:onModLoaded", "ml:onModUnloaded", "ml:onAllModsLoaded", "ml:onSetActive", "ml:onModloaderClosed"];
-	static browserEvents = ["ml:onMenuLoaded", "ml:onGameLoaded"];
-
-	environmentType = undefined;
+class ModloaderElectronAPI {
 	events = undefined;
 	config = undefined;
 
-	constructor(environmentType) {
-		logDebug(`Initializing modloader API for environment: ${environmentType}`);
-		if (environmentType !== "electron" && environmentType !== "browser") {
-			throw new Error(`Invalid environment type: ${environmentType}`);
-		}
+	constructor() {
+		logDebug(`Initializing electron modloader API`);
+		this.events = new EventBus();
+		this.config = new ModloaderElectronConfigAPI();
 
-		this.environmentType = environmentType;
-		this.events = new ModloaderEventsAPI();
-		this.config = new ModloaderConfigAPI();
-
-		let envEvents = environmentType === "electron" ? ModloaderAPI.electronEvents : ModloaderAPI.browserEvents;
-		for (const event of envEvents) {
+		for (const event of ["ml:onModLoaded", "ml:onModUnloaded", "ml:onAllModsLoaded", "ml:onSetActive", "ml:onModloaderClosed"]) {
 			this.events.registerEvent("modloader", event);
 		}
 	}
 
 	addPatch(source, file, patch) {
-		if (this.environmentType !== "electron") {
-			throw new Error("addPatch can only be called in the electron environment");
-		}
 		gameFileManager.addPatch(source, file, patch);
 	}
 
 	repatchAll() {
-		if (this.environmentType !== "electron") {
-			throw new Error("addPatch can only be called in the electron environment");
-		}
 		gameFileManager.repatchAll();
 	}
 
 	repatch(file) {
-		if (this.environmentType !== "electron") {
-			throw new Error("addPatch can only be called in the electron environment");
-		}
 		gameFileManager.repatch(file);
 	}
 }
@@ -491,9 +472,6 @@ class GameFileManager {
 
 		// If the files are modified then reset them specific files
 		if (this.isGameModified) this._resetFiles();
-
-		// With the updated files now extract the games main.js electron app
-		this._extractAndPatchGameElectronFunctions();
 
 		logDebug("Extracted app.asar set to default successfully");
 	}
@@ -554,6 +532,84 @@ class GameFileManager {
 			this.fileData[file].patches = this.fileData[file].patches.filter((p) => p.source != source);
 		}
 		delete this.patchSources[source];
+	}
+
+	patchAndRunElectron() {
+		if (!this.isGameExtracted) {
+			throw new Error("Game files not extracted cannot process game app");
+		}
+
+		gameElectronFuncs = {};
+
+		// Read the main.js file contents
+		const mainPath = path.join(this.tempExtractedPath, "main.js");
+		logInfo(`Processing games electron main.js: ${mainPath}`);
+		let mainContent;
+		try {
+			mainContent = fs.readFileSync(mainPath, "utf8");
+		} catch (e) {
+			throw new Error(`Error reading main.js: ${e.stack}`);
+		}
+
+		// Read the preload.js file contents
+		const preloadPath = path.join(this.tempExtractedPath, "preload.js");
+		logInfo(`Processing games electron preload.js: ${preloadPath}`);
+		let preloadContent;
+		try {
+			preloadContent = fs.readFileSync(preloadPath, "utf8");
+		} catch (e) {
+			throw new Error(`Error reading preload.js: ${e.stack}`);
+		}
+
+		// Here we basically want to isolate createWindow(), setupIpcHandlers(), and loadSettingsSync()
+		// This is potentially very brittle and may need fixing in the future if main.js changes
+		// We need to disable the default app listeners (so they're not ran when we run eval(...))
+		// The main point is we want to ensure we open the game the same way the game does
+
+		// Rename and expose the games main electron functions
+		mainContent = mainContent.replaceAll("function createWindow ()", "globalThis.gameElectronFuncs.createWindow = function()");
+		mainContent = mainContent.replaceAll("function setupIpcHandlers()", "globalThis.gameElectronFuncs.setupIpcHandlers = function()");
+		mainContent = mainContent.replaceAll("function loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync = function()");
+		mainContent = mainContent.replaceAll("loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync()");
+
+		// Block the automatic app listeners so we control when things happen
+		mainContent = mainContent.replaceAll("app.whenReady().then(() => {", "var _ = (() => {");
+		mainContent = mainContent.replaceAll("app.on('window-all-closed', function () {", "var _ = (() => {");
+
+		// Ensure that the app thinks it is still running inside the app.asar
+		// - Fix the userData path to be 'sandustrydemo' instead of 'mod-loader'
+		// - Override relative "preload.js" to absolute
+		// - Override relative "index.html" to absolute
+		mainContent = mainContent.replaceAll('getPath("userData")', 'getPath("userData").replace("mod-loader", "sandustrydemo")');
+		mainContent = mainContent.replaceAll("path.join(__dirname, 'preload.js')", `'${path.join(this.tempExtractedPath, "preload.js").replaceAll("\\", "/")}'`);
+		mainContent = mainContent.replaceAll("loadFile('index.html')", `loadFile('${path.join(this.tempExtractedPath, "index.html").replaceAll("\\", "/")}')`);
+
+		// Expose the games main window to be global
+		mainContent = mainContent.replaceAll("const mainWindow", "globalThis.gameWindow");
+		mainContent = mainContent.replaceAll("mainWindow", "globalThis.gameWindow");
+
+		const mainHash = stringToHash(mainContent);
+
+		// We're also gonna expose the ipcMain in preload.js
+		preloadContent = preloadContent.replaceAll("save: (id, name, data)", "message: async (msg, ...args) => await ipcRenderer.invoke(msg, ...args),save: (id, name, data)");
+
+		// Overwrite the preload.js and main.js files
+		logDebug(`Overwriting preload.js: ${preloadPath}`);
+		try {
+			fs.writeFileSync(mainPath, mainContent, "utf8");
+			fs.writeFileSync(preloadPath, preloadContent, "utf8");
+		} catch (e) {
+			throw new Error(`Error writing modified electron files: ${e.stack}`);
+		}
+
+		// Run the code to register their functions
+		gameElectronFuncs = {};
+		logDebug(`Executing modified game electron main.js (hash=${mainHash})`);
+		try {
+			require(mainPath);
+		} catch (e) {
+			throw new Error(`Error evaluating game main.js: ${e.stack}`);
+		}
 	}
 
 	deleteFiles() {
@@ -665,63 +721,6 @@ class GameFileManager {
 		logDebug(`Successfully extracted app.asar`);
 		this.isGameExtracted = true;
 		this.isGameModified = false;
-	}
-
-	_extractAndPatchGameElectronFunctions() {
-		if (!this.isGameExtracted) {
-			throw new Error("Game files not extracted cannot process game app");
-		}
-
-		gameElectronFuncs = {};
-
-		// Read the main.js file contents
-		const mainPath = path.join(this.tempExtractedPath, "main.js");
-		logInfo(`Processing games electron main.js: ${mainPath}`);
-		let mainContent;
-		try {
-			mainContent = fs.readFileSync(mainPath, "utf8");
-		} catch (e) {
-			throw new Error(`Error reading main.js: ${e.stack}`);
-		}
-
-		// Here we basically want to isolate createWindow(), setupIpcHandlers(), and loadSettingsSync()
-		// This is potentially very brittle and may need fixing in the future if main.js changes
-		// We need to disable the default app listeners (so they're not ran when we run eval(...))
-		// The main point is we want to ensure we open the game the same way the game does
-
-		// Rename and expose the games main electron functions
-		mainContent = mainContent.replaceAll("function createWindow ()", "globalThis.gameElectronFuncs.createWindow = function()");
-		mainContent = mainContent.replaceAll("function setupIpcHandlers()", "globalThis.gameElectronFuncs.setupIpcHandlers = function()");
-		mainContent = mainContent.replaceAll("function loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync = function()");
-		mainContent = mainContent.replaceAll("loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync()");
-
-		// Block the automatic app listeners so we control when things happen
-		mainContent = mainContent.replaceAll("app.whenReady().then(() => {", "var _ = (() => {");
-		mainContent = mainContent.replaceAll("app.on('window-all-closed', function () {", "var _ = (() => {");
-
-		// Ensure that the app thinks it is still running inside the app.asar
-		// - Fix the userData path to be 'sandustrydemo' instead of 'mod-loader'
-		// - Override relative "preload.js" to absolute
-		// - Override relative "index.html" to absolute
-		mainContent = mainContent.replaceAll('getPath("userData")', 'getPath("userData").replace("mod-loader", "sandustrydemo")');
-		mainContent = mainContent.replaceAll("path.join(__dirname, 'preload.js')", `'${path.join(this.tempExtractedPath, "preload.js").replaceAll("\\", "/")}'`);
-		mainContent = mainContent.replaceAll("loadFile('index.html')", `loadFile('${path.join(this.tempExtractedPath, "index.html").replaceAll("\\", "/")}')`);
-
-		// Expose the games main window to be global
-		mainContent = mainContent.replaceAll("const mainWindow", "globalThis.gameWindow");
-		mainContent = mainContent.replaceAll("mainWindow", "globalThis.gameWindow");
-
-		const mainHash = stringToHash(mainContent);
-
-		// Run the code to register their functions with eval
-		// Using Function(...) doesn't work well due to not being able to access require or the global scope
-		logDebug(`Executing eval(...) on modified game electron main.js (hash=${mainHash})`);
-		try {
-			gameElectronFuncs = {};
-			eval(mainContent);
-		} catch (e) {
-			throw new Error(`Error evaluating game main.js: ${e.stack}`);
-		}
 	}
 
 	_initializeFileData(file) {
@@ -1262,9 +1261,10 @@ async function startApp() {
 	readAndLoadConfig();
 
 	initializeGameFileManager();
+	gameFileManager.patchAndRunElectron();
 	addModloaderPatches();
 
-	modloaderAPI = new ModloaderAPI("electron");
+	modloaderAPI = new ModloaderElectronAPI("electron");
 	modsManager = new ModsManager();
 	modsManager.reloadAllMods();
 
