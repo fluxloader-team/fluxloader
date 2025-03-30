@@ -591,7 +591,10 @@ class GameFileManager {
 		const mainHash = stringToHash(mainContent);
 
 		// We're also gonna expose the ipcMain in preload.js
-		preloadContent = preloadContent.replaceAll("save: (id, name, data)", "message: async (msg, ...args) => await ipcRenderer.invoke(msg, ...args),save: (id, name, data)");
+		preloadContent = preloadContent.replaceAll("save: (id, name, data)", `
+			invoke: async (msg, ...args) => await ipcRenderer.invoke(msg, ...args),
+			handle: async (msg, func) => await ipcRenderer.handle(msg, func),
+			save: (id, name, data)`);
 
 		// Overwrite the preload.js and main.js files
 		logDebug(`Overwriting preload.js: ${preloadPath}`);
