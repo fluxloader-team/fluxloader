@@ -5,6 +5,7 @@
 	"description": "A test mod for the Electron Modloader",
 	"electronEntrypoint": "entry.electron.js",
 	"browserEntrypoint": "entry.browser.js",
+	"workerEntrypoint": "entry.worker.js",
 	"defaultConfig": {
 		"someSetting": true,
 		"someValue": 203

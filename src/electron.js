@@ -270,22 +270,22 @@ class ModloaderElectronAPI {
 		gameFileManager.repatch(file);
 	}
 
-	async sendMessage(msg, ...args) {
+	async invokeBrowserIPC(msg, ...args) {
 		return await ipcMain.invoke(msg, ...args);
 	}
 
-	async listenMessage(msg, func) {
+	async handleBrowserIPC(msg, func) {
 		return await ipcMain.handle(msg, func);
 	}
 }
 
 class ModloaderElectronConfigAPI {
 	constructor(modloaderAPI) {
-		modloaderAPI.listenMessage("ml:get-config", async (event, modName) => {
+		modloaderAPI.handleBrowserIPC("ml:get-config", async (event, modName) => {
 			logDebug(`Getting mod config remotely for ${modName}`);
 			return this.get(modName);
 		});
-		modloaderAPI.listenMessage("ml:set-config", async (event, modName, config) => {
+		modloaderAPI.handleBrowserIPC("ml:set-config", async (event, modName, config) => {
 			logDebug(`Setting mod config remotely for ${modName}`);
 			return this.set(modName, config);
 		});
@@ -1045,14 +1045,14 @@ function addModloaderPatches() {
 	gameFileManager.addPatch("modloader", "js/bundle.js", {
 		type: "replace",
 		from: `s.environment.multithreading.simulation.startManager(s),`,
-		to: `s.environment.multithreading.simulation.startManager(s),globalThis.onGameWorldInitialized(s),`,
+		to: `s.environment.multithreading.simulation.startManager(s),globalThis.electronAPI._onGameWorldInitialized(s),`,
 	});
 
 	// Listen for modloader worker messages in bundle.js
 	gameFileManager.addPatch("modloader", "js/bundle.js", {
 		type: "replace",
 		from: "case f.InitFinished:",
-		to: "case 'modloaderEvent':globalThis.onWorkerMessage(r);break;case f.InitFinished:",
+		to: "case 'modloaderEvent':globalThis.electronAPI._onWorkerMessage(r);break;case f.InitFinished:",
 	});
 
 	const workers = ["546", "336"];
@@ -1062,7 +1062,7 @@ function addModloaderPatches() {
 		gameFileManager.addPatch("modloader", `js/${worker}.bundle.js`, {
 			type: "replace",
 			from: `case i.dD.Init:`,
-			to: `case 'modloaderEvent':globalThis.onWorkerMessage(e);break;case i.dD.Init:`,
+			to: `case 'modloaderEvent':globalThis.electronAPI._onWorkerMessage(e);break;case i.dD.Init:`,
 		});
 
 		// Add worker.js to each worker
@@ -1129,24 +1129,24 @@ function setupElectronIPC() {
 
 	ipcMain.removeAllListeners();
 
-	modloaderAPI.listenMessage("ml:get-mods", async (event, args) => {
+	modloaderAPI.handleBrowserIPC("ml:get-mods", async (event, args) => {
 		logDebug("Received ml:get-mods");
 		return modsManager.getModData();
 	});
 
-	modloaderAPI.listenMessage("ml:toggle-mod", async (event, args) => {
+	modloaderAPI.handleBrowserIPC("ml:toggle-mod", async (event, args) => {
 		logDebug("Received ml:toggle-mod");
 		const modName = args.name;
 		const isActive = args.active;
 		modsManager.setModActive(modName, isActive);
 	});
 
-	modloaderAPI.listenMessage("ml:reload-mods", async (event, args) => {
+	modloaderAPI.handleBrowserIPC("ml:reload-mods", async (event, args) => {
 		logDebug("Received ml:reload-mods");
 		modsManager.reloadAllMods();
 	});
 
-	modloaderAPI.listenMessage("ml:start-game", async (event, args) => {
+	modloaderAPI.handleBrowserIPC("ml:start-game", async (event, args) => {
 		logDebug("Received ml:start-game");
 		startGameWindow();
 	});

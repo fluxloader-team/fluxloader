@@ -19,7 +19,7 @@ globalThis.logError = (...args) => log("error", "", args.join(" "));
 
 // ------------- MAIN -------------
 
-class ModloaderBrowserAPI {
+class ModloaderWorkerAPI {
 	async sendMessage(msg, ...args) {
 		// logDebug(`Sending message ${msg} to main process`);
 		// return await window.electron.invoke(msg, ...args);
@@ -30,11 +30,12 @@ class ModloaderBrowserAPI {
 		// logDebug(`Listening message ${msg} from main process`);
 		// return await window.electron.handle(msg, func);
 	}
+
+	_onWorkerMessage(m) {
+		logDebug(`Worker received message from browser: ${JSON.stringify(m.data)}`);
+	};
 }
 
-globalThis.onWorkerMessage = function (m) {
-	logDebug(`Worker received message from browser: ${JSON.stringify(m.data)}`);
-};
 
 async function loadAllMods() {
 	const mods = await modloaderAPI.sendMessage("ml:get-mods");
@@ -56,7 +57,7 @@ async function loadAllMods() {
 (async () => {
 	logInfo(`Starting modloader worker ${modloaderVersion}...`);
 
-	modloaderAPI = new ModloaderBrowserAPI();
+	modloaderAPI = new ModloaderWorkerAPI();
 
 	await loadAllMods();
 })();

@@ -36,38 +36,37 @@ class ModloaderBrowserAPI {
 		}
 	}
 
-	async sendMessage(msg, ...args) {
+	async invokeElectronIPC(msg, ...args) {
 		return await window.electron.invoke(msg, ...args);
 	}
 
-	async listenMessage(msg, func) {
+	async listenElectronIPC(msg, func) {
 		return await window.electron.handle(msg, func);
 	}
+
+	_onGameWorldInitialized(s) {
+		logInfo("Browser saw game world initialized");
+		globalThis.gameWorld = s;
+		// gameWorld.environment.multithreading.simulation.postAll(gameWorld, ["modloaderEvent", "hello world"])
+	};
+	
+	_onWorkerMessage(m) {
+		logDebug(`Browser received message from worker: ${JSON.stringify(m.data)}`);
+	};
 }
 
 class ModloaderBrowserConfigAPI {
 	async get(modName) {
-		return await modloaderAPI.sendMessage("ml:get-config", modName);
+		return await modloaderAPI.invokeElectronIPC("ml:get-config", modName);
 	}
 
 	async set(modName, config) {
-		return await modloaderAPI.sendMessage("ml:set-config", modName, config);
+		return await modloaderAPI.invokeElectronIPC("ml:set-config", modName, config);
 	}
 }
 
-globalThis.onGameWorldInitialized = function (s) {
-	logInfo("Browser saw game world initialized");
-	globalThis.gameWorld = s;
-
-	// gameWorld.environment.multithreading.simulation.postAll(gameWorld, ["modloaderEvent", "hello world"])
-};
-
-globalThis.onWorkerMessage = function (m) {
-	logDebug(`Browser received message from worker: ${JSON.stringify(m.data)}`);
-};
-
 async function loadAllMods() {
-	const mods = await modloaderAPI.sendMessage("ml:get-mods");
+	const mods = await modloaderAPI.invokeElectronIPC("ml:get-mods");
 	logDebug(`Loading ${mods.length} mods...`);
 
 	for (const mod of mods) {
