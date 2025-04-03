@@ -6,6 +6,6 @@
 		window.electron.invoke("ml:start-game");
 	});
 
-	const mods = await window.electron.invoke("ml:get-mods");
+	const mods = await window.electron.invoke("ml:get-loaded-mods");
 	console.log(mods);
 })();

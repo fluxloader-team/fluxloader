@@ -19,16 +19,14 @@ globalThis.logError = (...args) => log("error", "", args.join(" "));
 
 // ------------- MAIN -------------
 
-class ModloaderWorkerAPI {
-	async sendMessage(msg, ...args) {
-		// logDebug(`Sending message ${msg} to main process`);
-		// return await window.electron.invoke(msg, ...args);
+class WorkerModloaderAPI {
+	async sendMessage(destination, msg, ...args) {
+		// TODO: Implement
 		return [];
 	}
 
-	async listenMessage(msg, func) {
-		// logDebug(`Listening message ${msg} from main process`);
-		// return await window.electron.handle(msg, func);
+	async receiveMessage(msg, func) {
+		// TODO: Implement
 	}
 
 	_onWorkerMessage(m) {
@@ -38,26 +36,28 @@ class ModloaderWorkerAPI {
 
 
 async function loadAllMods() {
-	const mods = await modloaderAPI.sendMessage("ml:get-mods");
-	// logDebug(`Loading ${mods.length} mods...`);
-
-	for (const mod of mods) {
-		logDebug(`Loading mod ${mod.name}`);
-
-		if (!mod.workerEntrpoint) {
-			logDebug(`Mod ${mod.name} does not have a browser entrypoint`);
-			continue;
+	modloaderAPI.receiveMessage("return:get-loaded-mods", async (mods) => {
+		for (const mod of mods) {
+			logDebug(`Loading mod ${mod.name}`);
+	
+			if (!mod.workerEntrpoint) {
+				logDebug(`Mod ${mod.name} does not have a browser entrypoint`);
+				continue;
+			}
+	
+			const entrypointPath = mod.path + "/" + mod.workerEntrypoint;
+			await import(`file://${entrypointPath}`);
 		}
+	});
 
-		const entrypointPath = mod.path + "/" + mod.workerEntrypoint;
-		await import(`file://${entrypointPath}`);
-	}
+	modloaderAPI.sendMessage("electron", "ml:get-loaded-mods");
+
 }
 
 (async () => {
-	logInfo(`Starting modloader worker ${modloaderVersion}...`);
+	logInfo(`Starting worker modloader ${modloaderVersion}...`);
 
-	modloaderAPI = new ModloaderWorkerAPI();
+	modloaderAPI = new WorkerModloaderAPI();
 
 	await loadAllMods();
 })();

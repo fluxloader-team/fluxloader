@@ -8,14 +8,5 @@ modloaderAPI.events.on("disabledmod", "ml:onModLoaded", () => {
 	log("info", "disabledmod", "I have been loaded");
 });
 
-modloaderAPI.events.on("disabledmod", "ml:onAllModsLoaded", () => {
-	log("info", "disabledmod", "All mods have been loaded");
-});
+throw new Error("This mod should not be loaded due to this error.");
 
-modloaderAPI.events.on("disabledmod", "ml:onModUnloaded", () => {
-	log("info", "disabledmod", "I have been loaded");
-});
-
-modloaderAPI.events.on("disabledmod", "ml:onSetActive", (isActive) => {
-	log("info", "disabledmod", "Set active: " + isActive);
-});

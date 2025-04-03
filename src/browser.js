@@ -21,52 +21,55 @@ globalThis.logError = (...args) => log("error", "", args.join(" "));
 
 // ------------- MAIN -------------
 
-class ModloaderBrowserAPI {
+class BrowserModloaderAPI {
 	events = undefined;
 	config = undefined;
+	gameWorld = undefined;
+	gameInstance = undefined;
 
 	constructor() {
-		logDebug(`Initializing electron modloader API`);
-
 		this.events = new EventBus();
-		this.config = new ModloaderBrowserConfigAPI();
+		this.config = new BrowserModloaderConfigAPI();
 
 		for (const event of ["ml:onMenuLoaded", "ml:onGameLoaded"]) {
 			this.events.registerEvent("modloader", event);
 		}
 	}
 
-	async invokeElectronIPC(msg, ...args) {
+	async sendMessage(destination, msg, ...args) {
+		// TODO: Send this to the correct destination
+		// gameWorld.environment.multithreading.simulation.postAll(gameWorld, ["modloaderEvent", "hello world"])
 		return await window.electron.invoke(msg, ...args);
 	}
 
-	async listenElectronIPC(msg, func) {
+	async receiveMessage(msg, func) {
+		// TODO: Instead add to list of listeners and check the destination
 		return await window.electron.handle(msg, func);
 	}
 
 	_onGameWorldInitialized(s) {
 		logInfo("Browser saw game world initialized");
-		globalThis.gameWorld = s;
-		// gameWorld.environment.multithreading.simulation.postAll(gameWorld, ["modloaderEvent", "hello world"])
+		this.gameWorld = s;
 	};
 	
 	_onWorkerMessage(m) {
 		logDebug(`Browser received message from worker: ${JSON.stringify(m.data)}`);
+		// TODO: Handle forwarding the message to the correct destination
 	};
 }
 
-class ModloaderBrowserConfigAPI {
+class BrowserModloaderConfigAPI {
 	async get(modName) {
-		return await modloaderAPI.invokeElectronIPC("ml:get-config", modName);
+		return await modloaderAPI.sendMessage("electron", "ml:get-config", modName);
 	}
 
 	async set(modName, config) {
-		return await modloaderAPI.invokeElectronIPC("ml:set-config", modName, config);
+		return await modloaderAPI.sendMessage("electron", "ml:set-config", modName, config);
 	}
 }
 
 async function loadAllMods() {
-	const mods = await modloaderAPI.invokeElectronIPC("ml:get-mods");
+	const mods = await modloaderAPI.sendMessage("electron", "ml:get-loaded-mods");
 	logDebug(`Loading ${mods.length} mods...`);
 
 	for (const mod of mods) {
@@ -83,9 +86,9 @@ async function loadAllMods() {
 }
 
 (async () => {
-	logInfo(`Starting modloader browser ${modloaderVersion}...`);
+	logInfo(`Starting browser modloader ${modloaderVersion}...`);
 
-	modloaderAPI = new ModloaderBrowserAPI();
+	modloaderAPI = new BrowserModloaderAPI();
 
 	await loadAllMods();
 })();

@@ -26,15 +26,11 @@ modloaderAPI.events.on("testmod", "ml:onModUnloaded", () => {
 	log("info", "testmod", "I have been loaded");
 });
 
-modloaderAPI.events.on("testmod", "ml:onSetActive", (isActive) => {
-	log("info", "testmod", "Set active: " + isActive);
-});
-
 modloaderAPI.events.on("testmod", "ml:onModloaderClosed", () => {
 	log("info", "testmod", "Modloader closed");
 });
 
-modloaderAPI.listenMessage("testmod:doSomething", (event, args) => {
+modloaderAPI.receiveMessage("testmod:doSomething", (event, args) => {
 	log("info", "testmod", "Doing something in the main process: " + JSON.stringify(args));
 	return "Done something";
 });
