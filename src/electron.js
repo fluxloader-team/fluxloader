@@ -6,6 +6,7 @@ import os from "os";
 import asar from "asar";
 import { EventBus } from "./common.js";
 import { fileURLToPath } from "url";
+import { on } from "events";
 
 // ------------- MODDING DOCUMENTATION -------------
 
@@ -64,7 +65,7 @@ let defaultConfig = {
 
 // ------------- UTILTY -------------
 
-function colour(text, colour) {
+function colourText(text, colour) {
 	const COLOUR_MAP = {
 		red: "\x1b[31m",
 		green: "\x1b[32m",
@@ -113,7 +114,7 @@ globalThis.log = function (level, tag, message) {
 	const timestamp = new Date().toISOString().split("T")[1].split("Z")[0];
 	const levelText = level.toUpperCase(); //.padEnd(5, " ");
 	let header = `[${tag ? tag + " " : ""}${levelText} ${timestamp}]`;
-	let headerColoured = colour("[", "grey") + colour(tag ? `${tag} ` : "", "blue") + colour(`${levelText} ${timestamp}]`, "grey");
+	let headerColoured = colourText("[", "grey") + colourText(tag ? `${tag} ` : "", "blue") + colourText(`${levelText} ${timestamp}]`, "grey");
 
 	// Only log to file if defined by the config and level is allowed
 	if (config && config.logging.logToFile) {
@@ -220,47 +221,35 @@ function updateObjectWithDefaults(defaultValues, target) {
 // ------------- MAIN -------------
 
 class ElectronModloaderAPI {
+	static allEvents = ["ml:onModLoaded", "ml:onModUnloaded", "ml:onAllModsLoaded", "ml:onAllModsUnloaded", "ml:onGameStarted", "ml:onGameClosed", "ml:onModloaderClosed"];
 	events = undefined;
 	config = undefined;
 
 	constructor() {
 		this.events = new EventBus();
-		this.config = new ElectronModloaderConfigAPI(this);
+		this.config = new ElectronModConfigAPI();
 
-		for (const event of ["ml:onModLoaded", "ml:onModUnloaded", "ml:onAllModsLoaded", "ml:onModloaderClosed"]) {
-			this.events.registerEvent("modloader", event);
+		for (const event of ElectronModloaderAPI.allEvents) {
+			this.events.registerEvent(event);
 		}
 	}
 
-	addPatch(source, file, patch) {
-		gameFileManager.addPatch(source, file, patch);
+	addPatch(file, patch) {
+		gameFileManager.addPatch(file, patch);
 	}
 
-	repatchAll() {
-		gameFileManager.repatchAll();
-	}
-
-	repatch(file) {
-		gameFileManager.repatch(file);
-	}
-
-	async sendMessage(destination, msg, ...args) {
-		// TODO: Pass along destination
-		return await ipcMain.invoke(msg, ...args);
-	}
-
-	async receiveMessage(msg, func) {
-		return await ipcMain.handle(msg, func);
+	handleBrowserIPC(channel, handler) {
+		ipcMain.handle(`ml-mod:${channel}`, handler);
 	}
 }
 
-class ElectronModloaderConfigAPI {
-	constructor(modloaderAPI) {
-		modloaderAPI.receiveMessage("ml:get-config", async (event, modName) => {
+class ElectronModConfigAPI {
+	constructor() {
+		ipcMain.handle("ml-config:get-config", (event, modName) => {
 			logDebug(`Getting mod config remotely for ${modName}`);
 			return this.get(modName);
 		});
-		modloaderAPI.receiveMessage("ml:set-config", async (event, modName, config) => {
+		ipcMain.handle("ml-config:set-config", (event, modName, config) => {
 			logDebug(`Setting mod config remotely for ${modName}`);
 			return this.set(modName, config);
 		});
@@ -341,91 +330,64 @@ class GameFileManager {
 		this.gameAsarPath = gameAsarPath;
 	}
 
-	reset() {
-		logDebug("Resetting extracted app.asar to default...");
+	resetToBaseFiles() {
+		logDebug("Resetting game files to unmodified state using app.asar");
 
 		// Do not need to reset if we are extracted and not modified
 		if (this.isGameExtracted && !this.isGameModified) return;
 
-		// Ensure we have a temp directory (if not already)
-		this._createTempDirectory();
+		// Ensure we have a temp directory
+		if (!this.isTempInitialized) {
+			this._createTempDirectory();
+		}
 
-		// Ensure the game is extracted (if not already)
-		this._extractFiles();
+		// Ensure the game is extracted
+		if (!this.isGameExtracted) {
+			this._extractAllFiles();
+		}
 
-		// If the files are modified then reset them specific files
-		if (this.isGameModified) this._resetFiles();
+		// If the files are modified then reset them to the original
+		else if (this.isGameModified) {
+			for (const file in this.fileData) {
+				this._resetFile(file);
+			}
+		}
 
 		logDebug("Extracted app.asar set to default successfully");
 	}
 
-	addPatch(source, file, patch) {
+	addPatch(file, patch) {
+		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot add patch");
+
+		if (!this.fileData[file]) this._initializeFileData(file);
+
 		logDebug(`Adding patch to file: ${file}`);
-		if (!this.isGameExtracted) {
-			throw new Error("Game files not extracted yet cannot add patch");
-		}
-		if (!this.fileData[file]) {
-			this._initializeFileData(file);
-		}
-		if (!this.fileData[file].patches[source]) {
-			this.fileData[file].patches[source] = [];
-		}
-		this.fileData[file].patches[source].push(patch);
+		this.fileData[file].patches.push(patch);
 	}
 
-	repatchAll() {
-		if (!this.isGameExtracted) {
-			throw new Error("Game files not extracted yet cannot repatch all");
-		}
-		for (const file in this.fileData) {
-			this.repatch(file);
-		}
+	repatchAllFiles() {
+		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot repatch all");
+
+		logDebug("Repatching all files...");
+		for (const file in this.fileData) this._repatchFile(file);
 	}
 
-	repatch(file) {
-		logDebug(`Repatching file: ${file}`);
-		if (!this.isGameExtracted) {
-			throw new Error("Game files not extracted yet cannot repatch");
-		}
-		if (!this.fileData[file]) {
-			throw new Error(`File not initialized: ${file}`);
-		}
-		this._resetFile(file);
-		this._applyFilePatches(file);
-	}
-
-	removePatchSource(source) {
-		logDebug(`Removing patch source: ${source}`);
-		for (const file in this.fileData) {
-			if (this.fileData[file].patches[source]) {
-				delete this.fileData[file].patches[source];
-			}
-		}
-	}
-
-	async patchAndRunElectron() {
-		if (!this.isGameExtracted) {
-			throw new Error("Game files not extracted cannot process game app");
-		}
-
-		app.commandLine.appendSwitch("enable-features", "SharedArrayBuffer");
-		app.commandLine.appendSwitch("force_high_performance_gpu");
+	async patchAndRunGameElectron() {
+		if (!this.isGameExtracted) throw new Error("Game files not extracted cannot process game app");
 
 		gameElectronFuncs = {};
 
 		// Read the main.js file contents
 		const mainPath = path.join(this.tempExtractedPath, "main.js");
-		logInfo(`Processing games electron main.js: ${mainPath}`);
+		const preloadPath = path.join(this.tempExtractedPath, "preload.js");
+		logDebug(`Reading games original electron main.js to be patched: ${mainPath}`);
 		let mainContent;
 		try {
 			mainContent = fs.readFileSync(mainPath, "utf8");
 		} catch (e) {
 			throw new Error(`Error reading main.js: ${e.stack}`);
 		}
-
-		// Read the preload.js file contents
-		const preloadPath = path.join(this.tempExtractedPath, "preload.js");
-		logInfo(`Processing games electron preload.js: ${preloadPath}`);
+		logDebug(`Reading games original electron preload.js to be patched: ${preloadPath}`);
 		let preloadContent;
 		try {
 			preloadContent = fs.readFileSync(preloadPath, "utf8");
@@ -467,13 +429,13 @@ class GameFileManager {
 		// We're also gonna expose the ipcMain in preload.js
 		preloadContent = preloadContent.replaceAll(
 			"save: (id, name, data)",
-			`invoke: async (msg, ...args) => await ipcRenderer.invoke(msg, ...args),
-			handle: async (msg, func) => await ipcRenderer.handle(msg, func),
+			`invoke: (msg, ...args) => ipcRenderer.invoke(msg, ...args),
+			handle: (msg, func) => ipcRenderer.handle(msg, func),
 			save: (id, name, data)`
 		);
 
 		// Overwrite the preload.js and main.js files
-		logDebug(`Overwriting preload.js: ${preloadPath}`);
+		logDebug(`Rewriting modified main.js and preload.js: ${preloadPath}`);
 		try {
 			fs.writeFileSync(mainPath, mainContent, "utf8");
 			fs.writeFileSync(preloadPath, preloadContent, "utf8");
@@ -483,11 +445,19 @@ class GameFileManager {
 
 		// Run the code to register their functions
 		gameElectronFuncs = {};
-		logDebug(`Executing modified game electron main.js (hash=${mainHash})`);
+		logDebug(`Executing modified games electron main.js (hash=${mainHash})`);
 		try {
 			await import(`file://${mainPath}`);
 		} catch (e) {
 			throw new Error(`Error evaluating game main.js: ${e.stack}`);
+		}
+
+		// Now we need to run the setupIpcHandlers() function to register the ipcMain handlers
+		try {
+			logDebug("Calling games electron setupIpcHandlers()");
+			gameElectronFuncs.setupIpcHandlers();
+		} catch (e) {
+			throw new Error(`Error during setup of games electron setupIpcHandlers(), see _extractGameElectronFunctions(): ${e.stack}`);
 		}
 	}
 
@@ -515,16 +485,11 @@ class GameFileManager {
 
 		outputString += `  |  \n`;
 		outputString += `  |  File Data (${Object.keys(this.fileData).length})\n`;
-		const patchCount = Object.values(this.fileData).reduce((acc, file) => acc + Object.keys(file.patches).length, 0);
+		const patchCount = Object.values(this.fileData).reduce((acc, file) => acc + file.patches.length, 0);
 		for (const file in this.fileData) {
 			outputString += `  |  |  '${file}': ${this.fileData[file].isModified ? "MODIFIED" : "UNMODIFIED"}, patches (${patchCount})\n`;
-			if (patchCount) {
-			} else {
-				for (const source in this.fileData[file].patches) {
-					for (const patch of this.fileData[file].patches[source]) {
-						outputString += `  |  |  |  ${source} -> ${JSON.stringify(patch)}\n`;
-					}
-				}
+			for (const patch of this.fileData[file].patches) {
+				outputString += `  |  |  |  ${JSON.stringify(patch)}\n`;
 			}
 		}
 		logDebug(outputString);
@@ -556,9 +521,10 @@ class GameFileManager {
 	// ------------ INTERNAL ------------
 
 	_createTempDirectory() {
-		if (this.isTempInitialized) return;
+		if (this.isTempInitialized) throw new Error("Temp directory already initialized");
+
 		const newTempBasePath = path.join(os.tmpdir(), `sandustry-modloader-${Date.now()}`);
-		logDebug(`Creating new temp directory: ${newTempBasePath}`);
+		logDebug(`Creating game files temp directory: ${newTempBasePath}`);
 		ensureDirectoryExists(newTempBasePath);
 		this.tempBasePath = newTempBasePath;
 		this.isTempInitialized = true;
@@ -579,12 +545,10 @@ class GameFileManager {
 		this.isTempInitialized = false;
 	}
 
-	_extractFiles() {
-		logDebug("Extracting game files...");
-		if (!this.isTempInitialized) {
-			throw new Error("Temp directory not initialized yet cannot extract files");
-		}
-		if (this.isGameExtracted) return;
+	_extractAllFiles() {
+		if (!this.isTempInitialized) throw new Error("Temp directory not initialized yet cannot extract files");
+		if (this.isGameExtracted) throw new Error("Game files already extracted");
+
 		this.tempExtractedPath = path.join(this.tempBasePath, "extracted");
 		ensureDirectoryExists(this.tempExtractedPath);
 		logInfo(`Extracting game.asar to ${this.tempExtractedPath}`);
@@ -599,40 +563,33 @@ class GameFileManager {
 	}
 
 	_initializeFileData(file) {
+		if (!this.isGameExtracted) throw new Error(`Game files not extracted yet cannot initialize file: ${file}`);
+		if (this.fileData[file]) throw new Error(`File already initialized: ${file}`);
+
 		logDebug(`Initializing file data: ${file}`);
-		if (!this.isGameExtracted) {
-			throw new Error(`Game files not extracted yet cannot initialize file: ${file}`);
-		}
-		if (this.fileData[file]) {
-			throw new Error(`File already initialized: ${file}`);
-		}
 		const fullPath = path.join(this.tempExtractedPath, file);
 		if (!fs.existsSync(fullPath)) {
 			throw new Error(`File not found: ${fullPath}`);
 		}
-		this.fileData[file] = { fullPath, isModified: false, patches: {} };
+		this.fileData[file] = { fullPath, isModified: false, patches: [] };
 	}
 
-	_resetFiles() {
-		logDebug("Resetting all modified files...");
-		if (!this.isGameExtracted) {
-			throw new Error("Game files not extracted yet cannot reset files");
-		}
-		for (const file in this.fileData) {
-			this._resetFile(file);
-		}
+	_repatchFile(file) {
+		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot repatch");
+		if (!this.fileData[file]) throw new Error(`File not initialized: ${file}`);
+
+		logDebug(`Repatching file: ${file}`);
+		this._resetFile(file);
+		this._patchFile(file);
 	}
 
 	_resetFile(file) {
-		if (!this.isGameExtracted) {
-			throw new Error("Game files not extracted yet cannot reset file");
-		}
-		if (!this.fileData[file]) {
-			throw new Error(`File not initialized ${file} cannot reset`);
-		}
+		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot reset file");
+		if (!this.isGameModified) return;
+		if (!this.fileData[file]) throw new Error(`File not initialized ${file} cannot reset`);
 		if (!this.fileData[file].isModified) return;
-		logDebug(`Resetting file: ${file}`);
 
+		logDebug(`Resetting file: ${file}`);
 		try {
 			// Delete existing file
 			const fullPath = this.fileData[file].fullPath;
@@ -646,22 +603,17 @@ class GameFileManager {
 		} catch (e) {
 			throw new Error(`Error resetting file: ${e.stack}`);
 		}
-
 		this.fileData[file].isModified = false;
 		this.isGameModified = Object.values(this.fileData).some((f) => f.isModified);
 	}
 
-	_applyFilePatches(file) {
-		if (!this.isGameExtracted) {
-			throw new Error("Game files not extracted yet cannot apply patches");
-		}
-		if (!this.fileData[file]) {
-			throw new Error(`File not initialized ${file} cannot apply patches`);
-		}
+	_patchFile(file) {
+		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot apply patches");
+		if (!this.fileData[file]) throw new Error(`File not initialized ${file} cannot apply patches`);
+		if (this.fileData[file].isModified) throw new Error(`File already modified: ${file}`);
 
 		const fullPath = this.fileData[file].fullPath;
-		const patchCount = Object.values(this.fileData[file].patches).reduce((acc, source) => acc + source.length, 0);
-		logDebug(`Applying ${patchCount} patches to file: ${fullPath}`);
+		logDebug(`Applying ${this.fileData[file].patches.length} patches to file: ${fullPath}`);
 		let fileContent;
 		try {
 			fileContent = fs.readFileSync(fullPath, "utf8");
@@ -669,19 +621,15 @@ class GameFileManager {
 			throw new Error(`Error reading file: ${fullPath}`);
 		}
 
-		for (const source in this.fileData[file].patches) {
-			for (const patch of this.fileData[file].patches[source]) {
-				fileContent = this._applyPatchToContent(fileContent, patch);
-			}
+		for (const patch of this.fileData[file].patches) {
+			fileContent = this._applyPatchToContent(fileContent, patch);
 		}
-
 		logDebug(`Writing patched content back to file: ${fullPath}`);
 		try {
 			fs.writeFileSync(fullPath, fileContent, "utf8");
 		} catch (e) {
 			throw new Error(`Error writing patched content to file: ${fullPath}`);
 		}
-
 		this.fileData[file].isModified = true;
 		this.isGameModified = true;
 	}
@@ -734,69 +682,117 @@ class GameFileManager {
 class ModsManager {
 	baseModsPath = undefined;
 	mods = {};
-	modsOrder = [];
+	loadOrder = [];
+	loadedModCount = 0;
 
-	async reloadAllMods() {
-		logDebug("Reloading all mods...");
-
-		// Unload all the current mods
-		for (const modName in this.mods) {
-			this.unloadMod(modName);
-		}
-
-		// Clear out the mod data
+	refreshMods() {
 		this.mods = {};
-		this.modsOrder = [];
+		this.loadOrder = [];
+		this.loadedModCount = 0;
 
-		// Find all potential mod folders in the base mod folder
 		this.baseModsPath = resolvePathRelativeToModloader(config.modsPath);
-		logDebug(`Checking for mods in folder: ${this.baseModsPath}`);
 		ensureDirectoryExists(this.baseModsPath);
-		let modPaths = [];
-		try {
-			// Ensure it isnt 'config', then map to absolute, then ensure is directory
-			modPaths = fs.readdirSync(this.baseModsPath);
-			modPaths = modPaths.filter((p) => p !== "config");
-			modPaths = modPaths.map((p) => path.join(this.baseModsPath, p));
-			modPaths = modPaths.filter((p) => fs.statSync(p).isDirectory());
-		} catch (e) {
-			throw new Error(`Error finding mods: ${e.stack}`);
-		}
+		let modPaths = fs.readdirSync(this.baseModsPath);
+		modPaths = modPaths.filter((p) => p !== "config");
+		modPaths = modPaths.map((p) => path.join(this.baseModsPath, p));
+		modPaths = modPaths.filter((p) => fs.statSync(p).isDirectory());
 
-		logDebug(`Found ${modPaths.length} mod${modPaths.length === 1 ? "" : "s"} to load...`);
+		logDebug(`Found ${modPaths.length} mod${modPaths.length === 1 ? "" : "s"} to initialize inside: ${this.baseModsPath}`);
 
-		// First try and initialize each mod
 		for (const modPath of modPaths) {
 			try {
-				const mod = this.initializeMod(modPath);
-				if (this.hasMod(mod.info.name)) {
-					logWarn(`Mod at path ${modPath} has the same name as another mod: ${mod.info.name}`);
-				} else {
-					this.mods[mod.info.name] = mod;
-					this.modsOrder.push(mod.info.name);
-				}
+				const mod = this._initializeMod(modPath);
+				this.mods[mod.info.name] = mod;
+				this.loadOrder.push(mod.info.name);
 			} catch (e) {
 				logWarn(`Error initializing mod at path ${modPath}: ${e.stack}`);
 			}
 		}
 
-		// Now try and load each mod
-		for (const modName of this.modsOrder) {
-			const mod = this.mods[modName];
-			try {
-				await this.loadMod(mod);
-			} catch (e) {
-				logWarn(`Error loading mod ${modName}: ${e.stack}`);
-				this.unloadMod(modName);
+		const modCount = Object.keys(this.mods).length;
+		logInfo(`Successfully initialized ${modCount} mod${modCount == 1 ? "" : "s"}`);
+		logInfo(`Mod load order: [ ${this.loadOrder.join(", ")} ]`);
+	}
+
+	async loadAllMods() {
+		if (this.loadedModCount > 0) throw new Error("Cannot load mods, some mods are already loaded");
+
+		const enabledCount = this.loadOrder.filter((modName) => this.mods[modName].isEnabled).length;
+		if (enabledCount == this.loadOrder.length) {
+			logDebug(`Loading ${this.loadOrder.length} mods...`);
+		} else {
+			logDebug(`Loading ${enabledCount} / ${this.loadOrder.length} mods...`);
+		}
+
+		for (const modName of this.loadOrder) {
+			if (this.mods[modName].isEnabled) {
+				await this._loadMod(this.mods[modName]);
 			}
 		}
 
-		const loadedModsCount = this.modsOrder.filter((modName) => this.mods[modName].isLoaded).length;
-		logInfo(`Loaded ${loadedModsCount} / ${Object.keys(this.mods).length} mod(s) from ${this.baseModsPath}: [ ${this.modsOrder.join(", ")} ]`);
 		modloaderAPI.events.trigger("ml:onAllModsLoaded");
+		logDebug(`All mods loaded successfully`);
 	}
 
-	initializeMod(modPath) {
+	unloadAllMods() {
+		if (this.loadedModCount === 0) return;
+
+		logDebug("Unloading all mods...");
+
+		
+		for (const modName of this.loadOrder) {
+			if (this.mods[modName].isLoaded) {
+				this._unloadMod(this.mods[modName]);
+			}
+		}
+
+		modloaderAPI.events.trigger("ml:onAllModsUnloaded");
+		logDebug("All mods unloaded successfully");
+	}
+
+	changeLoadOrder(newLoadOrder) {
+		logDebug("Reordering mod load order...");
+
+		if (newLoadOrder.length !== this.loadOrder.length) {
+			throw new Error(`Invalid new mod order length: ${newLoadOrder.length} vs ${this.loadOrder.length}`);
+		}
+
+		for (const modName of newLoadOrder) {
+			if (!this.hasMod(modName)) {
+				throw new Error(`Invalid mod name in new order: ${modName}`);
+			}
+		}
+
+		this.loadOrder = newLoadOrder;
+	}
+
+	hasMod(modName) {
+		return Object.hasOwn(this.mods, modName);
+	}
+
+	logContents() {
+		let outputString = "ModsManager Content\n\n";
+		outputString += `  |  Variables\n`;
+		outputString += `  |  |  Base Mods Path: ${this.baseModsPath}\n`;
+		outputString += `  |  |  Load Order: [ ${this.loadOrder.join(", ")} ]\n`;
+
+		outputString += `  |  \n`;
+		outputString += `  |  Mods (${Object.keys(this.mods).length})\n`;
+		for (const modName of this.loadOrder) {
+			const mod = this.mods[modName];
+			outputString += `  |  |  '${modName}': ${mod.isLoaded ? "LOADED" : "UNLOADED"}, path: ${mod.path}\n`;
+		}
+
+		logDebug(outputString);
+	}
+
+	getLoadedMods() {
+		return Object.values(this.mods).filter((mod) => mod.isLoaded);
+	}
+
+	// ------------ INTERNAL ------------
+
+	_initializeMod(modPath) {
 		// Try and read the modinfo.json
 		const modInfoPath = path.join(modPath, "modInfo.json");
 		logDebug(`Initializing mod: ${modInfoPath}`);
@@ -813,6 +809,11 @@ class ModsManager {
 			throw new Error(`Invalid modInfo.json found: ${modInfoPath}`);
 		}
 
+		// Ensure mod name name is unique
+		if (this.hasMod(modInfo.name)) {
+			throw new Error(`Mod at path ${modPath} has the same name as another mod: ${modInfo.name}`);
+		}
+
 		// If mod info defines entrypoints check they both exist
 		if (modInfo.electronEntrypoint && !fs.existsSync(path.join(modPath, modInfo.electronEntrypoint))) {
 			throw new Error(`Mod defines electron entrypoint ${modInfo.electronEntrypoint} but file not found: ${modPath}`);
@@ -824,18 +825,18 @@ class ModsManager {
 			throw new Error(`Mod defines worker entrypoint ${modInfo.workerEntrypoint} but file none found: ${modPath}`);
 		}
 
-		return { info: modInfo, path: modPath, isLoaded: false };
+		return { info: modInfo, path: modPath, isEnabled: true, isLoaded: false };
 	}
 
-	async loadMod(mod) {
+	async _loadMod(mod) {
+		if (mod.isLoaded) throw new Error(`Mod already loaded: ${mod.info.name}`);
+
 		logDebug(`Loading mod: ${mod.info.name}`);
 
 		if (mod.info.defaultConfig) {
 			modloaderAPI.config.defineDefaults(mod.info.name, mod.info.defaultConfig);
 		}
 
-		// Here mods will be able to add their patches / event listeners
-		// This can error and should be caught by the caller
 		if (mod.info.electronEntrypoint) {
 			const electronEntrypoint = path.join(mod.path, mod.info.electronEntrypoint);
 			logDebug(`Loading electron entrypoint: ${electronEntrypoint}`);
@@ -843,74 +844,24 @@ class ModsManager {
 		}
 
 		mod.isLoaded = true;
-		modloaderAPI.events.triggerFor("ml:onModLoaded", mod.info.name);
+		this.loadedModCount++;
+
+		modloaderAPI.events.trigger("ml:onModLoaded", mod.info.name);
 	}
 
-	unloadMod(modName) {
-		if (!this.hasMod(modName)) {
-			throw new Error(`Mod not found: ${modName}`);
-		}
+	_unloadMod(mod) {
+		if (!mod.isLoaded) throw new Error(`Mod already unloaded: ${mod.info.name}`);
 
-		logDebug(`Unloading mod: ${modName}`);
+		logDebug(`Unloading mod: ${mod.info.name}`);
 
-		modloaderAPI.events.triggerFor("ml:onModUnloaded", modName);
+		modloaderAPI.events.trigger("ml:onModUnloaded", mod.info.name);
 
-		modloaderAPI.events.offAll(modName);
-		gameFileManager.removePatchSource(modName);
-		this.mods[modName].isLoaded = false;
-	}
-
-	reorderModsOrder(newModsOrder) {
-		logDebug("Reordering mod load order...");
-
-		if (newModsOrder.length !== this.modsOrder.length) {
-			throw new Error(`Invalid new mod order length: ${newModsOrder.length} vs ${this.modsOrder.length}`);
-		}
-
-		for (const modName of newModsOrder) {
-			if (!this.hasMod(modName)) {
-				throw new Error(`Invalid mod name in new order: ${modName}`);
-			}
-		}
-
-		this.modsOrder = newModsOrder;
-	}
-
-	getLoadedModsData() {
-		let modsData = [];
-		for (const modName of this.modsOrder) {
-			if (this.mods[modName].isLoaded) {
-				modsData.push({
-					...this.mods[modName].info,
-					path: this.mods[modName].path,
-				});
-			}
-		}
-		return modsData;
-	}
-
-	hasMod(modName) {
-		return Object.hasOwn(this.mods, modName);
-	}
-
-	logContents() {
-		let outputString = "ModsManager Content\n\n";
-		outputString += `  |  Variables\n`;
-		outputString += `  |  |  Base Mods Path: ${this.baseModsPath}\n`;
-		outputString += `  |  |  Load Order: [ ${this.modsOrder.join(", ")} ]\n`;
-
-		outputString += `  |  \n`;
-		outputString += `  |  Mods (${Object.keys(this.mods).length})\n`;
-		for (const modName of this.modsOrder) {
-			const mod = this.mods[modName];
-			outputString += `  |  |  '${modName}': ${mod.isLoaded ? "LOADED" : "UNLOADED"}, path: ${mod.path}\n`;
-		}
-
-		logDebug(outputString);
+		mod.isLoaded = false;
+		this.loadedModCount--;
 	}
 }
 
-function readAndLoadConfig() {
+function loadModloaderConfig() {
 	configPath = resolvePathRelativeToModloader(configPath);
 	logDebug(`Reading config from: ${configPath}`);
 
@@ -928,17 +879,17 @@ function readAndLoadConfig() {
 		if (!modified) {
 			logDebug(`Modloader config is up-to-date: ${configPath}`);
 		} else {
-			updateConfig();
+			updateModloaderConfig();
 		}
 	}
 }
 
-function updateConfig() {
+function updateModloaderConfig() {
 	fs.writeFileSync(configPath, JSON.stringify(config, null, 4), "utf8");
 	logDebug(`Modloader config updated successfully: ${configPath}`);
 }
 
-function initializeGameFileManager() {
+function findValidGamePath() {
 	// First cleanup any old temp directories
 	GameFileManager.deleteOldTempDirectories();
 
@@ -966,74 +917,96 @@ function initializeGameFileManager() {
 		// Update the config if we found the game in the default steam directory
 		fullGamePath = steamGamePath;
 		config.gamePath = steamGamePath;
-		updateConfig();
+		updateModloaderConfig();
 	}
 
 	logInfo(`Found game app.asar: ${asarPath}`);
 
-	// Now initialize the file manager with the base / asar path
-	gameFileManager = new GameFileManager(fullGamePath, asarPath);
-	gameFileManager.reset();
+	return { fullGamePath, asarPath };
 }
 
 function addModloaderPatches() {
+	logDebug("Adding modloader patches to game files...");
+
 	// Enable the debug flag
-	gameFileManager.addPatch("modloader", "js/bundle.js", {
+	gameFileManager.addPatch("js/bundle.js", {
 		type: "replace",
 		from: "debug:{active:!1",
 		to: "debug:{active:1",
 	});
 
 	// Puts __debug into modloaderAPI.gameInstance
-	gameFileManager.addPatch("modloader", "js/bundle.js", {
+	gameFileManager.addPatch("js/bundle.js", {
 		type: "replace",
-		from: "window.__debug",
-		to: "modloaderAPI.gameInstance",
+		from: "}};var r={};",
+		to: "}};modloader_onGameInstanceInitialized(__debug);var r={};",
 	});
 
-	// Add browser.js to bundle.js
+	// Add browser.js to bundle.js, and dont start game until it is ready
 	const browserScriptPath = resolvePathRelativeToModloader("browser.js").replaceAll("\\", "/");
-	gameFileManager.addPatch("modloader", "js/bundle.js", {
+	gameFileManager.addPatch("js/bundle.js", {
 		type: "replace",
 		from: `(()=>{var e,t,n={8916`,
-		to: `import "${browserScriptPath}";(()=>{var e,t,n={8916`,
+		to: `import "${browserScriptPath}";modloader_preloadBundle().then(()=>{var e,t,n={8916`,
+	});
+	gameFileManager.addPatch("js/bundle.js", {
+		type: "replace",
+		from: `)()})();`,
+		to: `)()});`,
 	});
 
 	// Expose the games world to bundle.js
-	gameFileManager.addPatch("modloader", "js/bundle.js", {
+	gameFileManager.addPatch("js/bundle.js", {
 		type: "replace",
-		from: `s.environment.multithreading.simulation.startManager(s),`,
-		to: `s.environment.multithreading.simulation.startManager(s),globalThis.modloaderAPI._onGameWorldInitialized(s),`,
+		from: `console.log("initializing workers"),`,
+		to: `console.log("initializing workers"),modloader_onGameWorldInitialized(s),`,
 	});
 
 	// Listen for modloader worker messages in bundle.js
-	gameFileManager.addPatch("modloader", "js/bundle.js", {
+	gameFileManager.addPatch("js/bundle.js", {
 		type: "replace",
 		from: "case f.InitFinished:",
-		to: "case 'modloaderEvent':globalThis.modloaderAPI._onWorkerMessage(r);break;case f.InitFinished:",
+		to: "case 'modloaderMessage':modloader_onWorkerMessage(r);break;case f.InitFinished:",
 	});
 
 	const workers = ["546", "336"];
 	for (const worker of workers) {
-
 		// Listen for modloader worker messages in each worker
-		gameFileManager.addPatch("modloader", `js/${worker}.bundle.js`, {
+		gameFileManager.addPatch(`js/${worker}.bundle.js`, {
 			type: "replace",
 			from: `case i.dD.Init:`,
-			to: `case 'modloaderEvent':globalThis.modloaderAPI._onWorkerMessage(e);break;case i.dD.Init:`,
+			to: `case 'modloaderMessage':modloader_onWorkerMessage(e);break;case i.dD.Init:`,
 		});
-
-		// Add worker.js to each worker
+		
+		// Add worker.js to each worker, and dont start until it is ready
 		const workerScriptPath = resolvePathRelativeToModloader(`worker.js`).replaceAll("\\", "/");
-		gameFileManager.addPatch("modloader", `js/${worker}.bundle.js`, {
+		gameFileManager.addPatch(`js/${worker}.bundle.js`, {
 			type: "replace",
 			from: `(()=>{"use strict"`,
-			to: `importScripts("${workerScriptPath}");(()=>{"use strict"`,
+			to: `importScripts("${workerScriptPath}");modloader_preloadBundle().then(()=>{"use strict"`,
+		});
+		gameFileManager.addPatch(`js/${worker}.bundle.js`, {
+			type: "replace",
+			from: `()})();`,
+			to: `()});`,
 		});
 	}
 
+	// Notify worker.js when the workers are ready
+	// These are different for each worker
+	gameFileManager.addPatch(`js/336.bundle.js`, {
+		type: "replace",
+		from: `W.environment.postMessage([i.dD.InitFinished]);`,
+		to: `modloader_onWorkerInitialized(W);W.environment.postMessage([i.dD.InitFinished]);`,
+	});
+	gameFileManager.addPatch(`js/546.bundle.js`, {
+		type: "replace",
+		from: `t(performance.now());break;`,
+		to: `t(performance.now());modloader_onWorkerInitialized(a);break;`,
+	});
+	
 	// Add React to globalThis
-	gameFileManager.addPatch("modloader", "js/bundle.js", {
+	gameFileManager.addPatch("js/bundle.js", {
 		type: "replace",
 		from: `var Cl,kl=i(6540)`,
 		to: `globalThis.React=i(6540);var Cl,kl=React`,
@@ -1041,35 +1014,35 @@ function addModloaderPatches() {
 
 	if (config.debug.enableDebugMenu) {
 		// Adds configrable zoom
-		gameFileManager.addPatch("modloader", "js/bundle.js", {
+		gameFileManager.addPatch("js/bundle.js", {
 			type: "replace",
 			from: 'className:"fixed bottom-2 right-2 w-96 pt-12 text-white"',
 			to: `className:"fixed bottom-2 right-2 w-96 pt-12 text-white",style:{zoom:"${config.debug.debugMenuZoom * 100}%"}`,
 		});
 	} else {
 		// Disables the debug menu
-		gameFileManager.addPatch("modloader", "js/bundle.js", {
+		gameFileManager.addPatch("js/bundle.js", {
 			type: "replace",
 			from: "function _m(t){",
 			to: "function _m(t){return;",
 		});
 
 		// Disables the debug keybinds
-		gameFileManager.addPatch("modloader", "js/bundle.js", {
+		gameFileManager.addPatch("js/bundle.js", {
 			type: "replace",
 			from: "spawnElements:function(n,r){",
 			to: "spawnElements:function(n,r){return false;",
 		});
 
 		// Disables the pause camera keybind
-		gameFileManager.addPatch("modloader", "js/bundle.js", {
+		gameFileManager.addPatch("js/bundle.js", {
 			type: "replace",
 			from: "e.debug.active&&(t.session.overrideCamera",
 			to: "return;e.debug.active&&(t.session.overrideCamera",
 		});
 
 		// Disables the pause keybind
-		gameFileManager.addPatch("modloader", "js/bundle.js", {
+		gameFileManager.addPatch("js/bundle.js", {
 			type: "replace",
 			from: "e.debug.active&&(t.session.paused",
 			to: "return;e.debug.active&&(t.session.paused",
@@ -1082,38 +1055,28 @@ function addModloaderPatches() {
 function setupElectronIPC() {
 	logDebug("Setting up electron IPC handlers");
 
-	// We may want to call this everytime we open the game due to the games
-	// electron functions being potentially re-patched
-
 	ipcMain.removeAllListeners();
 
-	modloaderAPI.receiveMessage("ml:get-loaded-mods", async (event, args) => {
-		logDebug("Received ml:get-loaded-mods");
-		return modsManager.getLoadedModsData();
+	ipcMain.handle("ml-modloader:get-loaded-mods", (event, args) => {
+		logDebug("Received ml-modloader:get-loaded-mods");
+		return modsManager.getLoadedMods();
 	});
 
-	modloaderAPI.receiveMessage("ml:reload-mods", async (event, args) => {
-		logDebug("Received ml:reload-mods");
-		modsManager.reloadAllMods();
+	ipcMain.handle("ml-modloader:refresh-mods", (event, args) => {
+		logDebug("Received ml-modloader:refresh-mods");
+		modsManager.refreshMods();
 	});
 
-	modloaderAPI.receiveMessage("ml:start-game", async (event, args) => {
-		logDebug("Received ml:start-game");
+	ipcMain.handle("ml-modloader:start-game", (event, args) => {
+		logDebug("Received ml-modloader:start-game");
 		startGameWindow();
 	});
-
-	try {
-		logDebug("Calling games electron setupIpcHandlers()");
-		gameElectronFuncs.setupIpcHandlers();
-	} catch (e) {
-		throw new Error(`Error during setup of games electron setupIpcHandlers(), see _extractGameElectronFunctions(): ${e.stack}`);
-	}
 }
 
 function startModloaderWindow() {
-	try {
-		logDebug("Starting modloader window: src/modloader/modloader.html");
+	logDebug("Starting modloader window");
 
+	try {
 		modloaderWindow = new BrowserWindow({
 			width: 850,
 			height: 500,
@@ -1122,63 +1085,55 @@ function startModloaderWindow() {
 				preload: resolvePathRelativeToModloader("modloader/modloader-preload.js"),
 			},
 		});
-
-		modloaderWindow.on("closed", onModloaderWindowClosed);
+		modloaderWindow.on("closed", cleanupModloaderWindow);
 		modloaderWindow.loadFile("src/modloader/modloader.html");
 		modloaderWindow.webContents.openDevTools();
 	} catch (e) {
+		cleanupModloaderWindow();
 		throw new Error(`Error starting modloader window: ${e.stack}`);
 	}
 }
 
 function closeModloaderWindow() {
 	modloaderWindow.close();
+	cleanupModloaderWindow();
+}
+
+function cleanupModloaderWindow() {
 	modloaderWindow = null;
 }
 
-function onModloaderWindowClosed() {
-	modloaderWindow = null;
-}
+async function startGameWindow() {
+	if (gameWindow != null) throw new Error("Cannot start game, already running");
 
-function startGameWindow() {
-	if (gameWindow != null) {
-		logWarn("Cannot start game, already running");
-		return;
-	}
+	logInfo("Starting game window");
 
-	logInfo("Starting game window...");
-	gameFileManager.repatchAll();
+	gameFileManager.resetToBaseFiles();
+	await gameFileManager.patchAndRunGameElectron();
+	addModloaderPatches();
+	await modsManager.loadAllMods();
+	gameFileManager.repatchAllFiles();
+	modloaderAPI.events.trigger("ml:onGameStarted");
 
 	try {
-		logDebug("Calling games electron createWindow()");
 		gameElectronFuncs.createWindow();
+		gameWindow.on("closed", cleanupGameWindow);
 		if (config.debug.openDevTools) gameWindow.openDevTools();
-		gameWindow.on("closed", onGameWindowClosed);
 	} catch (e) {
+		cleanupGameWindow();
 		throw new Error(`Error during games electron createWindow(), see _extractGameElectronFunctions(): ${e.stack}`);
 	}
 }
 
 function closeGameWindow() {
 	gameWindow.close();
-	gameWindow = null;
+	cleanupGameWindow();
 }
 
-function onGameWindowClosed() {
+function cleanupGameWindow() {
 	gameWindow = null;
-}
-
-async function setupApp() {
-	process.env["ELECTRON_DISABLE_SECURITY_WARNINGS"] = "true";
-
-	await app.whenReady();
-
-	app.on("window-all-closed", () => {
-		logInfo("All windows closed, exiting...");
-		if (process.platform !== "darwin") {
-			closeApp();
-		}
-	});
+	modsManager.unloadAllMods();
+	modloaderAPI.events.reset();
 }
 
 function closeApp() {
@@ -1192,6 +1147,7 @@ function cleanupApp() {
 		if (modloaderWindow) closeModloaderWindow();
 		if (gameWindow) closeGameWindow();
 		gameFileManager.deleteFiles();
+		modsManager.unloadAllMods();
 	} catch (e) {
 		logError(`Error during cleanup: ${e.stack}`);
 	}
@@ -1199,30 +1155,35 @@ function cleanupApp() {
 }
 
 async function startApp() {
-	logInfo(`Starting electron modloader ${modloaderVersion}...`);
+	logInfo(`Starting electron modloader ${modloaderVersion}`);
 
+	// Wait for electron to be ready to go
+	process.env["ELECTRON_DISABLE_SECURITY_WARNINGS"] = "true";
+	app.commandLine.appendSwitch("enable-features", "SharedArrayBuffer");
+	app.commandLine.appendSwitch("force_high_performance_gpu");
+	await app.whenReady();
+	app.on("window-all-closed", () => {
+		logInfo("All windows closed, exiting...");
+		if (process.platform !== "darwin") {
+			closeApp();
+		}
+	});
+
+	// One-time modloader setup
 	catchUnexpectedExits();
-	readAndLoadConfig();
-
-	initializeGameFileManager();
-	await gameFileManager.patchAndRunElectron();
-	addModloaderPatches();
-
+	loadModloaderConfig();
+	const { fullGamePath, asarPath } = findValidGamePath();
+	gameFileManager = new GameFileManager(fullGamePath, asarPath);
 	modloaderAPI = new ElectronModloaderAPI();
 	modsManager = new ModsManager();
-	await modsManager.reloadAllMods();
-
-	// TODO: Remove these debug lines
-	modloaderAPI.events.logContents();
-	gameFileManager.logContents();
-	modsManager.logContents();
-
-	await setupApp();
+	modsManager.refreshMods();
 	setupElectronIPC();
+
+	// Start the windows now everything is setup
 	if (config.application.loadIntoModloader) {
 		startModloaderWindow();
 	} else {
-		startGameWindow();
+		await startGameWindow();
 	}
 }
 

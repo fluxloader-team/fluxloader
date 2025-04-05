@@ -1,20 +1,15 @@
 # v2.0.0 Design Notes
 
-## Notes / TODO
+## Notes / To-Do
 
-Mod load order saving somehow  
+Mod load order saving
 
-- If mods are added / removed between runs of the modloader this needs updating  
-- Probably should use the modloader-config.json  
+- By default automatic determinstic order based on dependencies
+- User can toggle manual load order with warnings
 
 Modloader window site and IPC
 
-We need some form of IPC between workers and bundle.js
-In bundle.js there is a `postAll: function (e, t)` that sends a message to all workers, but it needs an environment variable as param 1
-In 336.bundle.js (for example) there is a `self.onmessage = function (e) {` that receives these messages
-The environment is initialized inside bundle.js down at the very bottom in variable `s`
-I believe it is ready to be used inside the `startManager` function
+Only start the game once mods are loaded
 
-I think im going to revert the active / inactive events / patches etc
-A mod instead has 2 properties: valid and loaded
-If a mod is unloaded then none of its thing are in the system at all
+- Events are unavoidably asynchronous
+- Go through all code and make sure is the right colour

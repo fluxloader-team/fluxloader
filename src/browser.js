@@ -5,6 +5,8 @@ import { EventBus } from "./common.js";
 globalThis.modloaderVersion = "2.0.0";
 globalThis.modloaderAPI = undefined;
 
+let loadedMods = [];
+
 // ------------- UTILTY -------------
 
 globalThis.log = function (level, tag, message) {
@@ -14,81 +16,110 @@ globalThis.log = function (level, tag, message) {
 	console.log(`${header} ${message}`);
 };
 
-globalThis.logDebug = (...args) => log("debug", "", args.join(" "));
-globalThis.logInfo = (...args) => log("info", "", args.join(" "));
-globalThis.logWarn = (...args) => log("warn", "", args.join(" "));
-globalThis.logError = (...args) => log("error", "", args.join(" "));
+const logDebug = (...args) => log("debug", "", args.join(" "));
+const logInfo = (...args) => log("info", "", args.join(" "));
+const logWarn = (...args) => log("warn", "", args.join(" "));
+const logError = (...args) => log("error", "", args.join(" "));
 
 // ------------- MAIN -------------
 
 class BrowserModloaderAPI {
+	static allEvents = ["ml:onMenuLoaded", "ml:onGameLoaded"];
 	events = undefined;
 	config = undefined;
 	gameWorld = undefined;
 	gameInstance = undefined;
+	messageListeners = {};
 
 	constructor() {
 		this.events = new EventBus();
-		this.config = new BrowserModloaderConfigAPI();
+		this.config = new BrowserModConfigAPI();
 
-		for (const event of ["ml:onMenuLoaded", "ml:onGameLoaded"]) {
-			this.events.registerEvent("modloader", event);
+		for (const event of BrowserModloaderAPI.allEvents) {
+			this.events.registerEvent(event);
 		}
+
+		// ml-modloader:get-loaded-mods
+		this.listenWorkerMessage("ml-modloader:get-loaded-mods", () => {
+			this.sendWorkerMessage("ml-modloader:get-loaded-mods:response", loadedMods);
+		});
 	}
 
-	async sendMessage(destination, msg, ...args) {
-		// TODO: Send this to the correct destination
-		// gameWorld.environment.multithreading.simulation.postAll(gameWorld, ["modloaderEvent", "hello world"])
-		return await window.electron.invoke(msg, ...args);
+	async invokeElectronIPC(channel, ...args) {
+		return await window.electron.invoke(`ml-mod:${channel}`, ...args);
 	}
 
-	async receiveMessage(msg, func) {
-		// TODO: Instead add to list of listeners and check the destination
-		return await window.electron.handle(msg, func);
+	async sendWorkerMessage(channel, ...args) {
+		this.gameWorld.environment.multithreading.simulation.postAll(this.gameWorld, ["modloaderMessage", channel, ...args]);
 	}
 
-	_onGameWorldInitialized(s) {
-		logInfo("Browser saw game world initialized");
-		this.gameWorld = s;
-	};
-	
-	_onWorkerMessage(m) {
-		logDebug(`Browser received message from worker: ${JSON.stringify(m.data)}`);
-		// TODO: Handle forwarding the message to the correct destination
-	};
+	async listenWorkerMessage(channel, handler) {
+		if (this.messageListeners[channel]) throw new Error(`Message listener already exists for channel: ${channel}`);
+		this.messageListeners[channel] = handler;
+	}
+
+	async _onWorkerMessage(channel, ...args) {
+		if (!this.messageListeners[channel]) return null;
+		this.messageListeners[channel](...args);
+	}
 }
 
-class BrowserModloaderConfigAPI {
+class BrowserModConfigAPI {
 	async get(modName) {
-		return await modloaderAPI.sendMessage("electron", "ml:get-config", modName);
+		return await window.electron.invoke("ml-config:get-config", modName);
 	}
 
 	async set(modName, config) {
-		return await modloaderAPI.sendMessage("electron", "ml:set-config", modName, config);
+		return await window.electron.invoke("ml-config:set-config", modName, config);
 	}
 }
 
 async function loadAllMods() {
-	const mods = await modloaderAPI.sendMessage("electron", "ml:get-loaded-mods");
-	logDebug(`Loading ${mods.length} mods...`);
+	loadedMods = await window.electron.invoke("ml-modloader:get-loaded-mods");
 
-	for (const mod of mods) {
-		logDebug(`Loading mod ${mod.name}`);
+	if (!loadedMods) {
+		logError("No mods loaded");
+		return;
+	}
 
-		if (!mod.browserEntrypoint) {
-			logDebug(`Mod ${mod.name} does not have a browser entrypoint`);
+	(`Loading ${loadedMods.length} mods...`);
+
+	for (const mod of loadedMods) {
+		logDebug(`Loading mod '${mod.info.name}'`);
+
+		if (!mod.info.browserEntrypoint) {
+			logDebug(`Mod ${mod.info.name} does not have a browser entrypoint`);
 			continue;
 		}
 
-		const entrypointPath = mod.path + "/" + mod.browserEntrypoint;
+		const entrypointPath = mod.path + "/" + mod.info.browserEntrypoint;
 		await import(`file://${entrypointPath}`);
 	}
+
 }
 
-(async () => {
-	logInfo(`Starting browser modloader ${modloaderVersion}...`);
-
+globalThis.modloader_preloadBundle = async () => {
+	// This is guaranteed to happen before the games bundle.js is loaded
+	logInfo(`Starting browser modloader ${modloaderVersion}`);
 	modloaderAPI = new BrowserModloaderAPI();
-
 	await loadAllMods();
-})();
+};
+
+globalThis.modloader_onGameWorldInitialized = (s) => {
+	// This is called just before the worker manager is initialized
+	modloaderAPI.gameWorld = s;
+	logInfo("Game world initialized");
+}
+
+globalThis.modloader_onGameInstanceInitialized = (s) => {
+	modloaderAPI.gameInstance = s;
+	const scene = modloaderAPI.gameInstance.state.store.scene.active;
+	logInfo(`Game instance loaded with scene ${scene}`);
+	modloaderAPI.events.trigger(scene == 1 ? "ml:onMenuLoaded" : "ml:onGameLoaded");
+}
+
+globalThis.modloader_onWorkerMessage = (m) => {
+	m.data.shift();
+	const channel = m.data.shift();
+	modloaderAPI._onWorkerMessage(channel, ...m.data);
+}

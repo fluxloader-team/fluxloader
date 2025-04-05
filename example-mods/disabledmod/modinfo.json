@@ -1,9 +1,0 @@
-{
-	"name": "disabledmod",
-	"version": "1.0.0",
-	"author": "tomster12",
-	"description": "A disabled test mod for the Electron Modloader",
-	"electronEntrypoint": "entry.electron.js",
-	"browserEntrypoint": "entry.browser.js",
-	"defaultConfig": {}
-}

@@ -1,4 +1,4 @@
-modloaderAPI.addPatch("testmod", "js/336.bundle.js", {
+modloaderAPI.addPatch("js/336.bundle.js", {
 	type: "replace",
 	from: "Will launch elements upward",
 	to: "Will throw some blocks around",
@@ -7,30 +7,32 @@ modloaderAPI.addPatch("testmod", "js/336.bundle.js", {
 const config = modloaderAPI.config.get("testmod");
 
 if (config.someSetting) {
-	modloaderAPI.addPatch("testmod", "js/bundle.js", {
+	modloaderAPI.addPatch("js/bundle.js", {
 		type: "replace",
 		from: "t.store.resources.artifacts++,",
 		to: `t.store.resources.artifacts++,console.log('You got an artifact, config: ${config.someValue}'),`,
 	});
 }
 
-modloaderAPI.events.on("testmod", "ml:onModLoaded", () => {
+modloaderAPI.events.on("ml:onModLoaded", () => {
 	log("info", "testmod", "I have been loaded");
 });
 
-modloaderAPI.events.on("testmod", "ml:onAllModsLoaded", () => {
+modloaderAPI.events.on("ml:onAllModsLoaded", () => {
 	log("info", "testmod", "All mods have been loaded");
 });
 
-modloaderAPI.events.on("testmod", "ml:onModUnloaded", () => {
+modloaderAPI.events.on("ml:onGameStarted", () => {
+	log("info", "testmod", "Game is starting");
+});
+
+modloaderAPI.events.on("ml:onModUnloaded", () => {
 	log("info", "testmod", "I have been loaded");
 });
 
-modloaderAPI.events.on("testmod", "ml:onModloaderClosed", () => {
-	log("info", "testmod", "Modloader closed");
-});
+log("info", "testmod", "Listening to other envionments");
 
-modloaderAPI.receiveMessage("testmod:doSomething", (event, args) => {
-	log("info", "testmod", "Doing something in the main process: " + JSON.stringify(args));
-	return "Done something";
+modloaderAPI.handleBrowserIPC("testmod:electronfunc", (event, args) => {
+	log("info", "testmod", `electronfunc arguments ${JSON.stringify(args)}`);
+	return "This is a response";
 });
