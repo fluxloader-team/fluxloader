@@ -3,9 +3,9 @@
 	
 	startButtonElement.addEventListener("click", () => {
 		console.log("Starting game...");
-		window.electron.invoke("ml:start-game");
+		window.electron.invoke("ml-modloader:start-game");
 	});
 
-	const mods = await window.electron.invoke("ml:get-loaded-mods");
+	const mods = await window.electron.invoke("ml-modloader:get-loaded-mods");
 	console.log(mods);
 })();
