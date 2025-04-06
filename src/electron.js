@@ -910,6 +910,7 @@ function findValidGamePath() {
 		const checkPaths = {
 			windows: [process.env["ProgramFiles(x86)"], "Steam", "steamapps", "common", "Sandustry Demo"],
 			linux: [process.env.HOME, ".local", "share", "Steam", "steamapps", "common", "Sandustry Demo"],
+			mac: [process.env.HOME, "Library", "Application Support", "Steam", "steamapps", "common", "Sandustry Demo"],
 		};
 
 		// Look in the default steam directory for the games app.asar
