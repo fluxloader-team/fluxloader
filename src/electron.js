@@ -739,7 +739,6 @@ class ModsManager {
 
 		logDebug("Unloading all mods...");
 
-		
 		for (const modName of this.loadOrder) {
 			if (this.mods[modName].isLoaded) {
 				this._unloadMod(this.mods[modName]);
@@ -906,12 +905,31 @@ function findValidGamePath() {
 	if (!asarPath) {
 		logDebug(`Cannot find app.asar in configured directory: ${fullGamePath}`);
 
+		logDebug("Checking default steam directories...");
+
+		const checkPaths = {
+			windows: [process.env["ProgramFiles(x86)"], "Steam", "steamapps", "common", "Sandustry Demo"],
+			linux: [process.env.HOME, ".local", "share", "Steam", "steamapps", "common", "Sandustry Demo"],
+		};
+
 		// Look in the default steam directory for the games app.asar
-		logDebug("checking default steam directory...");
-		const steamGamePath = path.join(process.env["ProgramFiles(x86)"], "Steam", "steamapps", "common", "Sandustry Demo");
-		asarPath = findGameAsarInDirectory(steamGamePath);
+		let steamGamePath;
+		for (const [OS, gamePath] of Object.entries(checkPaths)) {
+			try {
+				steamGamePath = path.join(...gamePath);
+			} catch {
+				logDebug(`Default steam path for ${OS} is invalid..`);
+				continue;
+			}
+			asarPath = findGameAsarInDirectory(steamGamePath);
+			if (asarPath) {
+				logDebug(`Found app.asar in default steam directory for ${OS}: ${steamGamePath}`);
+				break;
+			}
+			logDebug(`app.asar not found in ${OS} steam path: ${gamePath}..`);
+		}
 		if (!asarPath) {
-			throw new Error(`Cannot find app.asar in configured or default steam directory: ${fullGamePath} or ${steamGamePath}`);
+			throw new Error(`Cannot find app.asar in configured or any default steam directory: ${fullGamePath}`);
 		}
 
 		// Update the config if we found the game in the default steam directory
@@ -977,7 +995,7 @@ function addModloaderPatches() {
 			from: `case i.dD.Init:`,
 			to: `case 'modloaderMessage':modloader_onWorkerMessage(e);break;case i.dD.Init:`,
 		});
-		
+
 		// Add worker.js to each worker, and dont start until it is ready
 		const workerScriptPath = resolvePathRelativeToModloader(`worker.js`).replaceAll("\\", "/");
 		gameFileManager.addPatch(`js/${worker}.bundle.js`, {
@@ -1004,7 +1022,7 @@ function addModloaderPatches() {
 		from: `t(performance.now());break;`,
 		to: `t(performance.now());modloader_onWorkerInitialized(a);break;`,
 	});
-	
+
 	// Add React to globalThis
 	gameFileManager.addPatch("js/bundle.js", {
 		type: "replace",
