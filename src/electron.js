@@ -272,7 +272,7 @@ class ElectronModConfigAPI {
 		return {};
 	}
 
-	set(modName, config) {
+	set(modName, _config) {
 		const modNamePath = this.sanitizeModNamePath(modName);
 		const baseModsPath = resolvePathRelativeToModloader(config.modsPath);
 		const modsConfigPath = path.join(baseModsPath, "config");
@@ -281,7 +281,7 @@ class ElectronModConfigAPI {
 		logDebug(`Setting mod config: ${modNamePath} -> ${modConfigPath}`);
 
 		try {
-			fs.writeFileSync(modConfigPath, JSON.stringify(config, null, 4), "utf8");
+			fs.writeFileSync(modConfigPath, JSON.stringify(_config, null, 4), "utf8");
 			return true;
 		} catch (e) {
 			logWarn(`Error while writing mod config: ${e.stack}`);
@@ -702,8 +702,21 @@ class ModsManager {
 		for (const modPath of modPaths) {
 			try {
 				const mod = this._initializeMod(modPath);
+				// Check for dependents of this mod and place this mod before them in the load order
+				let lowestIndex = this.loadOrder.length;
+				for (const checkMod of Object.values(this.mods)) {
+					// Check if mod depends on mod being loaded
+					if (Object.keys(checkMod.info.dependencies).includes(mod.info.name)) {
+						// Check if mod that is dependent on mod being loaded is lower in the loadOrder
+						// if so, move lowest index so mod being loaded will load before them
+						let index = this.loadOrder.indexOf(checkMod.info.name);
+						if (index < lowestIndex) {
+							lowestIndex = index;
+						}
+					}
+				}
 				this.mods[mod.info.name] = mod;
-				this.loadOrder.push(mod.info.name);
+				this.loadOrder.splice(lowestIndex, 0, mod.info.name);
 			} catch (e) {
 				logWarn(`Error initializing mod at path ${modPath}: ${e.stack}`);
 			}
