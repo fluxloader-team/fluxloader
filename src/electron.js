@@ -858,7 +858,7 @@ class ModsManager {
 		mod.isLoaded = true;
 		this.loadedModCount++;
 
-		modloaderAPI.events.trigger("ml:onModLoaded", mod.info.name);
+		modloaderAPI.events.trigger("ml:onModLoaded", mod);
 	}
 
 	_unloadMod(mod) {
@@ -866,7 +866,7 @@ class ModsManager {
 
 		logDebug(`Unloading mod: ${mod.info.name}`);
 
-		modloaderAPI.events.trigger("ml:onModUnloaded", mod.info.name);
+		modloaderAPI.events.trigger("ml:onModUnloaded", mod);
 
 		mod.isLoaded = false;
 		this.loadedModCount--;
