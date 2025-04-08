@@ -5,8 +5,8 @@ import process from "process";
 import os from "os";
 import asar from "asar";
 import { EventBus } from "./common.js";
+import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
-import { on } from "events";
 
 // ------------- MODDING DOCUMENTATION -------------
 
@@ -224,6 +224,7 @@ class ElectronModloaderAPI {
 	static allEvents = ["ml:onModLoaded", "ml:onModUnloaded", "ml:onAllModsLoaded", "ml:onAllModsUnloaded", "ml:onGameStarted", "ml:onGameClosed", "ml:onModloaderClosed"];
 	events = undefined;
 	config = undefined;
+	fileManager = gameFileManager;
 
 	constructor() {
 		this.events = new EventBus();
@@ -235,7 +236,21 @@ class ElectronModloaderAPI {
 	}
 
 	addPatch(file, patch) {
-		gameFileManager.addPatch(file, patch);
+		const tag = randomUUID();
+		gameFileManager.setPatch(file, tag, patch);
+		return tag;
+	}
+
+	setPatch(file, tag, patch) {
+		gameFileManager.setPatch(file, tag, patch);
+	}
+
+	removePatch(file, tag) {
+		gameFileManager.removePatch(file, tag);
+	}
+
+	repatchAllFiles() {
+		gameFileManager.repatchAllFiles();
 	}
 
 	handleBrowserIPC(channel, handler) {
@@ -356,13 +371,24 @@ class GameFileManager {
 		logDebug("Extracted app.asar set to default successfully");
 	}
 
-	addPatch(file, patch) {
+	setPatch(file, tag, patch) {
 		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot add patch");
 
 		if (!this.fileData[file]) this._initializeFileData(file);
 
-		logDebug(`Adding patch to file: ${file}`);
-		this.fileData[file].patches.push(patch);
+		logDebug(`Setting patch '${tag}' in file: ${file}`);
+		this.fileData[file].patches.set(tag, patch);
+	}
+
+	removePatch(file, tag) {
+		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot remove patch");
+
+		if (!this.fileData[file]) this._initializeFileData(file);
+
+		if (!this.fileData[file].patches.has(tag)) throw new Error(`Patch '${tag}' does not exist for file: ${file}`);
+
+		logDebug(`Removing patch '${tag}' from file: ${file}`);
+		this.fileData[file].patches.delete(tag);
 	}
 
 	repatchAllFiles() {
@@ -485,10 +511,10 @@ class GameFileManager {
 
 		outputString += `  |  \n`;
 		outputString += `  |  File Data (${Object.keys(this.fileData).length})\n`;
-		const patchCount = Object.values(this.fileData).reduce((acc, file) => acc + file.patches.length, 0);
+		const patchCount = Object.values(this.fileData).reduce((acc, file) => acc + file.patches.size, 0);
 		for (const file in this.fileData) {
 			outputString += `  |  |  '${file}': ${this.fileData[file].isModified ? "MODIFIED" : "UNMODIFIED"}, patches (${patchCount})\n`;
-			for (const patch of this.fileData[file].patches) {
+			for (const patch of this.fileData[file].patches.values()) {
 				outputString += `  |  |  |  ${JSON.stringify(patch)}\n`;
 			}
 		}
@@ -571,7 +597,7 @@ class GameFileManager {
 		if (!fs.existsSync(fullPath)) {
 			throw new Error(`File not found: ${fullPath}`);
 		}
-		this.fileData[file] = { fullPath, isModified: false, patches: [] };
+		this.fileData[file] = { fullPath, isModified: false, patches: new Map() };
 	}
 
 	_repatchFile(file) {
@@ -613,7 +639,7 @@ class GameFileManager {
 		if (this.fileData[file].isModified) throw new Error(`File already modified: ${file}`);
 
 		const fullPath = this.fileData[file].fullPath;
-		logDebug(`Applying ${this.fileData[file].patches.length} patches to file: ${fullPath}`);
+		logDebug(`Applying ${this.fileData[file].patches.size} patches to file: ${fullPath}`);
 		let fileContent;
 		try {
 			fileContent = fs.readFileSync(fullPath, "utf8");
@@ -621,7 +647,7 @@ class GameFileManager {
 			throw new Error(`Error reading file: ${fullPath}`);
 		}
 
-		for (const patch of this.fileData[file].patches) {
+		for (const patch of this.fileData[file].patches.values()) {
 			fileContent = this._applyPatchToContent(fileContent, patch);
 		}
 		logDebug(`Writing patched content back to file: ${fullPath}`);
@@ -638,40 +664,45 @@ class GameFileManager {
 		logDebug(`Applying patch: ${JSON.stringify(patch)}`);
 
 		// Replaces matches of the regex with the replacement string
-		if (patch.type === "regex") {
-			if (!Object.hasOwn(patch, "pattern") || !Object.hasOwn(patch, "replace")) {
-				throw new Error(`Failed to apply regex patch. Missing "pattern" or "replace" field.`);
+		switch (patch.type) {
+			case "regex": {
+				if (!Object.hasOwn(patch, "pattern") || !Object.hasOwn(patch, "replace")) {
+					throw new Error(`Failed to apply regex patch. Missing "pattern" or "replace" field.`);
+				}
+				const regex = new RegExp(patch.pattern, "g");
+				const matches = fileContent.match(regex);
+				let actualMatches = matches ? matches.length : 0;
+				let expectedMatches = patch.expectedMatches || 1;
+				if (actualMatches != expectedMatches) {
+					throw new Error(`Failed to apply regex patch: "${patch.pattern}" -> "${patch.replace}", ${actualMatches} != ${expectedMatches} match(s).`);
+				}
+				fileContent = fileContent.replace(regex, patch.replace);
+				break;
 			}
-			const regex = new RegExp(patch.pattern, "g");
-			const matches = fileContent.match(regex);
-			let actualMatches = matches ? matches.length : 0;
-			let expectedMatches = patch.expectedMatches || 1;
-			if (actualMatches != expectedMatches) {
-				throw new Error(`Failed to apply regex patch: "${patch.pattern}" -> "${patch.replace}", ${actualMatches} != ${expectedMatches} match(s).`);
-			}
-			fileContent = fileContent.replace(regex, patch.replace);
-		}
 
-		// Run the function over the patch
-		else if (patch.type === "process") {
-			fileContent = patch.func(fileContent);
-		}
+			// Run the function over the patch
+			case "process": {
+				fileContent = patch.func(fileContent);
+				break;
+			}
 
-		// Replace all instances of the string with the replacement string
-		else if (patch.type === "replace") {
-			if (!Object.hasOwn(patch, "from") || !Object.hasOwn(patch, "to")) {
-				throw new Error(`Failed to apply replace patch. Missing "from" or "to" field.`);
-			}
-			let index = fileContent.indexOf(patch.from);
-			let actualMatches = 0;
-			while (index !== -1) {
-				actualMatches++;
-				fileContent = fileContent.slice(0, index) + patch.to + fileContent.slice(index + patch.from.length);
-				index = fileContent.indexOf(patch.from, index + patch.to.length);
-			}
-			let expectedMatches = patch.expectedMatches || 1;
-			if (actualMatches != expectedMatches) {
-				throw new Error(`Failed to apply replace patch: "${patch.from}" -> "${patch.to}", ${actualMatches} != ${expectedMatches} match(s).`);
+			// Replace all instances of the string with the replacement string
+			case "replace": {
+				if (!Object.hasOwn(patch, "from") || !Object.hasOwn(patch, "to")) {
+					throw new Error(`Failed to apply replace patch. Missing "from" or "to" field.`);
+				}
+				let index = fileContent.indexOf(patch.from);
+				let actualMatches = 0;
+				while (index !== -1) {
+					actualMatches++;
+					fileContent = fileContent.slice(0, index) + patch.to + fileContent.slice(index + patch.from.length);
+					index = fileContent.indexOf(patch.from, index + patch.to.length);
+				}
+				let expectedMatches = patch.expectedMatches || 1;
+				if (actualMatches != expectedMatches) {
+					throw new Error(`Failed to apply replace patch: "${patch.from}" -> "${patch.to}", ${actualMatches} != ${expectedMatches} match(s).`);
+				}
+				break;
 			}
 		}
 
@@ -806,11 +837,11 @@ class ModsManager {
 
 	_initializeMod(modPath) {
 		// Try and read the modinfo.json
-		const modInfoPath = path.join(modPath, "modInfo.json");
+		const modInfoPath = path.join(modPath, "modinfo.json");
 		logDebug(`Initializing mod: ${modInfoPath}`);
 
 		if (!fs.existsSync(modInfoPath)) {
-			throw new Error(`modInfo.json not found: ${modInfoPath}`);
+			throw new Error(`modinfo.json not found: ${modInfoPath}`);
 		}
 
 		const modInfoContent = fs.readFileSync(modInfoPath, "utf8");
@@ -818,7 +849,7 @@ class ModsManager {
 
 		// Ensure mod has required mod info
 		if (!modInfo || !modInfo.name || !modInfo.version || !modInfo.author) {
-			throw new Error(`Invalid modInfo.json found: ${modInfoPath}`);
+			throw new Error(`Invalid modinfo.json found: ${modInfoPath}`);
 		}
 
 		// Ensure mod name name is unique
@@ -961,14 +992,14 @@ function addModloaderPatches() {
 	logDebug("Adding modloader patches to game files...");
 
 	// Enable the debug flag
-	gameFileManager.addPatch("js/bundle.js", {
+	gameFileManager.setPatch("js/bundle.js", "modloader:debugFlag", {
 		type: "replace",
 		from: "debug:{active:!1",
 		to: "debug:{active:1",
 	});
 
 	// Puts __debug into modloaderAPI.gameInstance
-	gameFileManager.addPatch("js/bundle.js", {
+	gameFileManager.setPatch("js/bundle.js", "modloader:loadGameInstance", {
 		type: "replace",
 		from: "}};var r={};",
 		to: "}};modloader_onGameInstanceInitialized(__debug);var r={};",
@@ -976,26 +1007,26 @@ function addModloaderPatches() {
 
 	// Add browser.js to bundle.js, and dont start game until it is ready
 	const browserScriptPath = resolvePathRelativeToModloader("browser.js").replaceAll("\\", "/");
-	gameFileManager.addPatch("js/bundle.js", {
+	gameFileManager.setPatch("js/bundle.js", "modloader:preloadBundle", {
 		type: "replace",
 		from: `(()=>{var e,t,n={8916`,
 		to: `import "${browserScriptPath}";modloader_preloadBundle().then(()=>{var e,t,n={8916`,
 	});
-	gameFileManager.addPatch("js/bundle.js", {
+	gameFileManager.setPatch("js/bundle.js", "modloader:preloadBundleFinalize", {
 		type: "replace",
 		from: `)()})();`,
 		to: `)()});`,
 	});
 
 	// Expose the games world to bundle.js
-	gameFileManager.addPatch("js/bundle.js", {
+	gameFileManager.setPatch("js/bundle.js", "modloader:gameWorldInitialized", {
 		type: "replace",
 		from: `console.log("initializing workers"),`,
 		to: `console.log("initializing workers"),modloader_onGameWorldInitialized(s),`,
 	});
 
 	// Listen for modloader worker messages in bundle.js
-	gameFileManager.addPatch("js/bundle.js", {
+	gameFileManager.setPatch("js/bundle.js", "modloader:onWorkerMessage", {
 		type: "replace",
 		from: "case f.InitFinished:",
 		to: "case 'modloaderMessage':modloader_onWorkerMessage(r);break;case f.InitFinished:",
@@ -1004,7 +1035,7 @@ function addModloaderPatches() {
 	const workers = ["546", "336"];
 	for (const worker of workers) {
 		// Listen for modloader worker messages in each worker
-		gameFileManager.addPatch(`js/${worker}.bundle.js`, {
+		gameFileManager.setPatch(`js/${worker}.bundle.js`, "modloader:onWorkerMessage", {
 			type: "replace",
 			from: `case i.dD.Init:`,
 			to: `case 'modloaderMessage':modloader_onWorkerMessage(e);break;case i.dD.Init:`,
@@ -1012,12 +1043,12 @@ function addModloaderPatches() {
 
 		// Add worker.js to each worker, and dont start until it is ready
 		const workerScriptPath = resolvePathRelativeToModloader(`worker.js`).replaceAll("\\", "/");
-		gameFileManager.addPatch(`js/${worker}.bundle.js`, {
+		gameFileManager.setPatch(`js/${worker}.bundle.js`, "modloader:preloadBundle", {
 			type: "replace",
 			from: `(()=>{"use strict"`,
 			to: `importScripts("${workerScriptPath}");modloader_preloadBundle().then(()=>{"use strict"`,
 		});
-		gameFileManager.addPatch(`js/${worker}.bundle.js`, {
+		gameFileManager.setPatch(`js/${worker}.bundle.js`, "modloader:preloadBundleFinalize", {
 			type: "replace",
 			from: `()})();`,
 			to: `()});`,
@@ -1026,19 +1057,19 @@ function addModloaderPatches() {
 
 	// Notify worker.js when the workers are ready
 	// These are different for each worker
-	gameFileManager.addPatch(`js/336.bundle.js`, {
+	gameFileManager.setPatch(`js/336.bundle.js`, "modloader:workerInitialized", {
 		type: "replace",
 		from: `W.environment.postMessage([i.dD.InitFinished]);`,
 		to: `modloader_onWorkerInitialized(W);W.environment.postMessage([i.dD.InitFinished]);`,
 	});
-	gameFileManager.addPatch(`js/546.bundle.js`, {
+	gameFileManager.setPatch(`js/546.bundle.js`, "modloader:workerInitialized2", {
 		type: "replace",
 		from: `t(performance.now());break;`,
 		to: `t(performance.now());modloader_onWorkerInitialized(a);break;`,
 	});
 
 	// Add React to globalThis
-	gameFileManager.addPatch("js/bundle.js", {
+	gameFileManager.setPatch("js/bundle.js", "modloader:exposeReact", {
 		type: "replace",
 		from: `var Cl,kl=i(6540)`,
 		to: `globalThis.React=i(6540);var Cl,kl=React`,
@@ -1046,35 +1077,35 @@ function addModloaderPatches() {
 
 	if (config.debug.enableDebugMenu) {
 		// Adds configrable zoom
-		gameFileManager.addPatch("js/bundle.js", {
+		gameFileManager.setPatch("js/bundle.js", "modloader:debugMenuZoom", {
 			type: "replace",
 			from: 'className:"fixed bottom-2 right-2 w-96 pt-12 text-white"',
 			to: `className:"fixed bottom-2 right-2 w-96 pt-12 text-white",style:{zoom:"${config.debug.debugMenuZoom * 100}%"}`,
 		});
 	} else {
 		// Disables the debug menu
-		gameFileManager.addPatch("js/bundle.js", {
+		gameFileManager.setPatch("js/bundle.js", "modloader:disableDebugMenu", {
 			type: "replace",
 			from: "function _m(t){",
 			to: "function _m(t){return;",
 		});
 
 		// Disables the debug keybinds
-		gameFileManager.addPatch("js/bundle.js", {
+		gameFileManager.setPatch("js/bundle.js", "modloader:disableDebugKeybinds", {
 			type: "replace",
 			from: "spawnElements:function(n,r){",
 			to: "spawnElements:function(n,r){return false;",
 		});
 
 		// Disables the pause camera keybind
-		gameFileManager.addPatch("js/bundle.js", {
+		gameFileManager.setPatch("js/bundle.js", "modloader:disablePauseCamera", {
 			type: "replace",
 			from: "e.debug.active&&(t.session.overrideCamera",
 			to: "return;e.debug.active&&(t.session.overrideCamera",
 		});
 
 		// Disables the pause keybind
-		gameFileManager.addPatch("js/bundle.js", {
+		gameFileManager.setPatch("js/bundle.js", "modloader:disablePause", {
 			type: "replace",
 			from: "e.debug.active&&(t.session.paused",
 			to: "return;e.debug.active&&(t.session.paused",
@@ -1165,6 +1196,7 @@ function closeGameWindow() {
 function cleanupGameWindow() {
 	gameWindow = null;
 	modsManager.unloadAllMods();
+	modloaderAPI.events.trigger("ml:onGameClosed");
 	modloaderAPI.events.reset();
 }
 
