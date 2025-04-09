@@ -735,14 +735,14 @@ class ModsManager {
 				const mod = this._initializeMod(modPath);
 				// Check for dependents of this mod and place this mod before them in the load order
 				let lowestIndex = this.loadOrder.length;
-				for (const checkMod of Object.values(this.mods)) {
+				const mods = Object.values(this.mods);
+				for (const modIndex in mods) {
 					// Check if mod depends on mod being loaded
-					if (Object.keys(checkMod.info.dependencies).includes(mod.info.name)) {
+					if (Object.keys(mods[modIndex].info.dependencies).includes(mod.info.name)) {
 						// Check if mod that is dependent on mod being loaded is lower in the loadOrder
 						// if so, move lowest index so mod being loaded will load before them
-						let index = this.loadOrder.indexOf(checkMod.info.name);
-						if (index < lowestIndex) {
-							lowestIndex = index;
+						if (modIndex < lowestIndex) {
+							lowestIndex = modIndex;
 						}
 					}
 				}
