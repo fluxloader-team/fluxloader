@@ -2,14 +2,9 @@
 
 ## Notes / To-Do
 
-Mod load order saving
+Serialize load order
+- Only in manual mode
 
-- By default automatic determinstic order based on dependencies
-- User can toggle manual load order with warnings
+Serialize enabled mods
 
 Modloader window site and IPC
-
-Only start the game once mods are loaded
-
-- Events are unavoidably asynchronous
-- Go through all code and make sure is the right colour
