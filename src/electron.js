@@ -42,6 +42,7 @@ let config = undefined;
 let modsManager = undefined;
 let gameFileManager = undefined;
 let modloaderWindow = undefined;
+let hasRanOnce = false;
 
 let defaultConfig = {
 	gamePath: ".",
@@ -401,77 +402,60 @@ class GameFileManager {
 	async patchAndRunGameElectron() {
 		if (!this.isGameExtracted) throw new Error("Game files not extracted cannot process game app");
 
-		gameElectronFuncs = {};
+		// TODO: Once we have CJS in use again we want to shut down the main.js execution after we close the game
+		// Currently if you try and run it again it won't work as expected as the main.js is cached
+		if (hasRanOnce) return;
 
-		// Read the main.js file contents
-		const mainPath = path.join(this.tempExtractedPath, "main.js");
-		const preloadPath = path.join(this.tempExtractedPath, "preload.js");
-		logDebug(`Reading games original electron main.js to be patched: ${mainPath}`);
-		let mainContent;
-		try {
-			mainContent = fs.readFileSync(mainPath, "utf8");
-		} catch (e) {
-			throw new Error(`Error reading main.js: ${e.stack}`);
-		}
-		logDebug(`Reading games original electron preload.js to be patched: ${preloadPath}`);
-		let preloadContent;
-		try {
-			preloadContent = fs.readFileSync(preloadPath, "utf8");
-		} catch (e) {
-			throw new Error(`Error reading preload.js: ${e.stack}`);
-		}
-		const mainHash = stringToHash(mainContent);
+		gameElectronFuncs = {};
 
 		// Here we basically want to isolate createWindow(), setupIpcHandlers(), and loadSettingsSync()
 		// This is potentially very brittle and may need fixing in the future if main.js changes
 		// We need to disable the default app listeners (so they're not ran when we run eval(...))
 		// The main point is we want to ensure we open the game the same way the game does
 
+		const replaceAllMain = (tag, from, to) => { gameFileManager.setPatch("main.js", tag, { type: "replace", from, to, expectedMatches: -1 }); };
+		const replaceAllPreload = (tag, from, to) => { gameFileManager.setPatch("preload.js", tag, { type: "replace", from, to, expectedMatches: -1 }); };
+
 		// Rename and expose the games main electron functions
-		mainContent = mainContent.replaceAll("function createWindow ()", "globalThis.gameElectronFuncs.createWindow = function()");
-		mainContent = mainContent.replaceAll("function setupIpcHandlers()", "globalThis.gameElectronFuncs.setupIpcHandlers = function()");
-		mainContent = mainContent.replaceAll("function loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync = function()");
-		mainContent = mainContent.replaceAll("loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync()");
+		replaceAllMain("modloader:electron-globalize-main", "function createWindow ()", "globalThis.gameElectronFuncs.createWindow = function()");
+		replaceAllMain("modloader:electron-globalize-ipc", "function setupIpcHandlers()", "globalThis.gameElectronFuncs.setupIpcHandlers = function()");
+		replaceAllMain("modloader:electron-globalize-settings", "function loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync = function()");
+		replaceAllMain("modloader:electron-globalize-settings-calls", "loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync()");
 
 		// Block the automatic app listeners so we control when things happen
-		mainContent = mainContent.replaceAll("app.whenReady().then(() => {", "var _ = (() => {");
-		mainContent = mainContent.replaceAll("app.on('window-all-closed', function () {", "var _ = (() => {");
+		replaceAllMain("modloader:electron-block-execution-1", "app.whenReady().then(() => {", "var _ = (() => {");
+		replaceAllMain("modloader:electron-block-execution-2", "app.on('window-all-closed', function () {", "var _ = (() => {");
 
 		// Ensure that the app thinks it is still running inside the app.asar
 		// - Fix the userData path to be 'sandustrydemo' instead of 'mod-loader'
 		// - Override relative "preload.js" to absolute
 		// - Override relative "index.html" to absolute
-		mainContent = mainContent.replaceAll('getPath("userData")', 'getPath("userData").replace("mod-loader", "sandustrydemo")');
-		mainContent = mainContent.replaceAll("path.join(__dirname, 'preload.js')", `'${path.join(this.tempExtractedPath, "preload.js").replaceAll("\\", "/")}'`);
-		mainContent = mainContent.replaceAll("loadFile('index.html')", `loadFile('${path.join(this.tempExtractedPath, "index.html").replaceAll("\\", "/")}')`);
+		replaceAllMain("modloader:electron-fix-paths-1", 'getPath("userData")', 'getPath("userData").replace("mod-loader", "sandustrydemo")');
+		replaceAllMain("modloader:electron-fix-paths-2", "path.join(__dirname, 'preload.js')", `'${path.join(this.tempExtractedPath, "preload.js").replaceAll("\\", "/")}'`);
+		replaceAllMain("modloader:electron-fix-paths-3", "loadFile('index.html')", `loadFile('${path.join(this.tempExtractedPath, "index.html").replaceAll("\\", "/")}')`);
 
 		// Expose the games main window to be global
-		mainContent = mainContent.replaceAll("const mainWindow", "globalThis.gameWindow");
-		mainContent = mainContent.replaceAll("mainWindow", "globalThis.gameWindow");
+		replaceAllMain("modloader:electron-globalize-window", "const mainWindow", "globalThis.gameWindow");
+		replaceAllMain("modloader:electron-globalize-window-calls", "mainWindow", "globalThis.gameWindow");
 
 		// Make the menu bar visible
-		// mainContent = mainContent.replaceAll("autoHideMenuBar: true,", "autoHideMenuBar: false,");
+		// replaceAllMain("autoHideMenuBar: true,", "autoHideMenuBar: false,");
 
 		// We're also gonna expose the ipcMain in preload.js
-		preloadContent = preloadContent.replaceAll(
+		replaceAllPreload("modloader:exposeIPC",
 			"save: (id, name, data)",
 			`invoke: (msg, ...args) => ipcRenderer.invoke(msg, ...args),
 			handle: (msg, func) => ipcRenderer.handle(msg, func),
 			save: (id, name, data)`
 		);
 
-		// Overwrite the preload.js and main.js files
-		logDebug(`Rewriting modified main.js and preload.js: ${preloadPath}`);
-		try {
-			fs.writeFileSync(mainPath, mainContent, "utf8");
-			fs.writeFileSync(preloadPath, preloadContent, "utf8");
-		} catch (e) {
-			throw new Error(`Error writing modified electron files: ${e.stack}`);
-		}
-
+		gameFileManager._repatchFile("main.js");
+		gameFileManager._repatchFile("preload.js");
+		
 		// Run the code to register their functions
+		const mainPath = path.join(this.tempExtractedPath, "main.js");
 		gameElectronFuncs = {};
-		logDebug(`Executing modified games electron main.js (hash=${mainHash})`);
+		logDebug(`Executing modified games electron main.js`);
 		try {
 			await import(`file://${mainPath}`);
 		} catch (e) {
@@ -483,7 +467,7 @@ class GameFileManager {
 			logDebug("Calling games electron setupIpcHandlers()");
 			gameElectronFuncs.setupIpcHandlers();
 		} catch (e) {
-			throw new Error(`Error during setup of games electron setupIpcHandlers(), see _extractGameElectronFunctions(): ${e.stack}`);
+			throw new Error(`Error during setup of games electron setupIpcHandlers(), see patchAndRunGameElectron(): ${e.stack}`);
 		}
 	}
 
@@ -671,10 +655,12 @@ class GameFileManager {
 				}
 				const regex = new RegExp(patch.pattern, "g");
 				const matches = fileContent.match(regex);
-				let actualMatches = matches ? matches.length : 0;
 				let expectedMatches = patch.expectedMatches || 1;
-				if (actualMatches != expectedMatches) {
-					throw new Error(`Failed to apply regex patch: "${patch.pattern}" -> "${patch.replace}", ${actualMatches} != ${expectedMatches} match(s).`);
+				if (expectedMatches > 0) {
+					let actualMatches = matches ? matches.length : 0;
+					if (actualMatches != expectedMatches) {
+						throw new Error(`Failed to apply regex patch: "${patch.pattern}" -> "${patch.replace}", ${actualMatches} != ${expectedMatches} match(s).`);
+					}
 				}
 				fileContent = fileContent.replace(regex, patch.replace);
 				break;
@@ -699,8 +685,10 @@ class GameFileManager {
 					index = fileContent.indexOf(patch.from, index + patch.to.length);
 				}
 				let expectedMatches = patch.expectedMatches || 1;
-				if (actualMatches != expectedMatches) {
-					throw new Error(`Failed to apply replace patch: "${patch.from}" -> "${patch.to}", ${actualMatches} != ${expectedMatches} match(s).`);
+				if (expectedMatches > 0) {
+					if (actualMatches != expectedMatches) {
+						throw new Error(`Failed to apply replace patch: "${patch.from}" -> "${patch.to}", ${actualMatches} != ${expectedMatches} match(s).`);
+					}
 				}
 				break;
 			}
@@ -1155,7 +1143,6 @@ function startModloaderWindow() {
 		});
 		modloaderWindow.on("closed", cleanupModloaderWindow);
 		modloaderWindow.loadFile("src/modloader/modloader.html");
-		modloaderWindow.webContents.openDevTools();
 	} catch (e) {
 		cleanupModloaderWindow();
 		throw new Error(`Error starting modloader window: ${e.stack}`);
@@ -1187,9 +1174,10 @@ async function startGameWindow() {
 		gameElectronFuncs.createWindow();
 		gameWindow.on("closed", cleanupGameWindow);
 		if (config.debug.openDevTools) gameWindow.openDevTools();
+		hasRanOnce = true;
 	} catch (e) {
 		cleanupGameWindow();
-		throw new Error(`Error during games electron createWindow(), see _extractGameElectronFunctions(): ${e.stack}`);
+		throw new Error(`Error during games electron createWindow(), see patchAndRunGameElectron(): ${e.stack}`);
 	}
 }
 
