@@ -1134,6 +1134,11 @@ function setupElectronIPC() {
 		logDebug("Received ml-modloader:start-game");
 		startGameWindow();
 	});
+
+	ipcMain.handle("ml-modloader:stop-game", (event, args) => {
+		logDebug("Received ml-modloader:stop-game");
+		closeGameWindow();
+	});
 }
 
 function startModloaderWindow() {

@@ -1,11 +1,25 @@
-(async () => {
-	const startButtonElement = document.getElementById("start-button");
-	
-	startButtonElement.addEventListener("click", () => {
-		console.log("Starting game...");
-		window.electron.invoke("ml-modloader:start-game");
-	});
+// ---------------- Variables ----------------
 
-	const mods = await window.electron.invoke("ml-modloader:get-loaded-mods");
-	console.log(mods);
-})();
+let elements = {};
+let isPlaying = false;
+let isMainButtonLoading = false;
+
+const findElement = (id) => elements[id] = document.getElementById(id);
+findElement("main-control-button");
+
+// ---------------- Logic ----------------
+
+elements["main-control-button"].addEventListener("click", () => {
+	if (isMainButtonLoading) return;
+	isMainButtonLoading = true;
+
+	const mlEvent = isPlaying ? "stop-game" : "start-game";
+	elements["main-control-button"].innerText = "Loading...";
+	
+	electron.invoke(`ml-modloader:${mlEvent}`).then(() => {
+		isMainButtonLoading = false;
+		isPlaying = !isPlaying;
+		elements["main-control-button"].innerText = isPlaying ? "Stop" : "Play";
+		elements["main-control-button"].classList.toggle("playing", isPlaying);
+	});
+});
