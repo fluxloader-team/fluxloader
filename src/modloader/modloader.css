@@ -6,15 +6,27 @@
 }
 
 :root {
-	--header-height: 3.2rem;
+	--header-height: 2.7rem;
 	--footer-height: 3.5rem;
-	--main-leftbar-width: 10rem;
+	--main-leftbar-width: 12rem;
 	--main-rightbar-width: 15rem;
+
+	--color-background-dark: #1f222b;
+	--color-background-medium: #2c2f39;
+	--color-background-light: #3a3d49;
+	--color-text-primary: #ddd;
+	--color-text-secondary: #eee;
+	--color-tab-hover: #2c2f39;
+	--color-tab-selected: #3a3d49;
+	--color-progress-bar: #53b356;
+	--color-control-default: #888;
+	--color-control-hover: #a3a3a3;
+	--color-control-playing: #585858;
 }
 
 body {
 	font-family: sans-serif;
-	color: #ddd;
+	color: var(--color-text-primary);
 }
 
 .container {
@@ -28,7 +40,7 @@ body {
 .header {
 	height: var(--header-height);
 	display: flex;
-	background: #1f222b;
+	background: var(--color-background-dark);
 }
 
 .tab-list {
@@ -36,7 +48,7 @@ body {
 	display: flex;
 }
 
-.tab-option {
+.tab-list .option {
 	cursor: pointer;
 	width: 6rem;
 	display: flex;
@@ -44,13 +56,17 @@ body {
 	align-items: center;
 }
 
-.tab-option p {
-	color: #eee;
+.tab-list .option p {
+	color: var(--color-text-secondary);
 	font-size: 1.1rem;
 }
 
-.tab-option:hover {
-	background: #2c2f39;
+.tab-list .option:hover {
+	background: var(--color-tab-hover);
+}
+
+.tab-list .option.selected {
+	background: var(--color-tab-selected);
 }
 
 /* ---------------------------- MAIN ---------------------------- */
@@ -60,26 +76,35 @@ body {
 	flex: 1;
 }
 
-.main-leftbar {
-	width: var(--main-leftbar-width);
-	background: #2c2f39;
+.tab-content {
+	display: none;
 }
 
-.main-center {
+#tab-mods-content {
+	display: flex;
 	flex: 1;
-	background: #3a3d49;
 }
 
-.main-rightbar {
+#tab-mods-content .main-leftbar {
+	width: var(--main-leftbar-width);
+	background: var(--color-background-medium);
+}
+
+#tab-mods-content .main-center {
+	flex: 1;
+	background: var(--color-background-light);
+}
+
+#tab-mods-content .main-rightbar {
 	width: var(--main-rightbar-width);
-	background: #2c2f39;
+	background: var(--color-background-medium);
 }
 
 /* ---------------------------- FOOTER ---------------------------- */
 
 .footer {
 	height: var(--footer-height);
-	background: #1f222b;
+	background: var(--color-background-dark);
 	display: flex;
 	align-items: center;
 	padding: 0.6rem;
@@ -92,7 +117,7 @@ body {
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: 0.2rem;
+	gap: 0.4rem;
 }
 
 .footer-progress-text {
@@ -110,7 +135,13 @@ body {
 .footer-progress-bar {
 	width: 100%;
 	height: 0.5rem;
-	background: #53b356;
+	background: var(--color-background-medium);
+}
+
+.footer-progress-bar-fill {
+	width: 0%;
+	height: 100%;
+	background: var(--color-progress-bar);
 }
 
 .footer-control {
@@ -120,7 +151,7 @@ body {
 }
 
 .footer-control-input {
-	background: #888;
+	background: var(--color-control-default);
 	cursor: pointer;
 	height: 100%;
 	display: flex;
@@ -129,7 +160,7 @@ body {
 }
 
 .footer-control-input:hover {
-	background: #a3a3a3;
+	background: var(--color-control-hover);
 }
 
 .footer-control-input.button {
@@ -141,5 +172,5 @@ body {
 }
 
 .footer-control #main-control-button.playing {
-	background: #585858;
+	background: var(--color-control-playing);
 }

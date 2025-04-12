@@ -413,8 +413,12 @@ class GameFileManager {
 		// We need to disable the default app listeners (so they're not ran when we run eval(...))
 		// The main point is we want to ensure we open the game the same way the game does
 
-		const replaceAllMain = (tag, from, to) => { gameFileManager.setPatch("main.js", tag, { type: "replace", from, to, expectedMatches: -1 }); };
-		const replaceAllPreload = (tag, from, to) => { gameFileManager.setPatch("preload.js", tag, { type: "replace", from, to, expectedMatches: -1 }); };
+		const replaceAllMain = (tag, from, to) => {
+			gameFileManager.setPatch("main.js", tag, { type: "replace", from, to, expectedMatches: -1 });
+		};
+		const replaceAllPreload = (tag, from, to) => {
+			gameFileManager.setPatch("preload.js", tag, { type: "replace", from, to, expectedMatches: -1 });
+		};
 
 		// Rename and expose the games main electron functions
 		replaceAllMain("modloader:electron-globalize-main", "function createWindow ()", "globalThis.gameElectronFuncs.createWindow = function()");
@@ -442,7 +446,8 @@ class GameFileManager {
 		// replaceAllMain("autoHideMenuBar: true,", "autoHideMenuBar: false,");
 
 		// We're also gonna expose the ipcMain in preload.js
-		replaceAllPreload("modloader:exposeIPC",
+		replaceAllPreload(
+			"modloader:exposeIPC",
 			"save: (id, name, data)",
 			`invoke: (msg, ...args) => ipcRenderer.invoke(msg, ...args),
 			handle: (msg, func) => ipcRenderer.handle(msg, func),
@@ -451,7 +456,7 @@ class GameFileManager {
 
 		gameFileManager._repatchFile("main.js");
 		gameFileManager._repatchFile("preload.js");
-		
+
 		// Run the code to register their functions
 		const mainPath = path.join(this.tempExtractedPath, "main.js");
 		gameElectronFuncs = {};
@@ -1134,8 +1139,8 @@ function startModloaderWindow() {
 
 	try {
 		modloaderWindow = new BrowserWindow({
-			width: 850,
-			height: 500,
+			width: 1200,
+			height: 850,
 			autoHideMenuBar: true,
 			webPreferences: {
 				preload: resolvePathRelativeToModloader("modloader/modloader-preload.js"),
@@ -1182,6 +1187,7 @@ async function startGameWindow() {
 }
 
 function closeGameWindow() {
+	if (!gameWindow) return;
 	gameWindow.close();
 	cleanupGameWindow();
 }
