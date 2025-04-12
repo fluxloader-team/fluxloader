@@ -3,6 +3,7 @@
 	margin: 0;
 	padding: 0;
 	user-select: none;
+	border: none;
 }
 
 :root {
@@ -14,6 +15,8 @@
 	--color-background-dark: #1f222b;
 	--color-background-medium: #2c2f39;
 	--color-background-light: #3a3d49;
+	--color-background-table-head: #272a34;
+	--color-background-table-head-hover: #353844;
 	--color-text-primary: #ddd;
 	--color-text-secondary: #eee;
 	--color-tab-hover: #2c2f39;
@@ -21,12 +24,14 @@
 	--color-progress-bar: #53b356;
 	--color-control-default: #888;
 	--color-control-hover: #a3a3a3;
-	--color-control-playing: #585858;
+	--color-control-active: #585858;
+	--color-control-active-hover: #6a6a6a;
 }
 
 body {
 	font-family: sans-serif;
 	color: var(--color-text-primary);
+	background: var(--color-background-dark);
 }
 
 .container {
@@ -71,18 +76,34 @@ body {
 
 /* ---------------------------- MAIN ---------------------------- */
 
-.main {
-	display: flex;
-	flex: 1;
-}
-
 .tab-content {
 	display: none;
+	height: 100%;
+	overflow: hidden;
+	background: var(--color-background-light);
 }
 
+.tab-content .wip-content {
+	padding: 2rem;
+	height: 100%;
+	color: var(--color-text-secondary);
+	background-image: url(./wip.png);
+	background-repeat: no-repeat;
+	background-position: center;
+	background-size: 30rem;
+	background-color: transparent;
+}
+
+/* -------------------- TAB/MODS -------------------- */
+
 #tab-mods-content {
+	background: var(--color-background-light);
+	padding: 0;
+}
+
+#tab-mods-content .main {
 	display: flex;
-	flex: 1;
+	height: 100%;
 }
 
 #tab-mods-content .main-leftbar {
@@ -93,11 +114,60 @@ body {
 #tab-mods-content .main-center {
 	flex: 1;
 	background: var(--color-background-light);
+	overflow: hidden;
 }
 
 #tab-mods-content .main-rightbar {
 	width: var(--main-rightbar-width);
 	background: var(--color-background-medium);
+}
+
+#tab-mods-content .mods-table {
+	width: 100%;
+	position: relative;
+	border-collapse: collapse;
+	table-layout: fixed;
+	overflow: hidden;
+}
+
+#tab-mods-content .mods-table th,
+#tab-mods-content .mods-table td {
+	padding: 0.5rem 1rem;
+	position: relative;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	width: fit-content;
+}
+
+#tab-mods-content .mods-table th {
+	cursor: pointer;
+	user-select: none;
+	background: var(--color-background-table-head);
+}
+
+#tab-mods-content .mods-table th:hover {
+	background: var(--color-background-table-head-hover);
+}
+
+
+#tab-mods-content .mods-table th.gap-filler {
+	cursor: inherit;
+	background: var(--color-background-table-head);
+}
+
+#tab-mods-content .mods-table th.gap-filler:hover {
+	background: var(--color-background-table-head);
+}
+
+
+#tab-mods-content .mods-table th .resizer {
+	position: absolute;
+	right: 0;
+	top: 0;
+	width: 1rem;
+	height: 100%;
+	cursor: col-resize;
 }
 
 /* ---------------------------- FOOTER ---------------------------- */
@@ -146,7 +216,7 @@ body {
 
 .footer-control {
 	display: flex;
-	gap: 8px;
+	gap: 0.3rem;
 	height: 100%;
 }
 
@@ -159,18 +229,22 @@ body {
 	justify-content: center;
 }
 
-.footer-control-input:hover {
-	background: var(--color-control-hover);
-}
-
 .footer-control-input.button {
 	width: 5rem;
 }
 
 .footer-control-input.dropdown {
-	width: 1.4rem;
+	width: 0.8rem;
 }
 
-.footer-control #main-control-button.playing {
-	background: var(--color-control-playing);
+.footer-control-input:hover {
+	background: var(--color-control-hover);
+}
+
+.footer-control-input.active {
+	background: var(--color-control-active);
+}
+
+.footer-control-input.active:hover {
+	background: var(--color-control-active-hover);
 }

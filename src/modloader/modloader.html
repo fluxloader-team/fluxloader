@@ -1,7 +1,6 @@
 <html lang="en">
 	<head>
 		<meta charset="UTF-8" />
-		<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'" />
 		<title>Sandustry Modloader</title>
 		<link rel="stylesheet" href="modloader.css" />
 	</head>
@@ -17,17 +16,43 @@
 				</div>
 			</div>
 
-			<div class="main">
-				<div class="tab-content" id="tab-mods-content">
+			<div class="tab-content" id="tab-mods-content">
+				<div class="main">
 					<div class="main-leftbar"></div>
-					<div class="main-center"></div>
+					<div class="main-center">
+						<table class="mods-table" id ="mods-content-table">
+							<thead>
+								<tr>
+									<th data-column="enabled" style="width: 0.5rem"></th>
+									<th data-column="name" style="width: 6.5rem">Name<div class="resizer"></div></th>
+									<th data-column="author" style="width: 8rem">Author<div class="resizer"></div></th>
+									<th data-column="version" style="width: 6rem">Version<div class="resizer"></div></th>
+									<th data-column="description" style="width: 20rem">Description<div class="resizer"></div></th>
+									<th data-column="last-updated" style="width: 7rem">Last Updated<div class="resizer"></div></th>
+									<th data-column="tags" style="width: 6rem">Tags<div class="resizer"></div></th>
+									<th class="gap-filler"></th> <!-- Empty so it doesn't auto-fill the entire screen -->
+								</tr>
+							</thead>
+							<tbody>
+								<tr>
+									<td></td>
+									<td>Testing</td>
+									<td>Some dude</td>
+									<td>1.0.0</td>
+									<td>This is some mod</td>
+									<td>04/01/25</td>
+									<td>todo</td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
 					<div class="main-rightbar"></div>
 				</div>
-				<div class="tab-content" id="tab-browse-content"><p>Browse</p></div>
-				<div class="tab-content" id="tab-config-content"><p>Config</p></div>
-				<div class="tab-content" id="tab-console-content"><p>Console</p></div>
-				<div class="tab-content" id="tab-options-content"><p>Options</p></div>
 			</div>
+			<div class="tab-content" id="tab-browse-content"><div class="wip-content"><p>Browse</p></div></div>
+			<div class="tab-content" id="tab-config-content"><div class="wip-content"><p>Config</p></div></div>
+			<div class="tab-content" id="tab-console-content"><div class="wip-content"><p>Console</p></div></div>
+			<div class="tab-content" id="tab-options-content"><div class="wip-content"><p>Options</p></div></div>
 
 			<div class="footer">
 				<div class="footer-progress">

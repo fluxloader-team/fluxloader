@@ -826,6 +826,10 @@ class ModsManager {
 		return Object.values(this.mods).filter((mod) => mod.isLoaded);
 	}
 
+	getMods() {
+		return Object.values(this.mods);
+	}
+
 	// ------------ INTERNAL ------------
 
 	_initializeMod(modPath) {
@@ -1117,6 +1121,11 @@ function setupElectronIPC() {
 		logDebug("Received ml-modloader:get-loaded-mods");
 		return modsManager.getLoadedMods();
 	});
+	
+	ipcMain.handle("ml-modloader:get-mods", (event, args) => {
+		logDebug("Received ml-modloader:get-mods");
+		return modsManager.getMods();
+	});
 
 	ipcMain.handle("ml-modloader:refresh-mods", (event, args) => {
 		logDebug("Received ml-modloader:refresh-mods");
@@ -1139,8 +1148,8 @@ function startModloaderWindow() {
 
 	try {
 		modloaderWindow = new BrowserWindow({
-			width: 1200,
-			height: 850,
+			width: 1500,
+			height: 750,
 			autoHideMenuBar: true,
 			webPreferences: {
 				preload: resolvePathRelativeToModloader("modloader/modloader-preload.js"),
