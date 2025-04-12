@@ -1,5 +1,6 @@
 stages:
   - build
+  - release
 
 build-windows:
   tags:
@@ -14,3 +15,40 @@ build-windows:
   artifacts:
     paths:
       - dist/mod-loader.exe
+
+release-job:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  needs:
+    - job: build-windows
+      artifacts: true
+  rules:
+    - if: $CI_COMMIT_TAG
+  script:
+    - echo "Starting release process for tag $CI_COMMIT_TAG"
+
+    - export PACKAGE_NAME="modloader"
+    - export BUILT_FILE_NAME="mod-loader.exe"
+    - export ASSET_FILEPATH="/Mod-loader.exe"
+    - export ASSET_DISPLAY_NAME="Mod-loader.exe"
+
+    - export PACKAGE_UPLOAD_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${PACKAGE_NAME}/${CI_COMMIT_TAG}"
+    - export PACKAGE_DOWNLOAD_URL="${PACKAGE_UPLOAD_URL}/${BUILT_FILE_NAME}"
+
+    - echo "Uploading ${BUILT_FILE_NAME} from dist/ directory..."
+    - |
+      curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+           --upload-file "dist/${BUILT_FILE_NAME}" \
+           "${PACKAGE_UPLOAD_URL}/${BUILT_FILE_NAME}"
+    - echo "Upload complete."
+
+    - echo "Creating GitLab Release..."
+    - export ASSET_JSON="{\"name\":\"${ASSET_DISPLAY_NAME}\",\"url\":\"${PACKAGE_DOWNLOAD_URL}\",\"filepath\":\"${ASSET_FILEPATH}\",\"link_type\":\"package\"}"
+
+    - |
+      release-cli create --name "Release ${CI_COMMIT_TAG}" \
+                         --tag-name "${CI_COMMIT_TAG}" \
+                         --description "Automated release for tag ${CI_COMMIT_TAG}. Download the modloader from the assets." \
+                         --assets-link "${ASSET_JSON}"
+
+    - echo "GitLab Release created successfully!"
