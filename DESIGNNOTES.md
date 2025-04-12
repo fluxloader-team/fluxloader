@@ -16,3 +16,4 @@ Modloader window site and IPC
 - [ ] Enable / disable mods (IPC with backend)
 - [ ] Select mod and view info
 - [ ] Custom right click menu (uninstall, enable / disable?)
+- [ ] Search / filter mods
