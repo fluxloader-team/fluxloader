@@ -27,7 +27,8 @@ release-job:
   rules:
     - if: $CI_COMMIT_TAG
   before_script:
-    - apt-get update && apt-get install -y curl
+    - apk update
+    - apk add curl
   script:
     - echo "Starting release process for tag $CI_COMMIT_TAG"
 
