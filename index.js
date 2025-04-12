@@ -1230,7 +1230,7 @@ async function initializeModloader() {
 	log(`Starting sandustry: ${config.paths.executable}`);
 	logDebug(`Starting sandustry: ${config.paths.executable} with debug port ${config.debug.exeDebugPort}`);
 	const cmd = `"${config.paths.executable}" --remote-debugging-port=${config.debug.exeDebugPort} --enable-logging --enable-features=NetworkService`;
-	globalThis.gameProcess = spawn(`${config.paths.executable}`,`--remote-debugging-port=${config.debug.exeDebugPort}`,`--enable-logging`,`--enable-features=NetworkService`)
+	globalThis.gameProcess = spawn(`${config.paths.executable}`,[`--remote-debugging-port=${config.debug.exeDebugPort}`,`--enable-logging`,`--enable-features=NetworkService`])
 	gameProcess.stdout.on('data',function(data){
 		log(data)
 	})
