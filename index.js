@@ -1,5 +1,5 @@
 const puppeteer = require("puppeteer-core");
-const { exec } = require("child_process");
+const { spawn } = require("child_process");
 globalThis.acorn = require("acorn");
 globalThis.acorn = require("acorn");
 globalThis.escodegen = require("escodegen");
@@ -7,7 +7,7 @@ globalThis.path = require("path");
 globalThis.http = require("http");
 globalThis.fs = require("fs");
 
-globalThis.modloaderVersion = "1.5.0";
+globalThis.modloaderVersion = "1.5.1";
 
 // --------------------- UTILIY ---------------------
 
@@ -1230,12 +1230,16 @@ async function initializeModloader() {
 	log(`Starting sandustry: ${config.paths.executable}`);
 	logDebug(`Starting sandustry: ${config.paths.executable} with debug port ${config.debug.exeDebugPort}`);
 	const cmd = `"${config.paths.executable}" --remote-debugging-port=${config.debug.exeDebugPort} --enable-logging --enable-features=NetworkService`;
-	globalThis.gameProcess = exec(cmd, (err) => {
-		if (err) {
-			logError(`Failed to start the game executable: ${err.message}`);
-			return;
-		}
-	});
+	globalThis.gameProcess = spawn(`${config.paths.executable}`,[`--remote-debugging-port=${config.debug.exeDebugPort}`,`--enable-logging`,`--enable-features=NetworkService`])
+	gameProcess.stdout.on('data',function(data){
+		log(data)
+	})
+	gameProcess.stderr.on('data',function(data){
+		logError(data);
+	})
+	gameProcess.on('close',function(code){
+		process.exit(code);
+	})
 }
 
 async function connectToGame() {
