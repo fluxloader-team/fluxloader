@@ -150,7 +150,6 @@ body {
 	background: var(--color-background-table-head-hover);
 }
 
-
 #tab-mods-content .mods-table th.gap-filler {
 	cursor: inherit;
 	background: var(--color-background-table-head);
@@ -159,7 +158,6 @@ body {
 #tab-mods-content .mods-table th.gap-filler:hover {
 	background: var(--color-background-table-head);
 }
-
 
 #tab-mods-content .mods-table th .resizer {
 	position: absolute;
