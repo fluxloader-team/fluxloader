@@ -44,7 +44,7 @@ let gameFileManager = undefined;
 let modloaderWindow = undefined;
 let hasRanOnce = false;
 
-let defaultConfig = {
+let modloaderConfigSchema = {
 	gamePath: ".",
 	modsPath: "./mods",
 	logging: {
@@ -306,16 +306,16 @@ class ElectronModConfigAPI {
 		return false;
 	}
 
-	defineDefaults(modName, defaultConfig) {
+	defineDefaults(modName, configSchema) {
 		logDebug(`Defining default config for mod: ${modName}`);
 		let existingConfig = this.get(modName);
 
-		// If existingConfig is {} and defaultConfig is not {}
-		if (Object.keys(existingConfig).length === 0 && Object.keys(defaultConfig).length > 0) {
+		// If existingConfig is {} and configSchema is not {}
+		if (Object.keys(existingConfig).length === 0 && Object.keys(configSchema).length > 0) {
 			logDebug(`No existing config found for mod so initializing to defaults: ${modName}`);
-			this.set(modName, defaultConfig);
+			this.set(modName, configSchema);
 		} else {
-			const modified = updateObjectWithDefaults(defaultConfig, existingConfig);
+			const modified = updateObjectWithDefaults(configSchema, existingConfig);
 			if (!modified) {
 				logDebug(`Mod config is up-to-date: ${modName}`);
 			} else {
@@ -731,7 +731,7 @@ class ModsManager {
 				const mods = Object.values(this.mods);
 				for (const modIndex in mods) {
 					// Check if mod depends on mod being loaded
-					if (Object.keys(mods[modIndex].info.dependencies).includes(mod.info.name)) {
+					if (mods[modIndex].info.dependencies && Object.keys(mods[modIndex].info.dependencies).includes(mod.info.name)) {
 						// Check if mod that is dependent on mod being loaded is lower in the loadOrder
 						// if so, move lowest index so mod being loaded will load before them
 						if (modIndex < lowestIndex) {
@@ -880,8 +880,8 @@ class ModsManager {
 
 		logDebug(`Loading mod: ${mod.info.name}`);
 
-		if (mod.info.defaultConfig) {
-			modloaderAPI.config.defineDefaults(mod.info.name, mod.info.defaultConfig);
+		if (mod.info.configSchema) {
+			modloaderAPI.config.defineDefaults(mod.info.name, mod.info.configSchema);
 		}
 
 		if (mod.info.electronEntrypoint) {
@@ -914,15 +914,15 @@ function loadModloaderConfig() {
 
 	// If config file doesnt exist then create it with the defaults
 	if (!fs.existsSync(configPath)) {
-		fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 4));
-		config = defaultConfig;
+		fs.writeFileSync(configPath, JSON.stringify(modloaderConfigSchema, null, 4));
+		config = modloaderConfigSchema;
 		logDebug(`No config found at '${configPath}', set to default`);
 	}
 
 	// If a config file exists compare it to the default
 	else {
 		config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-		let modified = updateObjectWithDefaults(defaultConfig, config);
+		let modified = updateObjectWithDefaults(modloaderConfigSchema, config);
 		if (!modified) {
 			logDebug(`Modloader config is up-to-date: ${configPath}`);
 		} else {

@@ -84,9 +84,9 @@ function setMods(mods) {
 				<td>${mod.info.shortDescription}</td>
 				<td>N/A</td>
 				<td class="mods-content-table-tag-list">
-				${mod.info.tags.reduce((acc, tag) => {
+				${mod.info.tags ? mod.info.tags.reduce((acc, tag) => {
 					return acc + `<span class="tag">${tag}</span>`;
-				}, "")}
+				}, "") : ""}
 				</td>
 			</tr>
 		`);

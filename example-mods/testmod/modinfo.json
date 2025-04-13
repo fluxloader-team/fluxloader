@@ -3,14 +3,14 @@
 	"version": "1.0.0",
 	"author": "tomster12",
 	"shortDescription": "A test mod for the Electron Modloader",
-	"description": "# Test Mod\nA test mod for the Electron Modloader",
+	"description": "A test mod for the Electron Modloader.\nThis is another line of text.",
 	"modloaderVersion": ">=1.0.0",
 	"dependencies": { "someothermod": "=1.2.0" },
-	"tags": [ "map" ],
+	"tags": [ "map", "tag2", "tag3" ],
 	"electronEntrypoint": "entry.electron.js",
 	"browserEntrypoint": "entry.browser.js",
 	"workerEntrypoint": "entry.worker.js",
-	"defaultConfig": {
+	"configSchema": {
 		"someSetting": true,
 		"someValue": 203
 	}
