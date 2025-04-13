@@ -4,7 +4,7 @@ export class EventBus {
 	registerEvent(event) {
 		log("debug", "", `Registering new event '${event}'`);
 		if (this.events[event]) throw new Error(`Event already registered: ${event}`);
-		this.events[event] = []
+		this.events[event] = [];
 	}
 
 	trigger(event, data) {
@@ -37,4 +37,30 @@ export class EventBus {
 
 		log("debug", "", outputString);
 	}
+}
+
+export class ConfigTemplateHandler {
+	// Use a template and use the default value to guess the type if not provided
+	guessTypes(template) {}
+
+	// Guesses the type of a single leaf node of a template
+	guessType(leafNode) {}
+
+	// Generates default types as well as validating values
+	validateConfig(config, template) {
+		if (typeof config !== "object" || typeof template !== "object") return false;
+
+		for (const key of Object.keys(template)) {
+			if (typeof template[key] === "object") {
+				if (!this.validateConfig(config[key], template[key])) return false;
+			} else if (typeof config[key] !== typeof template[key]) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	// Find all leaf nodes from a template
+	getLeaves(template) {}
 }

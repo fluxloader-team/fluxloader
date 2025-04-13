@@ -16,6 +16,11 @@ globalThis.log = function (level, tag, message) {
 	console.log(`${header} ${message}`);
 };
 
+globalThis.closeFatal = function (tag, message) {
+	log("fatal", tag, message);
+	window.close();
+};
+
 const logDebug = (...args) => log("debug", "", args.join(" "));
 const logInfo = (...args) => log("info", "", args.join(" "));
 const logWarn = (...args) => log("warn", "", args.join(" "));
@@ -75,14 +80,14 @@ class BrowserModConfigAPI {
 }
 
 async function loadAllMods() {
-	loadedMods = await window.electron.invoke("ml-modloader:get-loaded-mods");
+	loadedMods = (await window.electron.invoke("ml-modloader:get-load-order")).filter((mod) => mod.isLoaded);
 
 	if (!loadedMods) {
 		logError("No mods loaded");
 		return;
 	}
 
-	(`Loading ${loadedMods.length} mods...`);
+	`Loading ${loadedMods.length} mods...`;
 
 	for (const mod of loadedMods) {
 		logDebug(`Loading mod '${mod.info.name}'`);
@@ -95,7 +100,6 @@ async function loadAllMods() {
 		const entrypointPath = mod.path + "/" + mod.info.browserEntrypoint;
 		await import(`file://${entrypointPath}`);
 	}
-
 }
 
 globalThis.modloader_preloadBundle = async () => {
@@ -109,17 +113,17 @@ globalThis.modloader_onGameWorldInitialized = (s) => {
 	// This is called just before the worker manager is initialized
 	modloaderAPI.gameWorld = s;
 	logInfo("Game world initialized");
-}
+};
 
 globalThis.modloader_onGameInstanceInitialized = (s) => {
 	modloaderAPI.gameInstance = s;
 	const scene = modloaderAPI.gameInstance.state.store.scene.active;
 	logInfo(`Game instance loaded with scene ${scene}`);
 	modloaderAPI.events.trigger(scene == 1 ? "ml:onMenuLoaded" : "ml:onGameLoaded");
-}
+};
 
 globalThis.modloader_onWorkerMessage = (m) => {
 	m.data.shift();
 	const channel = m.data.shift();
 	modloaderAPI._onWorkerMessage(channel, ...m.data);
-}
+};

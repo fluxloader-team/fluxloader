@@ -4,7 +4,7 @@ import fs from "fs";
 import process from "process";
 import os from "os";
 import asar from "asar";
-import { EventBus } from "./common.js";
+import { EventBus, ConfigTemplateHandler } from "./common.js";
 import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
 
@@ -708,6 +708,7 @@ class ModsManager {
 	mods = {};
 	loadOrder = [];
 	loadedModCount = 0;
+	scripts = {};
 
 	refreshMods() {
 		this.mods = {};
@@ -749,6 +750,16 @@ class ModsManager {
 		const modCount = Object.keys(this.mods).length;
 		logInfo(`Successfully initialized ${modCount} mod${modCount == 1 ? "" : "s"}`);
 		logInfo(`Mod load order: [ ${this.loadOrder.join(", ")} ]`);
+	}
+
+	async loadAllScripts() {
+		for (const modName of this.loadOrder) {
+			if (this.mods[modName].isEnabled) {
+				await this._loadScript(this.mods[modName]);
+			}
+		}
+
+		logDebug(`All scripts loaded successfully`);
 	}
 
 	async loadAllMods() {
@@ -826,6 +837,10 @@ class ModsManager {
 		return Object.values(this.mods).filter((mod) => mod.isLoaded);
 	}
 
+	getLoadOrder() {
+		return this.loadOrder.map((modName) => this.mods[modName]);
+	}
+
 	getMods() {
 		return Object.values(this.mods);
 	}
@@ -866,6 +881,18 @@ class ModsManager {
 		}
 
 		return { info: modInfo, path: modPath, isEnabled: true, isLoaded: false };
+	}
+
+	async _loadScript(mod) {
+		if (this.scripts.hasOwnProperty(mod.info.name)) throw new Error(`Script already loaded: ${mod.info.name}`);
+
+		logDebug(`Loading mod: ${mod.info.name}`);
+
+		if (mod.info.script) {
+			const scriptPath = path.join(mod.path, mod.info.script);
+			logDebug(`Loading mod script: ${scriptPath}`);
+			this.scripts[mod.info.name] = await import(`file://${scriptPath}`);
+		}
 	}
 
 	async _loadMod(mod) {
@@ -1121,7 +1148,12 @@ function setupElectronIPC() {
 		logDebug("Received ml-modloader:get-loaded-mods");
 		return modsManager.getLoadedMods();
 	});
-	
+
+	ipcMain.handle("ml-modloader:get-load-order", (event, args) => {
+		logDebug("Received ml-modloader:get-load-rder");
+		return modsManager.getLoadOrder();
+	});
+
 	ipcMain.handle("ml-modloader:get-mods", (event, args) => {
 		logDebug("Received ml-modloader:get-mods");
 		return modsManager.getMods();
@@ -1181,6 +1213,7 @@ async function startGameWindow() {
 	gameFileManager.resetToBaseFiles();
 	await gameFileManager.patchAndRunGameElectron();
 	addModloaderPatches();
+	await modsManager.loadAllScripts();
 	await modsManager.loadAllMods();
 	gameFileManager.repatchAllFiles();
 	modloaderAPI.events.trigger("ml:onGameStarted");
