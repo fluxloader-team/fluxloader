@@ -1130,6 +1130,7 @@ function setupElectronIPC() {
 	ipcMain.handle("ml-modloader:refresh-mods", (event, args) => {
 		logDebug("Received ml-modloader:refresh-mods");
 		modsManager.refreshMods();
+		return modsManager.getMods();
 	});
 
 	ipcMain.handle("ml-modloader:start-game", (event, args) => {
@@ -1148,8 +1149,8 @@ function startModloaderWindow() {
 
 	try {
 		modloaderWindow = new BrowserWindow({
-			width: 1500,
-			height: 750,
+			width: 1700,
+			height: 850,
 			autoHideMenuBar: true,
 			webPreferences: {
 				preload: resolvePathRelativeToModloader("modloader/modloader-preload.js"),

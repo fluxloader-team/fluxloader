@@ -18,50 +18,6 @@ function createElement(html) {
 	return template.content.firstChild;
 }
 
-// ---------------- Definitions ----------------
-
-let isPlaying = false;
-let isMainButtonLoading = false;
-let selectedTab = null;
-let allTabs = ["mods", "browse", "config", "console", "options"];
-
-function setProgressText(text) {
-	getElement("progress-bar-text").innerText = text;
-}
-
-function setProgress(text, percent) {
-	getElement("progress-bar").style.width = `${percent}%`;
-}
-
-function selectTab(tab) {
-	if (selectedTab) {
-		getElement(`tab-${selectedTab}`).classList.remove("selected");
-		getElement(`tab-${selectedTab}-content`).style.display = "none";
-	}
-	selectedTab = tab;
-	getElement(`tab-${tab}`).classList.add("selected");
-	getElement(`tab-${tab}-content`).style.display = "block";
-}
-
-function setMods(mods) {
-	const tbody = modsTable.querySelector("tbody");
-	tbody.innerHTML = "";
-	for (const mod of mods) {
-		const row = createElement(`
-			<tr>
-				<td><input type="checkbox" ${mod.isEnabled ? "checked" : ""}></td>
-				<td>${mod.info.name}</td>
-				<td>${mod.info.author}</td>
-				<td>${mod.info.version}</td>
-				<td>${mod.info.shortDescription}</td>
-				<td>N/A</td>
-				<td>N/A</td>
-			</tr>
-		`);
-		tbody.appendChild(row);
-	}
-}
-
 function handleResizer(resizer) {
 	let startX, startWidth, parent, isLeft;
 
@@ -82,6 +38,110 @@ function handleResizer(resizer) {
 	function onMouseUp() {
 		document.removeEventListener("mousemove", onMouseMove);
 		document.removeEventListener("mouseup", onMouseUp);
+	}
+}
+
+// ---------------- Definitions ----------------
+
+let isPlaying = false;
+let isMainButtonLoading = false;
+let selectedTab = null;
+let allTabs = ["mods", "browse", "config", "console", "options"];
+let modTableColumns = {};
+let modTableRows = [];
+let selectedMod = -1;
+
+function setProgressText(text) {
+	getElement("progress-bar-text").innerText = text;
+}
+
+function setProgress(text, percent) {
+	getElement("progress-bar").style.width = `${percent}%`;
+}
+
+function selectTab(tab) {
+	if (selectedTab) {
+		getElement(`tab-${selectedTab}`).classList.remove("selected");
+		getElement(`tab-${selectedTab}-content`).style.display = "none";
+	}
+	selectedTab = tab;
+	getElement(`tab-${tab}`).classList.add("selected");
+	getElement(`tab-${tab}-content`).style.display = "block";
+}
+
+function setMods(mods) {
+	const tbody = getElement("mods-content-table").querySelector("tbody");
+	tbody.innerHTML = "";
+	modTableRows = [];
+	let index = 0;
+	for (const mod of mods) {
+		const element = createElement(`
+			<tr>
+				<td><input type="checkbox" ${mod.isEnabled ? "checked" : ""}></td>
+				<td>${mod.info.name}</td>
+				<td>${mod.info.author}</td>
+				<td>${mod.info.version}</td>
+				<td>${mod.info.shortDescription}</td>
+				<td>N/A</td>
+				<td>N/A</td>
+			</tr>
+		`);
+		tbody.appendChild(element);
+		modTableRows.push({ element, mod });
+		let rowIndex = index;
+		element.addEventListener("click", () => {
+			selectMod(rowIndex);
+		});
+		index += 1;
+	}
+}
+
+function selectMod(index) {
+	if (selectedMod === index) {
+		modTableRows[index].element.classList.remove("selected");
+		setModInfo(null);
+		selectedMod = -1;
+		return;
+	}
+	if (selectedMod !== -1) {
+		modTableRows[selectedMod].element.classList.remove("selected");
+	}
+	selectedMod = index;
+	modTableRows[index].element.classList.add("selected");
+	setModInfo(modTableRows[index].mod);
+}
+
+function setModInfo(mod) {
+	if (mod == null) {
+		getElement("mod-info").style.display = "none";
+		getElement("mod-info-empty").style.display = "block";
+	} else {
+		getElement("mod-info").style.display = "block";
+		getElement("mod-info-empty").style.display = "none";
+
+		getElement("mod-info-title").innerText = mod.info.name;
+		
+		getElement("mod-info-description").classList.toggle("empty", mod.info.description.length === 0);
+		if (mod.info.description.length === 0) {
+			getElement("mod-info-description").innerText = "No description provided.";
+		} else {
+			getElement("mod-info-description").innerText = mod.info.description;
+		}
+
+		getElement("mod-info-author").innerText = mod.info.author;
+		getElement("mod-info-version").innerText = mod.info.version;
+		getElement("mod-info-last-updated").innerText = mod.info.lastUpdated;
+		
+		getElement("mod-info-tags").classList.toggle("empty", mod.info.tags.length === 0);
+		if (mod.info.tags.length === 0) {
+			getElement("mod-info-tags").innerText = "No tags provided.";
+		} else {
+			getElement("mod-info-tags").innerHTML = "";
+			for (const tag of mod.info.tags) {
+				const tagElement = createElement(`<span class="tag">${tag}</span>`);
+				getElement("mod-info-tags").appendChild(tagElement);
+			}
+		}
 	}
 }
 
@@ -109,23 +169,26 @@ getElement("main-control-button").addEventListener("click", () => {
 	});
 });
 
-const modsTable = getElement("mods-content-table");
-let modsTableColumns = {};
-
-modsTable.querySelectorAll("th").forEach((element) => {
-	const column = element.getAttribute("data-column");
-	modsTableColumns[column] = { element };
-});
+getElement("mods-content-table")
+	.querySelectorAll("th")
+	.forEach((element) => {
+		const column = element.getAttribute("data-column");
+		modTableColumns[column] = { element };
+	});
 
 document.querySelectorAll(".resizer").forEach(handleResizer);
-
-// ---------------- Driver ----------------
 
 setProgressText("");
 setProgress(0);
 selectTab("mods");
 
 electron.invoke("ml-modloader:get-mods").then((mods) => {
-	console.log("Loaded mods:", mods);
 	setMods(mods);
+});
+
+getElement("refresh-mods").addEventListener("click", () => {
+	electron.invoke("ml-modloader:refresh-mods").then((mods) => {
+		console.log(mods);
+		setMods(mods);
+	});
 });

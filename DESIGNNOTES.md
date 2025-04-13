@@ -8,6 +8,8 @@ Serialize load order
 
 Serialize enabled mods
 
+Allow mods modinfo.json to have specific fields missing gracefully
+
 Modloader window site and IPC
 
 - [x] Start / stop game (IPC with backend)
