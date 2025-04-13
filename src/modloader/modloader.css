@@ -125,8 +125,8 @@ body {
 
 #tab-mods-content .main .refresh-mods {
 	position: absolute;
-	right: 0.3rem;
-	bottom: 0.3rem;
+	right: 0.5rem;
+	bottom: 0.5rem;
 	cursor: pointer;
 	width: 2.2rem;
 	height: 2.2rem;
