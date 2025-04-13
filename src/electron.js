@@ -1188,7 +1188,6 @@ async function startGameWindow() {
 	gameFileManager.resetToBaseFiles();
 	await gameFileManager.patchAndRunGameElectron();
 	addModloaderPatches();
-	await modsManager.ts();
 	await modsManager.loadAllMods();
 	gameFileManager.repatchAllFiles();
 	modloaderAPI.events.trigger("ml:onGameStarted");

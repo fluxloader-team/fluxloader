@@ -80,7 +80,7 @@ class BrowserModConfigAPI {
 }
 
 async function loadAllMods() {
-	loadedMods = (await window.electron.invoke("ml-modloader:get-load-order")).filter((mod) => mod.isLoaded);
+	loadedMods = await window.electron.invoke("ml-modloader:get-loaded-mods");
 
 	if (!loadedMods) {
 		logError("No mods loaded");
