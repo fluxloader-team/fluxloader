@@ -87,8 +87,6 @@ async function loadAllMods() {
 		return;
 	}
 
-	`Loading ${loadedMods.length} mods...`;
-
 	for (const mod of loadedMods) {
 		logDebug(`Loading mod '${mod.info.name}'`);
 

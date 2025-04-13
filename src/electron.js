@@ -834,15 +834,11 @@ class ModsManager {
 	}
 
 	getLoadedMods() {
-		return Object.values(this.mods).filter((mod) => mod.isLoaded);
-	}
-
-	getLoadOrder() {
-		return this.loadOrder.map((modName) => this.mods[modName]);
+		return this.loadOrder.map((modName) => this.mods[modName]).filter((mod) => mod.isLoaded);
 	}
 
 	getMods() {
-		return Object.values(this.mods);
+		return this.loadOrder.map((modName) => this.mods[modName]);
 	}
 
 	// ------------ INTERNAL ------------
@@ -1147,11 +1143,6 @@ function setupElectronIPC() {
 	ipcMain.handle("ml-modloader:get-loaded-mods", (event, args) => {
 		logDebug("Received ml-modloader:get-loaded-mods");
 		return modsManager.getLoadedMods();
-	});
-
-	ipcMain.handle("ml-modloader:get-load-order", (event, args) => {
-		logDebug("Received ml-modloader:get-load-rder");
-		return modsManager.getLoadOrder();
 	});
 
 	ipcMain.handle("ml-modloader:get-mods", (event, args) => {
