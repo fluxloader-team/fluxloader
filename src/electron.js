@@ -708,9 +708,8 @@ class ModsManager {
 	mods = {};
 	loadOrder = [];
 	loadedModCount = 0;
-	scripts = {};
 
-	refreshMods() {
+	async refreshMods() {
 		this.mods = {};
 		this.loadOrder = [];
 		this.loadedModCount = 0;
@@ -726,7 +725,7 @@ class ModsManager {
 
 		for (const modPath of modPaths) {
 			try {
-				const mod = this._initializeMod(modPath);
+				const mod = await this._initializeMod(modPath);
 				// Check for dependents of this mod and place this mod before them in the load order
 				let lowestIndex = this.loadOrder.length;
 				const mods = Object.values(this.mods);
@@ -750,16 +749,6 @@ class ModsManager {
 		const modCount = Object.keys(this.mods).length;
 		logInfo(`Successfully initialized ${modCount} mod${modCount == 1 ? "" : "s"}`);
 		logInfo(`Mod load order: [ ${this.loadOrder.join(", ")} ]`);
-	}
-
-	async loadAllScripts() {
-		for (const modName of this.loadOrder) {
-			if (this.mods[modName].isEnabled) {
-				await this._loadScript(this.mods[modName]);
-			}
-		}
-
-		logDebug(`All scripts loaded successfully`);
 	}
 
 	async loadAllMods() {
@@ -843,7 +832,7 @@ class ModsManager {
 
 	// ------------ INTERNAL ------------
 
-	_initializeMod(modPath) {
+	async _initializeMod(modPath) {
 		// Try and read the modinfo.json
 		const modInfoPath = path.join(modPath, "modinfo.json");
 		logDebug(`Initializing mod: ${modInfoPath}`);
@@ -856,7 +845,7 @@ class ModsManager {
 		const modInfo = JSON.parse(modInfoContent);
 
 		// Ensure mod has required mod info
-		if (!modInfo || !modInfo.name || !modInfo.version || !modInfo.author) {
+		if (!modInfo || !modInfo.name || !modInfo.version || !modInfo.author || !modInfo.modloaderVersion) {
 			throw new Error(`Invalid modinfo.json found: ${modInfoPath}`);
 		}
 
@@ -876,19 +865,14 @@ class ModsManager {
 			throw new Error(`Mod defines worker entrypoint ${modInfo.workerEntrypoint} but file none found: ${modPath}`);
 		}
 
-		return { info: modInfo, path: modPath, isEnabled: true, isLoaded: false };
-	}
-
-	async _loadScript(mod) {
-		if (this.scripts.hasOwnProperty(mod.info.name)) throw new Error(`Script already loaded: ${mod.info.name}`);
-
-		logDebug(`Loading mod: ${mod.info.name}`);
-
-		if (mod.info.script) {
-			const scriptPath = path.join(mod.path, mod.info.script);
+		let scripts = null;
+		if (modInfo.scriptPath) {
+			const scriptPath = path.join(mod.path, modInfo.scriptPath);
 			logDebug(`Loading mod script: ${scriptPath}`);
-			this.scripts[mod.info.name] = await import(`file://${scriptPath}`);
+			scripts = await import(`file://${scriptPath}`);
 		}
+
+		return { info: modInfo, path: modPath, scripts, isEnabled: true, isLoaded: false };
 	}
 
 	async _loadMod(mod) {
@@ -1150,9 +1134,9 @@ function setupElectronIPC() {
 		return modsManager.getMods();
 	});
 
-	ipcMain.handle("ml-modloader:refresh-mods", (event, args) => {
+	ipcMain.handle("ml-modloader:refresh-mods", async (event, args) => {
 		logDebug("Received ml-modloader:refresh-mods");
-		modsManager.refreshMods();
+		await modsManager.refreshMods();
 		return modsManager.getMods();
 	});
 
@@ -1204,7 +1188,7 @@ async function startGameWindow() {
 	gameFileManager.resetToBaseFiles();
 	await gameFileManager.patchAndRunGameElectron();
 	addModloaderPatches();
-	await modsManager.loadAllScripts();
+	await modsManager.ts();
 	await modsManager.loadAllMods();
 	gameFileManager.repatchAllFiles();
 	modloaderAPI.events.trigger("ml:onGameStarted");
@@ -1273,7 +1257,7 @@ async function startApp() {
 	gameFileManager = new GameFileManager(fullGamePath, asarPath);
 	modloaderAPI = new ElectronModloaderAPI();
 	modsManager = new ModsManager();
-	modsManager.refreshMods();
+	await modsManager.refreshMods();
 	setupElectronIPC();
 
 	// Start the windows now everything is setup
