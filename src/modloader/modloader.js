@@ -18,7 +18,7 @@ function createElement(html) {
 	return template.content.firstChild;
 }
 
-// ---------------- Main ----------------
+// ---------------- Definitions ----------------
 
 let isPlaying = false;
 let isMainButtonLoading = false;
@@ -43,6 +43,50 @@ function selectTab(tab) {
 	getElement(`tab-${tab}-content`).style.display = "block";
 }
 
+function setMods(mods) {
+	const tbody = modsTable.querySelector("tbody");
+	tbody.innerHTML = "";
+	for (const mod of mods) {
+		const row = createElement(`
+			<tr>
+				<td><input type="checkbox" ${mod.isEnabled ? "checked" : ""}></td>
+				<td>${mod.info.name}</td>
+				<td>${mod.info.author}</td>
+				<td>${mod.info.version}</td>
+				<td>${mod.info.shortDescription}</td>
+				<td>N/A</td>
+				<td>N/A</td>
+			</tr>
+		`);
+		tbody.appendChild(row);
+	}
+}
+
+function handleResizer(resizer) {
+	let startX, startWidth, parent, isLeft;
+
+	resizer.addEventListener("mousedown", (e) => {
+		parent = e.target.parentElement;
+		startX = e.pageX;
+		startWidth = parent.offsetWidth;
+		isLeft = resizer.classList.contains("left");
+		document.addEventListener("mousemove", onMouseMove);
+		document.addEventListener("mouseup", onMouseUp);
+	});
+
+	function onMouseMove(e) {
+		const newWidth = startWidth + (e.pageX - startX) * (isLeft ? -1 : 1);
+		parent.style.width = newWidth + "px";
+	}
+
+	function onMouseUp() {
+		document.removeEventListener("mousemove", onMouseMove);
+		document.removeEventListener("mouseup", onMouseUp);
+	}
+}
+
+// ---------------- Main ----------------
+
 for (const tab of allTabs) {
 	getElement(`tab-${tab}`).addEventListener("click", () => {
 		selectTab(tab);
@@ -65,8 +109,6 @@ getElement("main-control-button").addEventListener("click", () => {
 	});
 });
 
-// ---------------- Tab/Mods ----------------
-
 const modsTable = getElement("mods-content-table");
 let modsTableColumns = {};
 
@@ -75,46 +117,7 @@ modsTable.querySelectorAll("th").forEach((element) => {
 	modsTableColumns[column] = { element };
 });
 
-modsTable.querySelectorAll("th .resizer").forEach((resizer) => {
-	let startX, startWidth, col;
-
-	resizer.addEventListener("mousedown", (e) => {
-		col = e.target.parentElement;
-		startX = e.pageX;
-		startWidth = col.offsetWidth;
-		document.addEventListener("mousemove", onMouseMove);
-		document.addEventListener("mouseup", onMouseUp);
-	});
-
-	function onMouseMove(e) {
-		const newWidth = startWidth + (e.pageX - startX);
-		col.style.width = newWidth + "px";
-	}
-
-	function onMouseUp() {
-		document.removeEventListener("mousemove", onMouseMove);
-		document.removeEventListener("mouseup", onMouseUp);
-	}
-});
-
-function setMods(mods) {
-	const tbody = modsTable.querySelector("tbody");
-	tbody.innerHTML = "";
-	for (const mod of mods) {
-		const row = createElement(`
-			<tr>
-				<td><input type="checkbox" ${mod.isEnabled ? "checked" : ""}></td>
-				<td>${mod.info.name}</td>
-				<td>${mod.info.author}</td>
-				<td>${mod.info.version}</td>
-				<td>${mod.info.shortDescription}</td>
-				<td>N/A</td>
-				<td>N/A</td>
-			</tr>
-		`);
-		tbody.appendChild(row);
-	}
-}
+document.querySelectorAll(".resizer").forEach(handleResizer);
 
 // ---------------- Driver ----------------
 

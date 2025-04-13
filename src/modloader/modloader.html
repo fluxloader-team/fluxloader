@@ -18,11 +18,12 @@
 
 			<div class="tab-content" id="tab-mods-content">
 				<div class="main">
-					<div class="main-leftbar"></div>
+					<div class="main-leftbar"><div class="resizer"></div></div>
 					<div class="main-center">
 						<table class="mods-table" id ="mods-content-table">
 							<thead>
 								<tr>
+									<!-- These widths are just the default, they will be overwritten by inline styles from JS -->
 									<th data-column="enabled" style="width: 0.5rem"></th>
 									<th data-column="name" style="width: 6.5rem">Name<div class="resizer"></div></th>
 									<th data-column="author" style="width: 8rem">Author<div class="resizer"></div></th>
@@ -33,20 +34,10 @@
 									<th class="gap-filler"></th> <!-- Empty so it doesn't auto-fill the entire screen -->
 								</tr>
 							</thead>
-							<tbody>
-								<tr>
-									<td></td>
-									<td>Testing</td>
-									<td>Some dude</td>
-									<td>1.0.0</td>
-									<td>This is some mod</td>
-									<td>04/01/25</td>
-									<td>todo</td>
-								</tr>
-							</tbody>
+							<tbody></tbody>
 						</table>
 					</div>
-					<div class="main-rightbar"></div>
+					<div class="main-rightbar"><div class="resizer left"></div></div>
 				</div>
 			</div>
 			<div class="tab-content" id="tab-browse-content"><div class="wip-content"><p>Browse</p></div></div>

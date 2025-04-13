@@ -94,6 +94,21 @@ body {
 	background-color: transparent;
 }
 
+.resizer {
+	position: absolute;
+	right: 0;
+	top: 0;
+	width: 0.6rem;
+	height: 100%;
+	cursor: col-resize;
+	/* background-color: #ffffff0c; */
+}
+
+.resizer.left {
+	left: 0;
+}
+
+
 /* -------------------- TAB/MODS -------------------- */
 
 #tab-mods-content {
@@ -107,17 +122,20 @@ body {
 }
 
 #tab-mods-content .main-leftbar {
+	position: relative;
 	width: var(--main-leftbar-width);
 	background: var(--color-background-medium);
 }
 
 #tab-mods-content .main-center {
+	position: relative;
 	flex: 1;
 	background: var(--color-background-light);
 	overflow: hidden;
 }
 
 #tab-mods-content .main-rightbar {
+	position: relative;
 	width: var(--main-rightbar-width);
 	background: var(--color-background-medium);
 }
@@ -157,15 +175,6 @@ body {
 
 #tab-mods-content .mods-table th.gap-filler:hover {
 	background: var(--color-background-table-head);
-}
-
-#tab-mods-content .mods-table th .resizer {
-	position: absolute;
-	right: 0;
-	top: 0;
-	width: 1rem;
-	height: 100%;
-	cursor: col-resize;
 }
 
 /* ---------------------------- FOOTER ---------------------------- */
