@@ -87,19 +87,11 @@ async function loadAllMods() {
 		return;
 	}
 
-<<<<<<< HEAD
-=======
 	`Loading ${loadedMods.length} mods...`;
 
->>>>>>> 8440a05b6dbd0c506337706fd7dde834fe8b7f6e
 	for (const mod of loadedMods) {
+		if (!mod.info.browserEntrypoint) continue;
 		logDebug(`Loading mod '${mod.info.name}'`);
-
-		if (!mod.info.browserEntrypoint) {
-			logDebug(`Mod ${mod.info.name} does not have a browser entrypoint`);
-			continue;
-		}
-
 		const entrypointPath = mod.path + "/" + mod.info.browserEntrypoint;
 		await import(`file://${entrypointPath}`);
 	}

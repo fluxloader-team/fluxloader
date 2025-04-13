@@ -41,10 +41,7 @@ class WorkerModloaderAPI {
 async function loadAllMods() {
 	modloaderAPI.listenBrowserMessage("ml-modloader:get-loaded-mods:response", async (mods) => {
 		for (const mod of mods) {
-			if (!mod.info.workerEntrypoint) {
-				logDebug(`Mod ${mod.info.name} does not have a browser entrypoint`);
-				continue;
-			}
+			if (!mod.info.workerEntrypoint) continue;
 			const entrypointPath = mod.path + "/" + mod.info.workerEntrypoint;
 			await import(`file://${entrypointPath}`);
 		}
@@ -57,7 +54,7 @@ globalThis.modloader_preloadBundle = async () => {
 	// This is guaranteed to happen before the workers bundle.js is loaded
 	logInfo(`Starting worker modloader ${modloaderVersion}`);
 	modloaderAPI = new WorkerModloaderAPI();
-}
+};
 
 globalThis.modloader_onWorkerInitialized = (workerWorld) => {
 	// This is called after the workers Init event has been called
@@ -68,11 +65,11 @@ globalThis.modloader_onWorkerInitialized = (workerWorld) => {
 	} else if (workerWorld.environment.context === 3) {
 		logInfo(`Worker Init event complete, type=Manager`);
 	}
-	loadAllMods();	
-}
+	loadAllMods();
+};
 
 globalThis.modloader_onWorkerMessage = (m) => {
 	m.data.shift();
 	const channel = m.data.shift();
 	modloaderAPI._onWorkerMessage(channel, ...m.data);
-}
+};
