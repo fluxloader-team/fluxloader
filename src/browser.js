@@ -87,6 +87,11 @@ async function loadAllMods() {
 		return;
 	}
 
+<<<<<<< HEAD
+=======
+	`Loading ${loadedMods.length} mods...`;
+
+>>>>>>> 8440a05b6dbd0c506337706fd7dde834fe8b7f6e
 	for (const mod of loadedMods) {
 		logDebug(`Loading mod '${mod.info.name}'`);
 
