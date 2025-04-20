@@ -24,6 +24,8 @@ variables:
         libsecret-1-dev libgbm-dev \
       && rm -rf /var/lib/apt/lists/*
     - npm install -g npm@latest
+    - echo "Cleaning npm cache..."
+    - npm cache clean --force
     - echo "Installing project dependencies..."
     - npm install --legacy-peer-deps --no-audit --prefer-offline --progress=false
     - echo "Node modules installed."
@@ -41,13 +43,13 @@ build-windows-x64:
   extends: .build_template
   script:
     - !reference [.build_template, script]
-    - npx --no electron-builder -- --win --x64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$CI_COMMIT_TAG" --config.win.target=nsis --config.asar=true --publish never
+    - npm exec --no -- electron-builder -- --win --x64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$CI_COMMIT_TAG" --config.win.target=nsis --config.asar=true --publish never
 
 build-windows-arm64:
   extends: .build_template
   script:
     - !reference [.build_template, script]
-    - npx --no electron-builder -- --win --arm64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$CI_COMMIT_TAG" --config.win.target=nsis --config.asar=true --publish never
+    - npm exec --no -- electron-builder -- --win --arm64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$CI_COMMIT_TAG" --config.win.target=nsis --config.asar=true --publish never
 
 build-windows-legacy-x64:
   extends: .build_template
@@ -58,31 +60,31 @@ build-windows-legacy-x64:
     - echo "Legacy Electron installed."
   script:
     - !reference [.build_template, script]
-    - npx --no electron-builder -- --win --x64 --config.appId="$APP_ID.legacy" --config.productName="$PRODUCT_NAME-Legacy" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$CI_COMMIT_TAG" --config.win.target=nsis --config.asar=true --publish never
+    - npm exec --no -- electron-builder -- --win --x64 --config.appId="$APP_ID.legacy" --config.productName="$PRODUCT_NAME-Legacy" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$CI_COMMIT_TAG" --config.win.target=nsis --config.asar=true --publish never
 
 build-linux-x64:
   extends: .build_template
   script:
     - !reference [.build_template, script]
-    - npx --no electron-builder -- --linux --x64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$CI_COMMIT_TAG" --config.linux.target=AppImage,deb --config.asar=true --publish never
+    - npm exec --no -- electron-builder -- --linux --x64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$CI_COMMIT_TAG" --config.linux.target=AppImage,deb --config.asar=true --publish never
 
 build-linux-arm64:
   extends: .build_template
   script:
     - !reference [.build_template, script]
-    - npx --no electron-builder -- --linux --arm64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$CI_COMMIT_TAG" --config.linux.target=AppImage,deb --config.asar=true --publish never
+    - npm exec --no -- electron-builder -- --linux --arm64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$CI_COMMIT_TAG" --config.linux.target=AppImage,deb --config.asar=true --publish never
 
 build-macos-x64:
   extends: .build_template
   script:
     - !reference [.build_template, script]
-    - npx --no electron-builder -- --mac --x64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$CI_COMMIT_TAG" --config.mac.target=dmg --config.mac.identity=null --config.asar=true --publish never
+    - npm exec --no -- electron-builder -- --mac --x64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$CI_COMMIT_TAG" --config.mac.target=dmg --config.mac.identity=null --config.asar=true --publish never
 
 build-macos-arm64:
   extends: .build_template
   script:
     - !reference [.build_template, script]
-    - npx --no electron-builder -- --mac --arm64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$CI_COMMIT_TAG" --config.mac.target=dmg --config.mac.identity=null --config.asar=true --publish never
+    - npm exec --no -- electron-builder -- --mac --arm64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$CI_COMMIT_TAG" --config.mac.target=dmg --config.mac.identity=null --config.asar=true --publish never
 
 release-job:
   stage: release
