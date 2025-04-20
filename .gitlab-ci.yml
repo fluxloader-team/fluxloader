@@ -41,6 +41,12 @@ variables:
     - npm install --legacy-peer-deps --no-audit --prefer-offline --progress=false
     - echo "Node modules installed."
     - ls node_modules || echo "node_modules not found after install!"
+    # Still attempting explicit install, though it seems ineffective for version override so far
+    - echo "Removing existing electron-builder artifacts if present..."
+    - rm -rf node_modules/electron-builder node_modules/.bin/electron-builder node_modules/.bin/electron-builder.cmd node_modules/.bin/electron-builder.ps1
+    - echo "Installing LATEST electron-builder explicitly (trying without legacy-peer-deps)..."
+    - npm install electron-builder@latest --no-save --no-audit
+    - echo "electron-builder installed."
     - echo "Verifying electron-builder version:"
     - ./node_modules/.bin/electron-builder --version || echo "Cannot get electron-builder version via direct path"
   script:
@@ -66,7 +72,8 @@ build-windows-x64:
   extends: .build_template
   script:
     - !reference [.build_template, script]
-    - ./node_modules/.bin/electron-builder --win --x64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$EFFECTIVE_BUILD_VERSION" --config.win.target=nsis,portable --config.nsis.oneClick=false --config.asar=true --publish never
+    # Changed: Specify targets 'nsis portable' directly after '--win'
+    - ./node_modules/.bin/electron-builder --win nsis portable --x64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$EFFECTIVE_BUILD_VERSION" --config.nsis.oneClick=false --config.asar=true --publish never
   artifacts:
     paths:
       - $OUTPUT_DIR/*.exe
@@ -77,7 +84,8 @@ build-windows-arm64:
   extends: .build_template
   script:
     - !reference [.build_template, script]
-    - ./node_modules/.bin/electron-builder --win --arm64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$EFFECTIVE_BUILD_VERSION" --config.win.target=nsis,portable --config.nsis.oneClick=false --config.asar=true --publish never
+    # Changed: Specify targets 'nsis portable' directly after '--win'
+    - ./node_modules/.bin/electron-builder --win nsis portable --arm64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$EFFECTIVE_BUILD_VERSION" --config.nsis.oneClick=false --config.asar=true --publish never
   artifacts:
     paths:
       - $OUTPUT_DIR/*.exe
@@ -93,7 +101,8 @@ build-windows-legacy-x64:
     - echo "Legacy Electron installed."
   script:
     - !reference [.build_template, script]
-    - ./node_modules/.bin/electron-builder --win --x64 --config.appId="$APP_ID.legacy" --config.productName="$PRODUCT_NAME-Legacy" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$EFFECTIVE_BUILD_VERSION" --config.win.target=nsis --config.asar=true --publish never
+    # Target not changed for legacy build in this example
+    - ./node_modules/.bin/electron-builder --win nsis --x64 --config.appId="$APP_ID.legacy" --config.productName="$PRODUCT_NAME-Legacy" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$EFFECTIVE_BUILD_VERSION" --config.asar=true --publish never
   artifacts:
     paths:
       - $OUTPUT_DIR/*-Legacy*.exe
@@ -104,7 +113,8 @@ build-linux-x64:
   extends: .build_template
   script:
     - !reference [.build_template, script]
-    - ./node_modules/.bin/electron-builder --linux --x64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$EFFECTIVE_BUILD_VERSION" --config.linux.target=AppImage,deb --config.asar=true --publish never
+    # Changed: Specify targets 'AppImage deb' directly after '--linux'
+    - ./node_modules/.bin/electron-builder --linux AppImage deb --x64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$EFFECTIVE_BUILD_VERSION" --config.asar=true --publish never
   artifacts:
     paths:
       - $OUTPUT_DIR/*.AppImage
@@ -115,7 +125,8 @@ build-linux-arm64:
   extends: .build_template
   script:
     - !reference [.build_template, script]
-    - ./node_modules/.bin/electron-builder --linux --arm64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$EFFECTIVE_BUILD_VERSION" --config.linux.target=AppImage,deb --config.asar=true --publish never
+    # Changed: Specify targets 'AppImage deb' directly after '--linux'
+    - ./node_modules/.bin/electron-builder --linux AppImage deb --arm64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$EFFECTIVE_BUILD_VERSION" --config.asar=true --publish never
   artifacts:
     paths:
       - $OUTPUT_DIR/*.AppImage
@@ -126,7 +137,8 @@ build-macos-x64:
   extends: .build_template
   script:
     - !reference [.build_template, script]
-    - ./node_modules/.bin/electron-builder --mac --x64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$EFFECTIVE_BUILD_VERSION" --config.mac.target=dmg --config.mac.identity=null --config.asar=true --publish never
+    # Target 'dmg' is default for mac, but specifying explicitly after --mac is fine
+    - ./node_modules/.bin/electron-builder --mac dmg --x64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$EFFECTIVE_BUILD_VERSION" --config.mac.identity=null --config.asar=true --publish never
   artifacts:
     paths:
       - $OUTPUT_DIR/*.dmg
@@ -136,7 +148,8 @@ build-macos-arm64:
   extends: .build_template
   script:
     - !reference [.build_template, script]
-    - ./node_modules/.bin/electron-builder --mac --arm64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$EFFECTIVE_BUILD_VERSION" --config.mac.target=dmg --config.mac.identity=null --config.asar=true --publish never
+    # Target 'dmg' is default for mac, but specifying explicitly after --mac is fine
+    - ./node_modules/.bin/electron-builder --mac dmg --arm64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$EFFECTIVE_BUILD_VERSION" --config.mac.identity=null --config.asar=true --publish never
   artifacts:
     paths:
       - $OUTPUT_DIR/*.dmg
