@@ -14,6 +14,7 @@ variables:
     - linux
   image: node:20
   before_script:
+    - dpkg --add-architecture i386
     - apt-get update && apt-get install -y --no-install-recommends \
         wine64 wine32 \
         build-essential gcc g++ make git python3 \
