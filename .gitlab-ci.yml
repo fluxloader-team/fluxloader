@@ -15,10 +15,9 @@ variables:
   image: node:20
   before_script:
     - dpkg --add-architecture i386
-    # Corrected apt-get install line using >- to fold lines w/ spaces, removing bad '\'
     - >-
       apt-get update && apt-get install -y --no-install-recommends
-      wine
+      wine wine32:i386
       build-essential gcc g++ make git python3
       dpkg fakeroot
       libarchive-tools
@@ -38,15 +37,10 @@ variables:
     - npm install -g npm@latest
     - echo "Cleaning npm cache..."
     - npm cache clean --force
-    - echo "Installing project dependencies..."
+    - echo "Installing project dependencies (including electron-builder from package.json)..."
     - npm install --legacy-peer-deps --no-audit --prefer-offline --progress=false
     - echo "Node modules installed."
     - ls node_modules || echo "node_modules not found after install!"
-    - echo "Removing existing electron-builder directory if present..."
-    - rm -rf node_modules/electron-builder
-    - echo "Installing LATEST electron-builder explicitly for the job..."
-    - npm install electron-builder@latest --no-save --legacy-peer-deps --no-audit
-    - echo "electron-builder installed."
     - echo "Verifying electron-builder version:"
     - ./node_modules/.bin/electron-builder --version || echo "Cannot get electron-builder version via direct path"
   script:
@@ -73,7 +67,9 @@ build-windows-arm64:
 build-windows-legacy-x64:
   extends: .build_template
   before_script:
+    # Note: This still uses the main template's before_script first (installing deps + latest builder)
     - !reference [.build_template, before_script]
+    # Then installs the legacy electron version over the top
     - echo "Installing legacy Electron version $LEGACY_ELECTRON_VERSION..."
     - npm install --save-dev electron@$LEGACY_ELECTRON_VERSION --legacy-peer-deps --no-audit
     - echo "Legacy Electron installed."
