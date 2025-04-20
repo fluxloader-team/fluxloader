@@ -15,14 +15,16 @@ variables:
   image: node:20
   before_script:
     - dpkg --add-architecture i386
-    - apt-get update && apt-get install -y --no-install-recommends \
-        wine \
-        build-essential gcc g++ make git python3 \
-        dpkg fakeroot \
-        libarchive-tools \
-        icnsutils graphicsmagick xz-utils \
-        clang libc++-dev libc++abi-dev libgconf-2-4 rpm libx11-dev libxkbfile-dev \
-        libsecret-1-dev libgbm-dev \
+    # Corrected apt-get install line using >- to fold lines w/ spaces, removing bad '\'
+    - >-
+      apt-get update && apt-get install -y --no-install-recommends
+      wine
+      build-essential gcc g++ make git python3
+      dpkg fakeroot
+      libarchive-tools
+      icnsutils graphicsmagick xz-utils
+      clang libc++-dev libc++abi-dev libgconf-2-4 rpm libx11-dev libxkbfile-dev
+      libsecret-1-dev libgbm-dev
       && rm -rf /var/lib/apt/lists/*
     - echo "--- Wine Debug Info ---"
     - which wine || echo "wine not found in PATH"
@@ -40,6 +42,8 @@ variables:
     - npm install --legacy-peer-deps --no-audit --prefer-offline --progress=false
     - echo "Node modules installed."
     - ls node_modules || echo "node_modules not found after install!"
+    - echo "Removing existing electron-builder directory if present..."
+    - rm -rf node_modules/electron-builder
     - echo "Installing LATEST electron-builder explicitly for the job..."
     - npm install electron-builder@latest --no-save --legacy-peer-deps --no-audit
     - echo "electron-builder installed."
@@ -93,7 +97,7 @@ build-macos-x64:
   extends: .build_template
   script:
     - !reference [.build_template, script]
-    - ./node_modules/.bin/electron-लर --mac --x64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$CI_COMMIT_TAG" --config.mac.target=dmg --config.mac.identity=null --config.asar=true --publish never
+    - ./node_modules/.bin/electron-builder --mac --x64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$CI_COMMIT_TAG" --config.mac.target=dmg --config.mac.identity=null --config.asar=true --publish never
 
 build-macos-arm64:
   extends: .build_template
