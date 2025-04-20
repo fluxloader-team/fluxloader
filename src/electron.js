@@ -1,3 +1,4 @@
+console.log("Debug: starting")
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "path";
 import fs from "fs";
