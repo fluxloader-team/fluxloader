@@ -4,7 +4,7 @@ stages:
 
 variables:
   OUTPUT_DIR: dist
-  APP_ID: "app.fluxloader"
+  APP_ID: "app.fluxloader.FluxLoader"
   PRODUCT_NAME: "FluxLoader"
   LEGACY_ELECTRON_VERSION: "22.3.27"
 
@@ -41,29 +41,13 @@ build-windows-x64:
   extends: .build_template
   script:
     - !reference [.build_template, script]
-    - >
-      npx --no electron-builder --win --x64 \
-      --config.appId="$APP_ID" \
-      --config.productName="$PRODUCT_NAME" \
-      --config.directories.output="$OUTPUT_DIR" \
-      --config.buildVersion="$CI_COMMIT_TAG" \
-      --config.win.target=nsis \
-      --config.asar=true \
-      --publish never
+    - npx --no electron-builder --win --x64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$CI_COMMIT_TAG" --config.win.target=nsis --config.asar=true --publish never
 
 build-windows-arm64:
   extends: .build_template
   script:
     - !reference [.build_template, script]
-    - >
-      npx --no electron-builder --win --arm64 \
-      --config.appId="$APP_ID" \
-      --config.productName="$PRODUCT_NAME" \
-      --config.directories.output="$OUTPUT_DIR" \
-      --config.buildVersion="$CI_COMMIT_TAG" \
-      --config.win.target=nsis \
-      --config.asar=true \
-      --publish never
+    - npx --no electron-builder --win --arm64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$CI_COMMIT_TAG" --config.win.target=nsis --config.asar=true --publish never
 
 build-windows-legacy-x64:
   extends: .build_template
@@ -74,73 +58,31 @@ build-windows-legacy-x64:
     - echo "Legacy Electron installed."
   script:
     - !reference [.build_template, script]
-    - >
-      npx --no electron-builder --win --x64 \
-      --config.appId="$APP_ID.legacy" \
-      --config.productName="$PRODUCT_NAME-Legacy" \
-      --config.directories.output="$OUTPUT_DIR" \
-      --config.buildVersion="$CI_COMMIT_TAG" \
-      --config.win.target=nsis \
-      --config.asar=true \
-      --publish never
+    - npx --no electron-builder --win --x64 --config.appId="$APP_ID.legacy" --config.productName="$PRODUCT_NAME-Legacy" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$CI_COMMIT_TAG" --config.win.target=nsis --config.asar=true --publish never
 
 build-linux-x64:
   extends: .build_template
   script:
     - !reference [.build_template, script]
-    - >
-      npx --no electron-builder --linux --x64 \
-      --config.appId="$APP_ID" \
-      --config.productName="$PRODUCT_NAME" \
-      --config.directories.output="$OUTPUT_DIR" \
-      --config.buildVersion="$CI_COMMIT_TAG" \
-      --config.linux.target=AppImage,deb \
-      --config.asar=true \
-      --publish never
+    - npx --no electron-builder --linux --x64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$CI_COMMIT_TAG" --config.linux.target=AppImage,deb --config.asar=true --publish never
 
 build-linux-arm64:
   extends: .build_template
   script:
     - !reference [.build_template, script]
-    - >
-      npx --no electron-builder --linux --arm64 \
-      --config.appId="$APP_ID" \
-      --config.productName="$PRODUCT_NAME" \
-      --config.directories.output="$OUTPUT_DIR" \
-      --config.buildVersion="$CI_COMMIT_TAG" \
-      --config.linux.target=AppImage,deb \
-      --config.asar=true \
-      --publish never
+    - npx --no electron-builder --linux --arm64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$CI_COMMIT_TAG" --config.linux.target=AppImage,deb --config.asar=true --publish never
 
 build-macos-x64:
   extends: .build_template
   script:
     - !reference [.build_template, script]
-    - >
-      npx --no electron-builder --mac --x64 \
-      --config.appId="$APP_ID" \
-      --config.productName="$PRODUCT_NAME" \
-      --config.directories.output="$OUTPUT_DIR" \
-      --config.buildVersion="$CI_COMMIT_TAG" \
-      --config.mac.target=dmg \
-      --config.mac.identity=null \
-      --config.asar=true \
-      --publish never
+    - npx --no electron-builder --mac --x64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$CI_COMMIT_TAG" --config.mac.target=dmg --config.mac.identity=null --config.asar=true --publish never
 
 build-macos-arm64:
   extends: .build_template
   script:
     - !reference [.build_template, script]
-    - >
-      npx --no electron-builder --mac --arm64 \
-      --config.appId="$APP_ID" \
-      --config.productName="$PRODUCT_NAME" \
-      --config.directories.output="$OUTPUT_DIR" \
-      --config.buildVersion="$CI_COMMIT_TAG" \
-      --config.mac.target=dmg \
-      --config.mac.identity=null \
-      --config.asar=true \
-      --publish never
+    - npx --no electron-builder --mac --arm64 --config.appId="$APP_ID" --config.productName="$PRODUCT_NAME" --config.directories.output="$OUTPUT_DIR" --config.buildVersion="$CI_COMMIT_TAG" --config.mac.target=dmg --config.mac.identity=null --config.asar=true --publish never
 
 release-job:
   stage: release
@@ -168,7 +110,6 @@ release-job:
     - echo "Starting release process for tag $CI_COMMIT_TAG"
     - echo "Files in $OUTPUT_DIR:"
     - ls -l $OUTPUT_DIR/
-
     - |
       ASSETS_JSON="["
       FIRST_ASSET=true
@@ -197,12 +138,10 @@ release-job:
       ASSETS_JSON="${ASSETS_JSON}]"
 
       echo "Generated Assets JSON: ${ASSETS_JSON}"
-
     - echo "Creating GitLab Release..."
     - |
       release-cli create --name "Release $CI_COMMIT_TAG" \
                          --tag-name "$CI_COMMIT_TAG" \
                          --description "Automated release for tag $CI_COMMIT_TAG. Download builds from the assets below." \
                          --assets-link "${ASSETS_JSON}"
-
     - echo "GitLab Release created successfully!"
