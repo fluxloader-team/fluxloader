@@ -13,6 +13,7 @@
 		"puppeteer-core": "^20.0.0"
 	},
 	"devDependencies":{
-		"electron": "^35.0.2"
+		"electron": "^35.0.2",
+		"electron-builder": "latest"
 	}
 }
