@@ -39,28 +39,58 @@ export class EventBus {
 	}
 }
 
-export class ConfigTemplateHandler {
-	// Use a template and use the default value to guess the type if not provided
-	guessTypes(template) {}
+export const ConfigSchemaHandler = {
+	// Recursive function to load default config values as well as validate them
+	validateConfig: function (config, schema) {
+		if (typeof config !== "object") throw new Error("Invalid config provided");
+		if (!this.validateSchema(schema)) throw new Error("Invalid schema provided");
 
-	// Guesses the type of a single leaf node of a template
-	guessType(leafNode) {}
-
-	// Generates default types as well as validating values
-	validateConfig(config, template) {
-		if (typeof config !== "object" || typeof template !== "object") return false;
-
-		for (const key of Object.keys(template)) {
-			if (typeof template[key] === "object") {
-				if (!this.validateConfig(config[key], template[key])) return false;
-			} else if (typeof config[key] !== typeof template[key]) {
-				return false;
+		for (const [entry, entrySchema] of Object.entries(schema)) {
+			if (!this.isLeafNode(entrySchema)) {
+				if (config[entry] === undefined) config[entry] = {};
+				this.validateConfig(config[entry], entrySchema);
+			} else {
+				// Use default value from schema if config value is undefined
+				if (config[entry] === undefined) config[entry] = entrySchema.default;
+				let result = this.validateConfigValue(config[entry], entrySchema);
+				if (!result) throw new Error(`Config value '${config[entry]}' failed the check for '${entrySchema.type}' type`);
 			}
 		}
+	},
 
+	// Checks a specific value in the config against its corresponding schema leaf node
+	// Errors are only thrown here if the validation cannot continue - ie. Fatal errors during validation
+	// Returns true/false based on if the value is valid based on the schema given
+	validateConfigValue: function (value, schemaLeaf) {
+		if (!value) throw new Error("No value given");
+		if (!schemaLeaf) throw new Error("No schema leaf given");
+		if (!schemaLeaf.type) {
+			if (!schemaLeaf.default) throw new Error("Schema type not provided and default value was missing");
+			// Use type of default if no type is provided
+			schemaLeaf.type = typeof schemaLeaf.default;
+			globalThis.log("debug", "", `Schema type not provided, assuming type from default value: ${schemaLeaf.type}`);
+		}
+		switch (schemaLeaf.type) {
+			case "boolean":
+				return value === true || value === false;
+			case "string":
+				return typeof value === "string";
+		}
+		throw new Error(`Unknown schema type: ${schemaLeaf.type}`);
+	},
+
+	validateSchema: function (schema) {
+		// TODO: Proper schema format validation
 		return true;
-	}
+	},
 
-	// Find all leaf nodes from a template
-	getLeaves(template) {}
-}
+	// Checks if any value of schemaNode is not an object
+	// (since at least one value of a leaf node should be a non-object)
+	isLeafNode: function (schemaNode) {
+		if (typeof schemaNode !== "object") return false; // schemaNode should be an object...
+		for (const value of Object.values(schemaNode)) {
+			if (typeof value !== "object") return true;
+		}
+		return false;
+	},
+};

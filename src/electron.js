@@ -4,7 +4,7 @@ import fs from "fs";
 import process from "process";
 import os from "os";
 import asar from "asar";
-import { EventBus, ConfigTemplateHandler } from "./common.js";
+import { EventBus, ConfigSchemaHandler } from "./common.js";
 import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
 
@@ -304,25 +304,6 @@ class ElectronModConfigAPI {
 		}
 
 		return false;
-	}
-
-	defineDefaults(modName, configSchema) {
-		logDebug(`Defining default config for mod: ${modName}`);
-		let existingConfig = this.get(modName);
-
-		// If existingConfig is {} and configSchema is not {}
-		if (Object.keys(existingConfig).length === 0 && Object.keys(configSchema).length > 0) {
-			logDebug(`No existing config found for mod so initializing to defaults: ${modName}`);
-			this.set(modName, configSchema);
-		} else {
-			const modified = updateObjectWithDefaults(configSchema, existingConfig);
-			if (!modified) {
-				logDebug(`Mod config is up-to-date: ${modName}`);
-			} else {
-				this.set(modName, existingConfig);
-				logDebug(`Mod config updated to defaults successfully: ${modName}`);
-			}
-		}
 	}
 
 	sanitizeModNamePath(modName) {
@@ -747,7 +728,11 @@ class ModsManager {
 		}
 
 		const modCount = Object.keys(this.mods).length;
-		logInfo(`Successfully initialized ${modCount} mod${modCount == 1 ? "" : "s"}`);
+		logInfo(
+			`Successfully initialized ${modCount} mod${modCount == 1 ? "" : "s"}: [ ${Object.values(this.mods)
+				.map((mod) => `${mod.info.name} (v${mod.info.version})`)
+				.join(", ")} ]`
+		);
 		logInfo(`Mod load order: [ ${this.loadOrder.join(", ")} ]`);
 	}
 
@@ -867,7 +852,7 @@ class ModsManager {
 
 		let scripts = null;
 		if (modInfo.scriptPath) {
-			const scriptPath = path.join(mod.path, modInfo.scriptPath);
+			const scriptPath = path.join(modPath, modInfo.scriptPath);
 			logDebug(`Loading mod script: ${scriptPath}`);
 			scripts = await import(`file://${scriptPath}`);
 		}
@@ -881,7 +866,13 @@ class ModsManager {
 		logDebug(`Loading mod: ${mod.info.name}`);
 
 		if (mod.info.configSchema) {
-			modloaderAPI.config.defineDefaults(mod.info.name, mod.info.configSchema);
+			if (mod.scripts.modifySchema) {
+				mod.scripts.modifySchema(mod.info.configSchema);
+			}
+			logDebug(`Validating config against schema for mod: ${mod.info.name}`);
+			let config = modloaderAPI.config.get(mod.info.name);
+			ConfigSchemaHandler.validateConfig(config, mod.info.configSchema);
+			modloaderAPI.config.set(mod.info.name, config);
 		}
 
 		if (mod.info.electronEntrypoint) {
