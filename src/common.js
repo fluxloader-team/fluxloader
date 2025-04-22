@@ -53,7 +53,7 @@ export const ConfigSchemaHandler = {
 				// Use default value from schema if config value is undefined
 				if (config[entry] === undefined) config[entry] = entrySchema.default;
 				let result = this.validateConfigValue(config[entry], entrySchema);
-				if (!result) throw new Error(`Config value '${config[entry]}' failed the check for '${entrySchema.type}' type`);
+				if (!result) throw new Error(`Config value '${JSON.stringify(config[entry])}' failed the check for '${entrySchema.type}' type`);
 			}
 		}
 	},
@@ -75,6 +75,15 @@ export const ConfigSchemaHandler = {
 				return value === true || value === false;
 			case "string":
 				return typeof value === "string";
+			case "number":
+				if (typeof value !== "number") return false;
+				if (schemaLeaf.min !== undefined && value < schemaLeaf.min) return false;
+				if (schemaLeaf.max !== undefined && value > schemaLeaf.max) return false;
+				// If step is given, checks if the value is close enough to the step value
+				if (schemaLeaf.step !== undefined && value === Math.round(value / schemaLeaf.step) * schemaLeaf.step) return true;
+			case "dropdown":
+				if (!schemaLeaf.options) throw new Error("Schema type 'dropdown' requires an 'options' array");
+				return schemaLeaf.options.includes(value);
 		}
 		throw new Error(`Unknown schema type: ${schemaLeaf.type}`);
 	},

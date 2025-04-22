@@ -257,6 +257,10 @@ class ElectronModloaderAPI {
 	handleBrowserIPC(channel, handler) {
 		ipcMain.handle(`ml-mod:${channel}`, handler);
 	}
+
+	getMods() {
+		return modsManager.mods;
+	}
 }
 
 class ElectronModConfigAPI {
@@ -866,7 +870,7 @@ class ModsManager {
 		logDebug(`Loading mod: ${mod.info.name}`);
 
 		if (mod.info.configSchema) {
-			if (mod.scripts.modifySchema) {
+			if (mod.scripts && mod.scripts.modifySchema) {
 				mod.scripts.modifySchema(mod.info.configSchema);
 			}
 			logDebug(`Validating config against schema for mod: ${mod.info.name}`);
