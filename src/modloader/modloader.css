@@ -9,7 +9,6 @@
 :root {
 	--header-height: 2.7rem;
 	--footer-height: 3.5rem;
-
 	--color-bg-dark: #1f222b;
 	--color-bg-medium: #2c2f39;
 	--color-bg-light: #3a3d49;
@@ -114,17 +113,17 @@ body {
 
 /* -------------------- TAB/MODS -------------------- */
 
-#tab-mods-content {
+#mods-tab-content {
 	background: var(--color-bg-light);
 	padding: 0;
 }
 
-#tab-mods-content .main {
+#mods-tab-content .main {
 	display: flex;
 	height: 100%;
 }
 
-#tab-mods-content .main .refresh-mods {
+#mods-tab-content .main .refresh-mods {
 	position: absolute;
 	right: 0.5rem;
 	bottom: 0.5rem;
@@ -140,29 +139,29 @@ body {
 }
 
 
-#tab-mods-content .main .refresh-mods img {
+#mods-tab-content .main .refresh-mods img {
 	flex: 0;
 	width: 1.1rem;
 	height: 1.1rem;
 }
 
-#tab-mods-content .main .refresh-mods:hover {
+#mods-tab-content .main .refresh-mods:hover {
 	background: var(--color-bg-refresh-hover);
 }
 
-#tab-mods-content .main-leftbar {
+#mods-tab-content .main-leftbar {
 	position: relative;
 	background: var(--color-bg-medium);
 }
 
-#tab-mods-content .main-center {
+#mods-tab-content .main-center {
 	position: relative;
 	flex: 1;
 	background: var(--color-bg-light);
 	overflow: hidden;
 }
 
-#tab-mods-content .mods-table {
+#mods-tab-content .mods-table {
 	width: 100%;
 	position: relative;
 	border-collapse: collapse;
@@ -170,20 +169,24 @@ body {
 	overflow: hidden;
 }
 
-#tab-mods-content .mods-table tr {
+#mods-tab-content .mods-table tr {
 	cursor: pointer;
 }
 
-#tab-mods-content .mods-table tr.selected {
+#mods-tab-content .mods-table tr.disabled {
+	color: var(--color-text-muted);
+}
+
+#mods-tab-content .mods-table tr.selected {
 	background: var(--color-bg-mods-table-row-selected);
 }
 
-#tab-mods-content .mods-table tr:hover {
+#mods-tab-content .mods-table tr:hover {
 	background: var(--color-bg-mods-table-row-hover);
 }
 
-#tab-mods-content .mods-table th,
-#tab-mods-content .mods-table td {
+#mods-tab-content .mods-table th,
+#mods-tab-content .mods-table td {
 	padding: 0.5rem 0.7rem;
 	position: relative;
 	overflow: hidden;
@@ -192,61 +195,61 @@ body {
 	width: fit-content;
 }
 
-#tab-mods-content .mods-table th {
+#mods-tab-content .mods-table th {
 	cursor: pointer;
 	user-select: none;
 	background: var(--color-bg-mods-table-head);
 }
 
-#tab-mods-content .mods-table th:hover {
+#mods-tab-content .mods-table th:hover {
 	background: var(--color-bg-mods-table-head-hover);
 }
 
-#tab-mods-content .mods-table th.gap-filler {
+#mods-tab-content .mods-table th.gap-filler {
 	cursor: auto;
 	background: var(--color-bg-mods-table-head);
 	overflow: visible;
 }
 
-#tab-mods-content .mods-table th.gap-filler:hover {
+#mods-tab-content .mods-table th.gap-filler:hover {
 	background: var(--color-bg-mods-table-head);
 }
 
-#tab-mods-content .mods-table .mods-content-table-tag-list {
+#mods-tab-content .mods-table .mods-tab-table-tag-list {
 	text-overflow: unset;
 }
 
-#tab-mods-content .main-rightbar {
+#mods-tab-content .main-rightbar {
 	position: relative;
 	background: var(--color-bg-medium);
 }
 
-#tab-mods-content .mod-info {
+#mods-tab-content .mod-info {
 	font-size: 0.9rem;
 }
 
-#tab-mods-content .mod-info-empty {
+#mods-tab-content .mod-info-empty {
 	text-align: center;
 	padding: 2rem;
 	color: var(--color-text-muted);
 }
 
-#tab-mods-content .mod-info .title {
+#mods-tab-content .mod-info .title {
 	text-align: center;
 	font-size: 1.2rem;
 	padding: 0.8rem 0 1rem 0;
 }
 
-#tab-mods-content .mod-info .description {
+#mods-tab-content .mod-info .description {
 	padding: 0.6rem 1rem 1.2rem 1rem;
 }
 
-#tab-mods-content .mod-info .rows {
+#mods-tab-content .mod-info .rows {
 	max-width: 25rem;
 	margin: auto;
 }
 
-#tab-mods-content .mod-info .row {
+#mods-tab-content .mod-info .row {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -254,23 +257,23 @@ body {
 	gap: 0.5rem;
 }
 
-#tab-mods-content .mod-info .row p {
+#mods-tab-content .mod-info .row p {
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
 
-#tab-mods-content .mod-info .row p.label {
+#mods-tab-content .mod-info .row p.label {
 	overflow: visible;
 	color: var(--color-text-muted);
 }
 
-#tab-mods-content .mod-info p.empty {
+#mods-tab-content .mod-info p.empty {
 	font-style: italic;
 	color: var(--color-text-muted);
 }
 
-#tab-mods-content .tag {
+#mods-tab-content .tag {
 	border-radius: 0.5rem;
 	background: var(--color-bg-tags);
 	color: var(--color-text-muted);

@@ -819,6 +819,14 @@ class ModsManager {
 		return this.loadOrder.map((modName) => this.mods[modName]);
 	}
 
+	setModEnabled(modName, enabled) {
+		logDebug(`Setting mod ${modName} enabled state to ${enabled}`);
+		if (!this.hasMod(modName)) throw new Error(`Mod not found: ${modName}`);
+		if (this.mods[modName].isEnabled === enabled) return;
+		this.mods[modName].isEnabled = enabled;
+		return true;
+	}
+	
 	// ------------ INTERNAL ------------
 
 	async _initializeMod(modPath) {
@@ -1133,6 +1141,17 @@ function setupElectronIPC() {
 		logDebug("Received ml-modloader:refresh-mods");
 		await modsManager.refreshMods();
 		return modsManager.getMods();
+	});
+
+	ipcMain.handle("ml-modloader:set-mod-enabled", async (event, args) => {
+		logDebug(`Received ml-modloader:set-mod-enabled: ${JSON.stringify(args)}`);
+		try {
+			modsManager.setModEnabled(args.name, args.enabled);
+			return true;
+		} catch (e) {
+			logError(`Error setting mod enabled state: ${e.stack}`);
+			return false;
+		}
 	});
 
 	ipcMain.handle("ml-modloader:start-game", (event, args) => {

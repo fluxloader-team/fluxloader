@@ -52,7 +52,7 @@ async function loadAllMods() {
 
 globalThis.modloader_preloadBundle = async () => {
 	// This is guaranteed to happen before the workers bundle.js is loaded
-	logInfo(`Starting worker modloader ${modloaderVersion}`);
+	// logInfo(`Starting worker modloader ${modloaderVersion}`);
 	modloaderAPI = new WorkerModloaderAPI();
 };
 
@@ -61,9 +61,9 @@ globalThis.modloader_onWorkerInitialized = (workerWorld) => {
 	// We have to wait otherwise the browser-worker communication will not work
 	modloaderAPI.workerWorld = workerWorld;
 	if (workerWorld.environment.context === 2) {
-		logInfo(`Worker Init event complete, type=Worker, threadIndex=${workerWorld.environment.threadMeta.startingIndex}`);
+		logInfo(`Worker modloader ${modloaderVersion} initialized, type=Worker, threadIndex=${workerWorld.environment.threadMeta.startingIndex}`);
 	} else if (workerWorld.environment.context === 3) {
-		logInfo(`Worker Init event complete, type=Manager`);
+		logInfo(`Worker modloader ${modloaderVersion} initialized, type=Manager`);
 	}
 	loadAllMods();
 };
