@@ -846,9 +846,13 @@ class ModsManager {
 			throw new Error(`Invalid modinfo.json found: ${modInfoPath}`);
 		}
 
-		// Ensure mod name name is unique
-		if (this.hasMod(modInfo.name)) {
-			throw new Error(`Mod at path ${modPath} has the same name as another mod: ${modInfo.name}`);
+		// Generate unique modID if it doesn't exist
+		let isLocal = false;
+		if (!modInfo.modID) {
+			const date = new Date().toISOString();
+			let hash = stringToHash(modInfo.name + modInfo.version + modInfo.author + date);
+			modInfo.modID = "LOCAL-" + Math.abs(hash).toString();
+			logDebug(`Generated modID for mod: ${modInfo.modID}`);
 		}
 
 		// If mod info defines entrypoints check they both exist
@@ -869,7 +873,7 @@ class ModsManager {
 			scripts = await import(`file://${scriptPath}`);
 		}
 
-		return { info: modInfo, path: modPath, scripts, isEnabled: true, isLoaded: false };
+		return { isLocal, info: modInfo, path: modPath, scripts, isEnabled: true, isLoaded: false };
 	}
 
 	async _loadMod(mod) {

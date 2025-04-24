@@ -133,54 +133,54 @@ class ModsTab {
 		this.rows = [];
 		let index = 0;
 		for (const mod of mods) {
-			const element = createElement(`
-				<tr>
-					<td><input type="checkbox" ${mod.isEnabled ? "checked" : ""}></td>
-					<td>${mod.info.name}</td>
-					<td>${mod.info.author}</td>
-					<td>${mod.info.version}</td>
-					<td>${mod.info.shortDescription || ""}</td>
-					<td>N/A</td>
-					<td class="mods-tab-table-tag-list">
-					${
-						mod.info.tags
-							? mod.info.tags.reduce((acc, tag) => {
-									return acc + `<span class="tag">${tag}</span>`;
-							  }, "")
-							: ""
-					}
-					</td>
-				</tr>
-			`);
-
-			element.classList.toggle("disabled", !mod.isEnabled);
-
-			element.querySelector("input").addEventListener("click", (e) => {
-				e.stopPropagation();
-			});
-
-			element.querySelector("input").addEventListener("change", (e) => {
-				const checkbox = e.target;
-				const isChecked = checkbox.checked;
-				checkbox.disabled = true;
-
-				electron.invoke("ml-modloader:set-mod-enabled", { name: mod.info.name, enabled: isChecked }).then((success) => {
-					checkbox.disabled = false;
-					if (!success) checkbox.checked = !isChecked;
-					mod.isEnabled = checkbox.checked;
-					element.classList.toggle("disabled", !mod.isEnabled);
-				});
-			});
-
-			let rowIndex = index;
-			element.addEventListener("click", (e) => {
-				this.selectMod(rowIndex);
-			});
-
+			const element = this.createModRowElement(mod, index);
 			tbody.appendChild(element);
 			this.rows.push({ element, mod });
 			index += 1;
 		}
+	}
+
+	createModRowElement(mod, index) {
+		const element = createElement(`
+			<tr>
+				<td><input type="checkbox" ${mod.isEnabled ? "checked" : ""}></td>
+				<td>${mod.info.name}</td>
+				<td>${mod.info.author}</td>
+				<td>${mod.info.version}</td>
+				<td>${mod.info.shortDescription || ""}</td>
+				<td>N/A</td>
+				<td class="mods-tab-table-tag-list">
+				${
+					mod.info.tags
+						? mod.info.tags.reduce((acc, tag) => {
+								return acc + `<span class="tag">${tag}</span>`;
+						  }, "")
+						: ""
+				}
+				</td>
+			</tr>
+		`);
+
+		element.classList.toggle("disabled", !mod.isEnabled);
+
+		element.querySelector("input").addEventListener("click", (e) => e.stopPropagation());
+		
+		element.addEventListener("click", (e) => this.selectMod(index));
+
+		element.querySelector("input").addEventListener("change", (e) => {
+			const checkbox = e.target;
+			const isChecked = checkbox.checked;
+			checkbox.disabled = true;
+
+			electron.invoke("ml-modloader:set-mod-enabled", { name: mod.info.name, enabled: isChecked }).then((success) => {
+				checkbox.disabled = false;
+				if (!success) checkbox.checked = !isChecked;
+				mod.isEnabled = checkbox.checked;
+				element.classList.toggle("disabled", !mod.isEnabled);
+			});
+		});
+
+		return element;
 	}
 
 	selectMod(index) {
@@ -215,6 +215,7 @@ class ModsTab {
 				getElement("mod-info-description").innerText = "No description provided.";
 			}
 
+			getElement("mod-info-mod-id").innerText = mod.info.modID;
 			getElement("mod-info-author").innerText = mod.info.author;
 			getElement("mod-info-version").innerText = mod.info.version;
 			getElement("mod-info-last-updated").innerText = mod.info.lastUpdated;
