@@ -114,6 +114,7 @@ class ModsTab {
 	modRows = {};
 	defaultOrder = [];
 	selectedMod = null;
+	sortingColumn = null;
 
 	setup() {
 		getElement("mods-tab-table")
@@ -121,11 +122,16 @@ class ModsTab {
 			.forEach((element) => {
 				const column = element.getAttribute("data-column");
 				this.columns[column] = { element, sortingType: 0 };
-				element.addEventListener("click", () => this.selectMod(null));
+				element.addEventListener("click", () => {
+					this.selectMod(null);
+					this.clickColumn(column);
+				});
 			});
 	}
 
 	select() {
+		if (this.sortingColumn) this.unselectSortingColumn();
+
 		electron.invoke("ml-modloader:get-mods").then((mods) => {
 			this.setMods(mods);
 		});
@@ -259,6 +265,69 @@ class ModsTab {
 
 	updateFilteredMods() {
 		// TODO
+	}
+
+	clickColumn(column) {
+		this.selectSortingColumn(column);
+	}
+
+	unselectSortingColumn() {
+		if (!this.sortingColumn) return;
+		this.columns[this.sortingColumn].sortingType = 0;
+		this.columns[this.sortingColumn].element.classList.remove("ascending");
+		this.columns[this.sortingColumn].element.classList.remove("descending");
+	}
+
+	selectSortingColumn(column) {
+		console.log("Sorting mods by column:", column);
+		if (this.sortingColumn != column) this.unselectSortingColumn();
+
+		let rows = [];
+
+		// 2 -> 0: Descending -> None
+		if (this.columns[column].sortingType === 2) {
+			for (const modID of this.defaultOrder) rows.push(this.modRows[modID]);
+			this.columns[column].sortingType = 0;
+			this.columns[column].element.classList.remove("ascending");
+			this.columns[column].element.classList.remove("descending");
+			this.sortingColumn = null;
+		}
+
+		// 0 -> 1 -> 2: None -> Ascending -> Descending
+		else {
+			let comparator;
+			switch (column) {
+				case "name":
+					comparator = (a, b) => a.mod.info.name.localeCompare(b.mod.info.name);
+					break;
+				case "version":
+					comparator = (a, b) => a.mod.info.version.localeCompare(b.mod.info.version);
+					break;
+				case "author":
+					comparator = (a, b) => a.mod.info.author.localeCompare(b.mod.info.author);
+					break;
+				default:
+					console.warn("Unknown column:", column);
+					return;
+			}
+
+			const ascending = this.columns[column].sortingType === 0;
+			rows = Object.values(this.modRows);
+			rows.sort(comparator);
+			if (!ascending) rows.reverse();
+			this.columns[column].sortingType = ascending ? 1 : 2;
+			this.columns[column].element.classList.toggle("ascending", ascending);
+			this.columns[column].element.classList.toggle("descending", !ascending);
+			this.sortingColumn = column;
+		}
+
+		// Update tbody with sorted rows
+		const tbody = getElement("mods-tab-table").querySelector("tbody");
+		tbody.innerHTML = "";
+		for (let i = 0; i < rows.length; i++) {
+			tbody.appendChild(rows[i].element);
+			this.modRows[rows[i].mod.info.modID].curentIndex = i;
+		}
 	}
 }
 

@@ -13,6 +13,8 @@
 	--color-bg-medium: #2c2f39;
 	--color-bg-light: #3a3d49;
 	--color-bg-mods-table-head: #272a34;
+	--color-bg-mods-table-head-hover: #3f424d;
+	--color-bg-mods-table-head-selected: #353844;
 	--color-bg-mods-table-row-selected: #525564;
 	--color-bg-mods-table-row-hover: #5c5f70;
 	--color-bg-refresh-hover: #4b4e5d;
@@ -193,9 +195,34 @@ body {
 }
 
 #mods-tab-content .mods-table th {
-	cursor: auto;
+	cursor: pointer;
 	user-select: none;
 	background: var(--color-bg-mods-table-head);
+}
+
+#mods-tab-content .mods-table th:hover {
+	background: var(--color-bg-mods-table-head-hover);
+}
+
+#mods-tab-content .mods-table th.ascending,
+#mods-tab-content .mods-table th.descending {
+	background: var(--color-bg-mods-table-head-selected);
+}
+
+#mods-tab-content .mods-table th.ascending::after {
+	content: "▲";
+	position: absolute;
+	right: 0.5rem;
+	top: 50%;
+	transform: translateY(-50%);
+}
+
+#mods-tab-content .mods-table th.descending::after {
+	content: "▼";
+	position: absolute;
+	right: 0.5rem;
+	top: 50%;
+	transform: translateY(-50%);
 }
 
 #mods-tab-content .mods-table th.gap-filler {
