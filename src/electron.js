@@ -818,12 +818,22 @@ class ModsManager {
 		logDebug(outputString);
 	}
 
+	// Returns the list of mods that in a form that is safe to be sent through IPC
+	getIPCSafeMods() {
+		return Object.fromEntries(
+			Object.entries(this.mods).map(([key, value]) => {
+				delete value.scripts;
+				return [key, value];
+			})
+		);
+	}
+
 	getLoadedMods() {
-		return this.loadOrder.map((modName) => this.mods[modName]).filter((mod) => mod.isLoaded);
+		return this.loadOrder.map((modName) => this.getIPCSafeMods()[modName]).filter((mod) => mod.isLoaded);
 	}
 
 	getMods() {
-		return this.loadOrder.map((modName) => this.mods[modName]);
+		return this.loadOrder.map((modName) => this.getIPCSafeMods()[modName]);
 	}
 
 	async getAllMods(config) {
