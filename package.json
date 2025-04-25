@@ -11,6 +11,7 @@
 		"asar": "^3.2.0",
 		"electron": "^35.0.2",
 		"escodegen": "^2.1.0",
+		"marked": "^15.0.11",
 		"puppeteer-core": "^20.0.0"
 	}
 }

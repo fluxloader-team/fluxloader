@@ -7,6 +7,7 @@ import asar from "asar";
 import { EventBus, ConfigSchemaHandler } from "./common.js";
 import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
+import { marked } from "marked";
 
 // ------------- MODDING DOCUMENTATION -------------
 
@@ -257,31 +258,27 @@ class ElectronModloaderAPI {
 	handleBrowserIPC(channel, handler) {
 		ipcMain.handle(`ml-mod:${channel}`, handler);
 	}
-
-	getMods() {
-		return modsManager.mods;
-	}
 }
 
 class ElectronModConfigAPI {
 	constructor() {
-		ipcMain.handle("ml-config:get-config", (event, modName) => {
-			logDebug(`Getting mod config remotely for ${modName}`);
-			return this.get(modName);
+		ipcMain.handle("ml-config:get-config", (event, modID) => {
+			logDebug(`Getting mod config remotely for ${modID}`);
+			return this.get(modID);
 		});
-		ipcMain.handle("ml-config:set-config", (event, modName, config) => {
-			logDebug(`Setting mod config remotely for ${modName}`);
-			return this.set(modName, config);
+		ipcMain.handle("ml-config:set-config", (event, modID, config) => {
+			logDebug(`Setting mod config remotely for ${modID}`);
+			return this.set(modID, config);
 		});
 	}
 
-	get(modName) {
-		const modNamePath = this.sanitizeModNamePath(modName);
+	get(modID) {
+		const modIDPath = this.sanitizeModIDPath(modID);
 		const baseModsPath = resolvePathRelativeToModloader(config.modsPath);
 		const modsConfigPath = path.join(baseModsPath, "config");
 		ensureDirectoryExists(modsConfigPath);
-		const modConfigPath = path.join(modsConfigPath, `${modNamePath}.json`);
-		logDebug(`Getting mod config: ${modNamePath} -> ${modConfigPath}`);
+		const modConfigPath = path.join(modsConfigPath, `${modIDPath}.json`);
+		logDebug(`Getting mod config: ${modIDPath} -> ${modConfigPath}`);
 		try {
 			if (fs.existsSync(modConfigPath)) {
 				return JSON.parse(fs.readFileSync(modConfigPath, "utf8"));
@@ -292,13 +289,13 @@ class ElectronModConfigAPI {
 		return {};
 	}
 
-	set(modName, _config) {
-		const modNamePath = this.sanitizeModNamePath(modName);
+	set(modID, _config) {
+		const modIDPath = this.sanitizeModIDPath(modID);
 		const baseModsPath = resolvePathRelativeToModloader(config.modsPath);
 		const modsConfigPath = path.join(baseModsPath, "config");
 		ensureDirectoryExists(modsConfigPath);
-		const modConfigPath = path.join(modsConfigPath, `${modNamePath}.json`);
-		logDebug(`Setting mod config: ${modNamePath} -> ${modConfigPath}`);
+		const modConfigPath = path.join(modsConfigPath, `${modIDPath}.json`);
+		logDebug(`Setting mod config: ${modIDPath} -> ${modConfigPath}`);
 
 		try {
 			fs.writeFileSync(modConfigPath, JSON.stringify(_config, null, 4), "utf8");
@@ -310,8 +307,8 @@ class ElectronModConfigAPI {
 		return false;
 	}
 
-	sanitizeModNamePath(modName) {
-		return modName;
+	sanitizeModIDPath(modID) {
+		return modID;
 	}
 }
 
@@ -697,6 +694,7 @@ class GameFileManager {
 class ModsManager {
 	baseModsPath = undefined;
 	mods = {};
+	modScripts = {};
 	loadOrder = [];
 	loadedModCount = 0;
 	allModCache = [];
@@ -712,27 +710,27 @@ class ModsManager {
 		modPaths = modPaths.filter((p) => p !== "config");
 		modPaths = modPaths.map((p) => path.join(this.baseModsPath, p));
 		modPaths = modPaths.filter((p) => fs.statSync(p).isDirectory());
-
 		logDebug(`Found ${modPaths.length} mod${modPaths.length === 1 ? "" : "s"} to initialize inside: ${this.baseModsPath}`);
 
 		for (const modPath of modPaths) {
 			try {
-				const mod = await this._initializeMod(modPath);
-				// Check for dependents of this mod and place this mod before them in the load order
-				let lowestIndex = this.loadOrder.length;
-				const mods = Object.values(this.mods);
-				for (const modIndex in mods) {
-					// Check if mod depends on mod being loaded
-					if (mods[modIndex].info.dependencies && Object.keys(mods[modIndex].info.dependencies).includes(mod.info.name)) {
-						// Check if mod that is dependent on mod being loaded is lower in the loadOrder
-						// if so, move lowest index so mod being loaded will load before them
-						if (modIndex < lowestIndex) {
-							lowestIndex = modIndex;
-						}
+				// Initialize and save the mod
+				const { mod, scripts } = await this._initializeMod(modPath);
+				this.mods[mod.info.modID] = mod;
+				this.modScripts[mod.info.modID] = scripts;
+
+				// We want to make sure this mod is placed before any mod that depends on it
+				// We start by putting it at the end, then we check each currently loaded mod
+				let insertIndex = this.loadOrder.length;
+				for (let i = 0; i < this.loadOrder.length; i++) {
+					const otherMod = this.mods[this.loadOrder[i]];
+					if (otherMod.info.dependencies && Object.keys(otherMod.info.dependencies).includes(mod.info.modID)) {
+						if (modIndex < insertIndex) insertIndex = modIndex;
 					}
 				}
-				this.mods[mod.info.name] = mod;
-				this.loadOrder.splice(lowestIndex, 0, mod.info.name);
+
+				// Place into load order
+				this.loadOrder.splice(insertIndex, 0, mod.info.modID);
 			} catch (e) {
 				logWarn(`Error initializing mod at path ${modPath}: ${e.stack}`);
 			}
@@ -741,7 +739,7 @@ class ModsManager {
 		const modCount = Object.keys(this.mods).length;
 		logInfo(
 			`Successfully initialized ${modCount} mod${modCount == 1 ? "" : "s"}: [ ${Object.values(this.mods)
-				.map((mod) => `${mod.info.name} (v${mod.info.version})`)
+				.map((mod) => `${mod.info.modID} (v${mod.info.version})`)
 				.join(", ")} ]`
 		);
 		logInfo(`Mod load order: [ ${this.loadOrder.join(", ")} ]`);
@@ -750,16 +748,16 @@ class ModsManager {
 	async loadAllMods() {
 		if (this.loadedModCount > 0) throw new Error("Cannot load mods, some mods are already loaded");
 
-		const enabledCount = this.loadOrder.filter((modName) => this.mods[modName].isEnabled).length;
+		const enabledCount = this.loadOrder.filter((modID) => this.mods[modID].isEnabled).length;
 		if (enabledCount == this.loadOrder.length) {
 			logDebug(`Loading ${this.loadOrder.length} mods...`);
 		} else {
 			logDebug(`Loading ${enabledCount} / ${this.loadOrder.length} mods...`);
 		}
 
-		for (const modName of this.loadOrder) {
-			if (this.mods[modName].isEnabled) {
-				await this._loadMod(this.mods[modName]);
+		for (const modID of this.loadOrder) {
+			if (this.mods[modID].isEnabled) {
+				await this._loadMod(this.mods[modID]);
 			}
 		}
 
@@ -772,9 +770,9 @@ class ModsManager {
 
 		logDebug("Unloading all mods...");
 
-		for (const modName of this.loadOrder) {
-			if (this.mods[modName].isLoaded) {
-				this._unloadMod(this.mods[modName]);
+		for (const modID of this.loadOrder) {
+			if (this.mods[modID].isLoaded) {
+				this._unloadMod(this.mods[modID]);
 			}
 		}
 
@@ -789,17 +787,17 @@ class ModsManager {
 			throw new Error(`Invalid new mod order length: ${newLoadOrder.length} vs ${this.loadOrder.length}`);
 		}
 
-		for (const modName of newLoadOrder) {
-			if (!this.hasMod(modName)) {
-				throw new Error(`Invalid mod name in new order: ${modName}`);
+		for (const modID of newLoadOrder) {
+			if (!this.hasMod(modID)) {
+				throw new Error(`Invalid mod name in new order: ${modID}`);
 			}
 		}
 
 		this.loadOrder = newLoadOrder;
 	}
 
-	hasMod(modName) {
-		return Object.hasOwn(this.mods, modName);
+	hasMod(modID) {
+		return Object.hasOwn(this.mods, modID);
 	}
 
 	logContents() {
@@ -810,30 +808,20 @@ class ModsManager {
 
 		outputString += `  |  \n`;
 		outputString += `  |  Mods (${Object.keys(this.mods).length})\n`;
-		for (const modName of this.loadOrder) {
-			const mod = this.mods[modName];
-			outputString += `  |  |  '${modName}': ${mod.isLoaded ? "LOADED" : "UNLOADED"}, path: ${mod.path}\n`;
+		for (const modID of this.loadOrder) {
+			const mod = this.mods[modID];
+			outputString += `  |  |  '${mod.info.modID}': ${mod.isLoaded ? "LOADED" : "UNLOADED"}, path: ${mod.path}\n`;
 		}
 
 		logDebug(outputString);
 	}
 
-	// Returns the list of mods that in a form that is safe to be sent through IPC
-	getIPCSafeMods() {
-		return Object.fromEntries(
-			Object.entries(this.mods).map(([key, value]) => {
-				delete value.scripts;
-				return [key, value];
-			})
-		);
+	getInstalledMods() {
+		return this.loadOrder.map((modID) => this.mods[modID]);
 	}
 
 	getLoadedMods() {
-		return this.loadOrder.map((modName) => this.getIPCSafeMods()[modName]).filter((mod) => mod.isLoaded);
-	}
-
-	getMods() {
-		return this.loadOrder.map((modName) => this.getIPCSafeMods()[modName]);
+		return this.getInstalledMods().filter((mod) => mod.isLoaded);
 	}
 
 	async getAllMods(config) {
@@ -845,7 +833,7 @@ class ModsManager {
 			this.allModCache = [];
 
 			// First get all locally installed with the filter
-			let installedMods = this.getMods();
+			let installedMods = this.getInstalledMods();
 			for (const mod of installedMods) {
 				if (config.search) {
 					const check = config.search.toLowerCase();
@@ -872,7 +860,6 @@ class ModsManager {
 				for (const dataMod of data.mods) {
 					this.allModCache.push({
 						info: dataMod.modData,
-						isLocal: false,
 						isInstalled: false,
 					});
 				}
@@ -892,11 +879,11 @@ class ModsManager {
 		}
 	}
 
-	setModEnabled(modName, enabled) {
-		logDebug(`Setting mod ${modName} enabled state to ${enabled}`);
-		if (!this.hasMod(modName)) throw new Error(`Mod not found: ${modName}`);
-		if (this.mods[modName].isEnabled === enabled) return;
-		this.mods[modName].isEnabled = enabled;
+	setModEnabled(modID, enabled) {
+		if (!this.hasMod(modID)) throw new Error(`Mod not found: ${modID}`);
+		logDebug(`Setting mod ${modID} enabled state to ${enabled}`);
+		if (this.mods[modID].isEnabled === enabled) return;
+		this.mods[modID].isEnabled = enabled;
 		return true;
 	}
 
@@ -933,19 +920,9 @@ class ModsManager {
 		//         scriptPath           optional
 
 		// Ensure mod has required mod info
-		if (!modInfo || !modInfo.name || !modInfo.version || !modInfo.author || !modInfo.modloaderVersion) {
+		if (!modInfo || !modInfo.modID || !modInfo.name || !modInfo.version || !modInfo.author || !modInfo.modloaderVersion) {
 			throw new Error(`Invalid modinfo.json found: ${modInfoPath}`);
 		}
-
-		// Generate unique modID if it doesn't exist
-		let isLocal = false;
-		if (!modInfo.modID) {
-			const date = new Date().toISOString();
-			let hash = stringToHash(modInfo.name + modInfo.version + modInfo.author + date);
-			modInfo.modID = "LOCAL-" + Math.abs(hash).toString();
-			logDebug(`Generated modID for mod: ${modInfo.modID}`);
-		}
-
 		// If mod info defines entrypoints check they both exist
 		if (modInfo.electronEntrypoint && !fs.existsSync(path.join(modPath, modInfo.electronEntrypoint))) {
 			throw new Error(`Mod defines electron entrypoint ${modInfo.electronEntrypoint} but file not found: ${modPath}`);
@@ -965,29 +942,29 @@ class ModsManager {
 		}
 
 		return {
-			info: modInfo,
-			path: modPath,
-			scripts,
-			isLocal: isLocal, // Does the mod have a modID or is it local
-			isInstalled: true, // Does the mod exist in the mods directory
-			isEnabled: true, // Is the mod enabled in the config
-			isLoaded: false, // Is the mod loaded in the game
+			scripts: scripts,
+			mod: {
+				info: modInfo,
+				path: modPath,
+				isInstalled: true, // Does the mod exist in the mods directory
+				isEnabled: true, // Is the mod enabled in the config
+				isLoaded: false, // Is the mod loaded in the game
+			},
 		};
 	}
 
 	async _loadMod(mod) {
-		if (mod.isLoaded) throw new Error(`Mod already loaded: ${mod.info.name}`);
+		if (mod.isLoaded) throw new Error(`Mod already loaded: ${mod.info.modID}`);
 
-		logDebug(`Loading mod: ${mod.info.name}`);
-
+		logDebug(`Loading mod: ${mod.info.modID}`);
 		if (mod.info.configSchema) {
-			if (mod.scripts && mod.scripts.modifySchema) {
-				mod.scripts.modifySchema(mod.info.configSchema);
+			logDebug(`Modifying and validating schema for mod: ${mod.info.modID}`);
+			if (this.modScripts[mod.info.modID] && this.modScripts[mod.info.modID].modifySchema) {
+				this.modScripts[mod.info.modID].modifySchema(mod.info.configSchema);
 			}
-			logDebug(`Validating config against schema for mod: ${mod.info.name}`);
-			let config = modloaderAPI.config.get(mod.info.name);
+			let config = modloaderAPI.config.get(mod.info.modID);
 			ConfigSchemaHandler.validateConfig(config, mod.info.configSchema);
-			modloaderAPI.config.set(mod.info.name, config);
+			modloaderAPI.config.set(mod.info.modID, config);
 		}
 
 		if (mod.info.electronEntrypoint) {
@@ -1003,9 +980,9 @@ class ModsManager {
 	}
 
 	_unloadMod(mod) {
-		if (!mod.isLoaded) throw new Error(`Mod already unloaded: ${mod.info.name}`);
+		if (!mod.isLoaded) throw new Error(`Mod already unloaded: ${mod.info.modID}`);
 
-		logDebug(`Unloading mod: ${mod.info.name}`);
+		logDebug(`Unloading mod: ${mod.info.modID}`);
 
 		modloaderAPI.events.trigger("ml:onModUnloaded", mod);
 
@@ -1235,6 +1212,11 @@ function setupElectronIPC() {
 		return modsManager.getLoadedMods();
 	});
 
+	ipcMain.handle("ml-modloader:get-installed-mods", (event, args) => {
+		logDebug("Received ml-modloader:get-installed-mods");
+		return modsManager.getInstalledMods();
+	});
+
 	ipcMain.handle("ml-modloader:get-all-mods", async (event, args) => {
 		logDebug(`Received ml-modloader:get-all-mods: ${JSON.stringify(args)}`);
 		return await modsManager.getAllMods(args);
@@ -1249,7 +1231,7 @@ function setupElectronIPC() {
 	ipcMain.handle("ml-modloader:set-mod-enabled", async (event, args) => {
 		logDebug(`Received ml-modloader:set-mod-enabled: ${JSON.stringify(args)}`);
 		try {
-			modsManager.setModEnabled(args.name, args.enabled);
+			modsManager.setModEnabled(args.modID, args.enabled);
 			return true;
 		} catch (e) {
 			logError(`Error setting mod enabled state: ${e.stack}`);
@@ -1266,6 +1248,11 @@ function setupElectronIPC() {
 		logDebug("Received ml-modloader:stop-game");
 		closeGameWindow();
 	});
+
+	ipcMain.handle("ml-modloader:render-markdown", (event, args) => {
+		logDebug("Received ml-modloader:render-markdown");
+		return marked(args);
+	});
 }
 
 function startModloaderWindow() {
@@ -1273,11 +1260,11 @@ function startModloaderWindow() {
 
 	try {
 		modloaderWindow = new BrowserWindow({
-			width: 1700,
-			height: 850,
+			width: 1900,
+			height: 1100,
 			autoHideMenuBar: true,
 			webPreferences: {
-				preload: resolvePathRelativeToModloader("modloader/modloader-preload.js"),
+				preload: resolvePathRelativeToModloader("modloader/modloader-preload.js")
 			},
 		});
 		modloaderWindow.on("closed", cleanupModloaderWindow);

@@ -280,10 +280,13 @@ class ModsTab {
 
 		getElement("mod-info-title").innerText = mod.info.name;
 
-		getElement("mod-info-description").classList.toggle("empty", mod.info.description ? mod.info.description.length === 0 : true);
 		if (mod.info.description && mod.info.description.length > 0) {
-			getElement("mod-info-description").innerText = mod.info.description;
+			getElement("mod-info-description").classList.remove("empty");
+			electron.invoke("ml-modloader:render-markdown", mod.info.description).then((html) => {
+				getElement("mod-info-description").innerHTML = html;
+			});
 		} else {
+			getElement("mod-info-description").classList.add("empty");
 			getElement("mod-info-description").innerText = "No description provided.";
 		}
 
