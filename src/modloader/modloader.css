@@ -9,17 +9,23 @@
 :root {
 	--header-height: 2.7rem;
 	--footer-height: 3.5rem;
+
+	/* Generic */
 	--color-bg-dark: #1f222b;
 	--color-bg-medium: #2c2f39;
 	--color-bg-light: #3a3d49;
+	--color-text-primary: #ddd;
+	--color-text-secondary: #aaa;
+	--color-text-muted: #919191;
+
+	/* Specific */
+	--color-bg-load-button: #333743;
+	--color-bg-load-button-hover: #2f323d;
 	--color-bg-mods-table-head: #272a34;
 	--color-bg-mods-table-row-selected: #525564;
 	--color-bg-mods-table-row-hover: #5c5f70;
 	--color-bg-refresh-hover: #4b4e5d;
 	--color-bg-tags: #4c505d;
-	--color-text-primary: #ddd;
-	--color-text-secondary: #aaa;
-	--color-text-muted: #919191;
 	--color-tab-hover: #2c2f39;
 	--color-tab-selected: #3a3d49;
 	--color-progress-bar: #53b356;
@@ -220,6 +226,24 @@ body {
 #mods-tab-content .main-center .main-center-scroll {
 	flex: 1;
 	overflow: auto;
+}
+
+#mods-tab-content .main-center .mods-load-button {
+	cursor: pointer;
+	margin: auto;
+	width: fit-content;
+	height: 2.2rem;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 0.2rem;
+	margin-top: 2.2rem;
+	padding: 0 0.8rem;
+	background: var(--color-bg-load-button);
+}
+
+#mods-tab-content .main-center .mods-load-button:hover {
+	background: var(--color-bg-load-button-hover);
 }
 
 #mods-tab-content .main-center .refresh-mods {

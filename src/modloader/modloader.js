@@ -117,6 +117,7 @@ class ModsTab {
 	modRows = {};
 	selectedMod = null;
 	filterInfo = { search: null, tags: [] };
+	isFetchingRemoteMods = false;
 
 	// --- Loading ---
 
@@ -137,28 +138,38 @@ class ModsTab {
 		getElement("mods-tab-search-button").addEventListener("click", () => {
 			this.onSearchChanged();
 		});
+
+		getElement("mods-load-button").addEventListener("click", () => {
+			this.isFetchingRemoteMods = true;
+			getElement("mods-load-button").innerText = "Loading...";
+			this.reloadModList();
+		});
 	}
 
 	selectTab() {
-		this.reloadAllMods();
+		this.reloadModList();
 	}
 
 	deselectTab() {
 		// TODO
 	}
 
-	reloadAllMods() {
+	reloadModList() {
 		this.loadedPages = 0;
 		this.modRows = {};
 
 		const getInfo = {
-			continue: false,
+			page: 1,
+			fetchRemote: this.isFetchingRemoteMods,
 			pageSize: ModsTab.pageSize,
 			search: this.filterInfo.search,
 			tags: this.filterInfo.tags,
 		};
 
-		electron.invoke("ml-modloader:get-all-mods", getInfo).then((mods) => {
+		setProgressText("Fetching mods...");
+		setProgress(0);
+
+		electron.invoke("ml-modloader:get-all-mods", getInfo).then(({ mods, sucess, message }) => {
 			const tbody = getElement("mods-tab-table").querySelector("tbody");
 			tbody.innerHTML = "";
 			for (const mod of mods) {
@@ -166,6 +177,7 @@ class ModsTab {
 				this.modRows[mod.info.modID] = row;
 				tbody.appendChild(row.element);
 			}
+
 			this.loadedPages++;
 
 			// Reselect the selected mod if it is still visible
@@ -174,6 +186,11 @@ class ModsTab {
 				this.selectedMod = null;
 				this.selectMod(oldSelectedMod);
 			}
+
+			getElement("mods-load-button").innerText = "Load more mods";
+
+			setProgressText(message);
+			setProgress(0);
 		});
 	}
 
@@ -200,7 +217,7 @@ class ModsTab {
 			`
 			<tr>
 				<td>
-					` +
+				` +
 				(mod.isInstalled ? `<input type="checkbox" ${mod.isEnabled ? "checked" : ""}>` : ``) +
 				`
 				</td>
@@ -233,8 +250,7 @@ class ModsTab {
 				const checkbox = e.target;
 				const isChecked = checkbox.checked;
 				checkbox.disabled = true;
-
-				electron.invoke("ml-modloader:set-mod-enabled", { name: mod.info.name, enabled: isChecked }).then((success) => {
+				electron.invoke("ml-modloader:set-mod-enabled", { modID: mod.info.modID, enabled: isChecked }).then((success) => {
 					checkbox.disabled = false;
 					if (!success) checkbox.checked = !isChecked;
 					mod.isEnabled = checkbox.checked;
@@ -314,18 +330,18 @@ class ModsTab {
 	onSearchChanged() {
 		const searchInput = getElement("mods-tab-search").value.toLowerCase();
 		this.filterInfo.search = searchInput;
-		this.reloadAllMods();
+		this.reloadModList();
 	}
 
 	onSelectedTagsChanged() {
 		// TODO
-		this.reloadAllMods();
+		this.reloadModList();
 	}
 
 	removeFiltering() {
 		this.filterInfo.search = null;
 		this.filterInfo.tags = [];
-		this.reloadAllMods();
+		this.reloadModList();
 	}
 }
 
@@ -339,7 +355,7 @@ class ModsTab {
 	document.querySelectorAll(".resizer").forEach(handleResizer);
 
 	getElement("refresh-mods").addEventListener("click", () => {
-		electron.invoke("ml-modloader:refresh-mods").then(() => tabs.mods.reloadAllMods());
+		electron.invoke("ml-modloader:refresh-mods").then(() => tabs.mods.reloadModList());
 	});
 
 	setProgressText("");

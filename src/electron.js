@@ -697,7 +697,7 @@ class ModsManager {
 	modScripts = {};
 	loadOrder = [];
 	loadedModCount = 0;
-	allModCache = [];
+	fetchedModCache = [];
 
 	async refreshMods() {
 		this.mods = {};
@@ -826,16 +826,13 @@ class ModsManager {
 
 	async getAllMods(config) {
 		// We want to get paginated, filtered, sorted mods
-		// config = { continue, search, tags, pageOffset, pageSize }
+		// config = { continue, search, tags, page, pageSize }
 
-		// On the first call we want to initialize the local cache
-		if (!config.continue) {
-			this.allModCache = [];
-
-			// First get all locally installed with the filter
+		if (config.page == 1) {
+			// On page 1 we always want to return all installed mods
 			let installedMods = this.getInstalledMods();
-			for (const mod of installedMods) {
-				if (config.search) {
+			if (config.search) {
+				installedMods = installedMods.filter((mod) => {
 					const check = config.search.toLowerCase();
 					let matched = false;
 					matched |= mod.info.modID.toLowerCase().includes(check);
@@ -844,38 +841,57 @@ class ModsManager {
 					matched |= mod.info.author.toLowerCase().includes(check);
 					if (mod.info.shortDescription) matched |= mod.info.shortDescription.toLowerCase().includes(check);
 					if (mod.info.description) matched |= mod.info.description.toLowerCase().includes(check);
-					if (matched) this.allModCache.push(mod);
-				} else {
-					this.allModCache.push(mod);
-				}
+					return matched;
+				});
 			}
 
-			// We want to load an arbitrarily large amount of mods from the API
-			// Example: https://fluxloader.app/api/mods?search=somemod&page=1&size=5
-			let loadCount = config.pageSize * 10 - this.allModCache.length;
-			const response = await fetch(`https://fluxloader.app/api/mods?search=${config.search || ""}&page=${1}&size=${loadCount}`);
-			const data = await response.json();
+			// If not fetching remote then just return the installed mods
+			if (!config.fetchRemote) {
+				logDebug(`Returning ${installedMods.length} installed mods for page 1, not fetching remote mods.`);
+				return { mods: installedMods, success: true, message: "Fetched local mods successfully" };
+			}
+
+			// First we want to load an arbitrarily large amount of mods from the API
+			// Old Example: https://fluxloader.app/api/mods?search=somemod&page=1&size=5
+			this.fetchedModCache = [];
+			let loadCount = config.pageSize * 10;
+			const response = await fetch(`https://fluxloader.app/api/mods`);
+			let data = null;
+			try {
+				data = await response.json();
+			} catch (e) {
+				// This will be caught in the else
+			}
 			if (data && data.resultsCount) {
 				console.log(`Fetched ${data.resultsCount} mods from the API`);
 				for (const dataMod of data.mods) {
-					this.allModCache.push({
+					this.fetchedModCache.push({
 						info: dataMod.modData,
 						isInstalled: false,
 					});
 				}
+
+				// Now return the first page of mods + installed mods
+				logDebug(`Returning ${installedMods.length} installed mods + ${config.pageSize} fetched mods for page 1`);
+				return { mods: [...installedMods, ...this.fetchedModCache.slice(0, config.pageSize)], success: true, message: "Fetched all mods successfully" };
 			}
 
-			// Just return the first page of mods
-			return this.allModCache.slice(0, config.pageSize);
+			// Could not fetch any so just return the installed mods
+			else {
+				logDebug(`Failed to fetch mods from the API: ${JSON.stringify(data)}`);
+				logDebug(`Returning just ${installedMods.length} installed mods for page 1`);
+				return { mods: installedMods, success: false, message: "Failed to fetch remote mods" };
+			}
 		}
 
-		// On subbsequent calls we want to just return a slice of the cache
+		// On subbsequent calls we want to just return a page from the cache
 		else {
-			if (config.pageOffset * config.pageSize > this.allModCache.length) {
-				logDebug(`Page offset ${config.pageOffset} is out of bounds for allModCache length ${this.allModCache.length}`);
+			if (config.page * config.pageSize > this.fetchedModCache.length) {
+				logDebug(`Page offset ${config.page} is out of bounds for allModCache length ${this.fetchedModCache.length}`);
 				return [];
 			}
-			return this.allModCache.slice(config.pageOffset * config.pageSize, (config.pageOffset + 1) * config.pageSize);
+			const mods = this.fetchedModCache.slice(config.page * config.pageSize, (config.page + 1) * config.pageSize);
+			return { mods: mods, success: true, message: `Fetched mod page ${config.page} successfully` };
 		}
 	}
 
@@ -1264,7 +1280,7 @@ function startModloaderWindow() {
 			height: 1100,
 			autoHideMenuBar: true,
 			webPreferences: {
-				preload: resolvePathRelativeToModloader("modloader/modloader-preload.js")
+				preload: resolvePathRelativeToModloader("modloader/modloader-preload.js"),
 			},
 		});
 		modloaderWindow.on("closed", cleanupModloaderWindow);
