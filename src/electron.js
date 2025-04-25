@@ -662,6 +662,12 @@ class GameFileManager {
 				break;
 			}
 
+			case "overwrite": {
+				if (!patch.contents && !patch.file) throw new Error("Failed to apply overwrite patch. Missing 'contents' or 'file' field.");
+				fileContent = patch.contents || fs.readFileSync(patch.file);
+				break;
+			}
+
 			// Replace all instances of the string with the replacement string
 			case "replace": {
 				if (!Object.hasOwn(patch, "from") || !Object.hasOwn(patch, "to")) {
