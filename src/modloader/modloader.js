@@ -99,66 +99,111 @@ function selectTab(tab) {
 	if (selectedTab) {
 		getElement(`tab-${selectedTab}`).classList.remove("selected");
 		getElement(`${selectedTab}-tab-content`).style.display = "none";
-		if (tabs[selectedTab]) tabs[selectedTab].deselect();
+		if (tabs[selectedTab]) tabs[selectedTab].deselectTab();
 	}
 
 	selectedTab = tab;
 
 	getElement(`tab-${tab}`).classList.add("selected");
 	getElement(`${tab}-tab-content`).style.display = "block";
-	if (tabs[tab]) tabs[tab].select();
+	if (tabs[tab]) tabs[tab].selectTab();
 }
 
 class ModsTab {
+	static pageSize = 40;
+
 	columns = {};
+	loadedPages = 0;
 	modRows = {};
-	defaultOrder = [];
 	selectedMod = null;
-	sortingColumn = null;
+	filterInfo = { search: null, tags: [] };
+
+	// --- Loading ---
 
 	setup() {
 		getElement("mods-tab-table")
 			.querySelectorAll("th")
 			.forEach((element) => {
 				const column = element.getAttribute("data-column");
-				this.columns[column] = { element, sortingType: 0 };
-				element.addEventListener("click", () => {
-					this.selectMod(null);
-					this.clickColumn(column);
-				});
+				this.columns[column] = { element };
 			});
-	}
 
-	select() {
-		if (this.sortingColumn) this.unselectSortingColumn();
+		getElement("mods-tab-search").addEventListener("keydown", (e) => {
+			if (e.key === "Enter") {
+				this.onSearchChanged();
+			}
+		});
 
-		electron.invoke("ml-modloader:get-mods").then((mods) => {
-			this.setMods(mods);
+		getElement("mods-tab-search-button").addEventListener("click", () => {
+			this.onSearchChanged();
 		});
 	}
 
-	deselect() {
+	selectTab() {
+		this.reloadAllMods();
+	}
+
+	deselectTab() {
 		// TODO
 	}
 
-	setMods(mods) {
-		const tbody = getElement("mods-tab-table").querySelector("tbody");
-		tbody.innerHTML = "";
+	reloadAllMods() {
+		this.loadedPages = 0;
 		this.modRows = {};
-		this.defaultOrder = mods.map((mod) => mod.info.modID);
-		let index = 0;
-		for (const mod of mods) {
-			const row = this.createModRow(mod, index);
-			this.modRows[mod.info.modID] = row;
-			tbody.appendChild(row.element);
-			index += 1;
-		}
+
+		const getInfo = {
+			continue: false,
+			pageSize: ModsTab.pageSize,
+			search: this.filterInfo.search,
+			tags: this.filterInfo.tags,
+		};
+
+		electron.invoke("ml-modloader:get-all-mods", getInfo).then((mods) => {
+			const tbody = getElement("mods-tab-table").querySelector("tbody");
+			tbody.innerHTML = "";
+			for (const mod of mods) {
+				const row = this.createModRow(mod);
+				this.modRows[mod.info.modID] = row;
+				tbody.appendChild(row.element);
+			}
+			this.loadedPages++;
+
+			// Reselect the selected mod if it is still visible
+			if (this.selectedMod != null) {
+				const oldSelectedMod = this.selectedMod;
+				this.selectedMod = null;
+				this.selectMod(oldSelectedMod);
+			}
+		});
 	}
 
-	createModRow(mod, index) {
-		const element = createElement(`
+	loadMoreMods() {
+		const getInfo = {
+			continue: true,
+			pageOffset: this.loadedPages,
+			pageSize: ModsTab.pageSize,
+		};
+
+		electron.invoke("ml-modloader:get-all-mods", getInfo).then((mods) => {
+			const tbody = getElement("mods-tab-table").querySelector("tbody");
+			for (const mod of mods) {
+				const row = this.createModRow(mod);
+				this.modRows[mod.info.modID] = row;
+				tbody.appendChild(row.element);
+			}
+			this.loadedPages++;
+		});
+	}
+
+	createModRow(mod) {
+		const element = createElement(
+			`
 			<tr>
-				<td><input type="checkbox" ${mod.isEnabled ? "checked" : ""}></td>
+				<td>
+					` +
+				(mod.isInstalled ? `<input type="checkbox" ${mod.isEnabled ? "checked" : ""}>` : ``) +
+				`
+				</td>
 				<td>${mod.info.name}</td>
 				<td>${mod.info.author}</td>
 				<td>${mod.info.version}</td>
@@ -174,29 +219,34 @@ class ModsTab {
 				}
 				</td>
 			</tr>
-		`);
+		`
+		);
 
-		element.classList.toggle("disabled", !mod.isEnabled);
-
-		element.querySelector("input").addEventListener("click", (e) => e.stopPropagation());
+		element.classList.toggle("disabled", mod.isInstalled && !mod.isEnabled);
 
 		element.addEventListener("click", (e) => this.selectMod(mod.info.modID));
 
-		element.querySelector("input").addEventListener("change", (e) => {
-			const checkbox = e.target;
-			const isChecked = checkbox.checked;
-			checkbox.disabled = true;
+		if (mod.isInstalled) {
+			const checkbox = element.querySelector("input[type='checkbox']");
+			checkbox.addEventListener("click", (e) => e.stopPropagation());
+			checkbox.addEventListener("change", (e) => {
+				const checkbox = e.target;
+				const isChecked = checkbox.checked;
+				checkbox.disabled = true;
 
-			electron.invoke("ml-modloader:set-mod-enabled", { name: mod.info.name, enabled: isChecked }).then((success) => {
-				checkbox.disabled = false;
-				if (!success) checkbox.checked = !isChecked;
-				mod.isEnabled = checkbox.checked;
-				element.classList.toggle("disabled", !mod.isEnabled);
+				electron.invoke("ml-modloader:set-mod-enabled", { name: mod.info.name, enabled: isChecked }).then((success) => {
+					checkbox.disabled = false;
+					if (!success) checkbox.checked = !isChecked;
+					mod.isEnabled = checkbox.checked;
+					element.classList.toggle("disabled", mod.isInstalled && !mod.isEnabled);
+				});
 			});
-		});
+		}
 
-		return { element, mod, curentIndex: index, isVisible: true };
+		return { element, mod, isVisible: true };
 	}
+
+	// --- Running ---
 
 	selectMod(modID) {
 		if (this.selectedMod !== null && this.selectedMod === modID) {
@@ -209,6 +259,7 @@ class ModsTab {
 			this.modRows[this.selectedMod].element.classList.remove("selected");
 		}
 		if (modID != null) {
+			if (this.modRows[modID] == null) return;
 			this.selectedMod = modID;
 			this.modRows[modID].element.classList.add("selected");
 			this.setModInfo(modID);
@@ -255,79 +306,23 @@ class ModsTab {
 		}
 	}
 
+	// --- Filtering ---
+
 	onSearchChanged() {
-		// TODO
+		const searchInput = getElement("mods-tab-search").value.toLowerCase();
+		this.filterInfo.search = searchInput;
+		this.reloadAllMods();
 	}
 
 	onSelectedTagsChanged() {
 		// TODO
+		this.reloadAllMods();
 	}
 
-	updateFilteredMods() {
-		// TODO
-	}
-
-	clickColumn(column) {
-		this.selectSortingColumn(column);
-	}
-
-	unselectSortingColumn() {
-		if (!this.sortingColumn) return;
-		this.columns[this.sortingColumn].sortingType = 0;
-		this.columns[this.sortingColumn].element.classList.remove("ascending");
-		this.columns[this.sortingColumn].element.classList.remove("descending");
-	}
-
-	selectSortingColumn(column) {
-		console.log("Sorting mods by column:", column);
-		if (this.sortingColumn != column) this.unselectSortingColumn();
-
-		let rows = [];
-
-		// 2 -> 0: Descending -> None
-		if (this.columns[column].sortingType === 2) {
-			for (const modID of this.defaultOrder) rows.push(this.modRows[modID]);
-			this.columns[column].sortingType = 0;
-			this.columns[column].element.classList.remove("ascending");
-			this.columns[column].element.classList.remove("descending");
-			this.sortingColumn = null;
-		}
-
-		// 0 -> 1 -> 2: None -> Ascending -> Descending
-		else {
-			let comparator;
-			switch (column) {
-				case "name":
-					comparator = (a, b) => a.mod.info.name.localeCompare(b.mod.info.name);
-					break;
-				case "version":
-					comparator = (a, b) => a.mod.info.version.localeCompare(b.mod.info.version);
-					break;
-				case "author":
-					comparator = (a, b) => a.mod.info.author.localeCompare(b.mod.info.author);
-					break;
-				default:
-					console.warn("Unknown column:", column);
-					return;
-			}
-
-			const ascending = this.columns[column].sortingType === 0;
-			rows = Object.values(this.modRows);
-			rows.sort(comparator);
-			if (!ascending) rows.reverse();
-			this.columns[column].sortingType = ascending ? 1 : 2;
-			this.columns[column].element.classList.toggle("ascending", ascending);
-			this.columns[column].element.classList.toggle("descending", !ascending);
-			this.sortingColumn = column;
-		}
-
-		// Update tbody with sorted rows
-		const tbody = getElement("mods-tab-table").querySelector("tbody");
-		tbody.innerHTML = "";
-		for (let i = 0; i < rows.length; i++) {
-			tbody.appendChild(rows[i].element);
-			this.modRows[rows[i].mod.info.modID].curentIndex = i;
-		}
+	removeFiltering() {
+		this.filterInfo.search = null;
+		this.filterInfo.tags = [];
+		this.reloadAllMods();
 	}
 }
 
@@ -341,10 +336,7 @@ class ModsTab {
 	document.querySelectorAll(".resizer").forEach(handleResizer);
 
 	getElement("refresh-mods").addEventListener("click", () => {
-		electron.invoke("ml-modloader:refresh-mods").then((mods) => {
-			console.log(mods);
-			setMods(mods);
-		});
+		electron.invoke("ml-modloader:refresh-mods").then(() => tabs.mods.reloadAllMods());
 	});
 
 	setProgressText("");

@@ -693,6 +693,7 @@ class ModsManager {
 	mods = {};
 	loadOrder = [];
 	loadedModCount = 0;
+	allModCache = [];
 
 	async refreshMods() {
 		this.mods = {};
@@ -819,6 +820,62 @@ class ModsManager {
 		return this.loadOrder.map((modName) => this.mods[modName]);
 	}
 
+	async getAllMods(config) {
+		// We want to get paginated, filtered, sorted mods
+		// config = { continue, search, tags, pageOffset, pageSize }
+
+		// On the first call we want to initialize the local cache
+		if (!config.continue) {
+			this.allModCache = [];
+
+			// First get all locally installed with the filter
+			let installedMods = this.getMods();
+			for (const mod of installedMods) {
+				if (config.search) {
+					const check = config.search.toLowerCase();
+					let matched = false;
+					matched |= mod.info.modID.toLowerCase().includes(check);
+					matched |= mod.info.name.toLowerCase().includes(check);
+					matched |= mod.info.version.toLowerCase().includes(check);
+					matched |= mod.info.author.toLowerCase().includes(check);
+					if (mod.info.shortDescription) matched |= mod.info.shortDescription.toLowerCase().includes(check);
+					if (mod.info.description) matched |= mod.info.description.toLowerCase().includes(check);
+					if (matched) this.allModCache.push(mod);
+				} else {
+					this.allModCache.push(mod);
+				}
+			}
+
+			// We want to load an arbitrarily large amount of mods from the API
+			// Example: https://fluxloader.app/api/mods?search=somemod&page=1&size=5
+			let loadCount = config.pageSize * 10 - this.allModCache.length;
+			const response = await fetch(`https://fluxloader.app/api/mods?search=${config.search || ""}&page=${1}&size=${loadCount}`);
+			const data = await response.json();
+			if (data && data.resultsCount) {
+				console.log(`Fetched ${data.resultsCount} mods from the API`);
+				for (const dataMod of data.mods) {
+					this.allModCache.push({
+						info: dataMod.modData,
+						isLocal: false,
+						isInstalled: false,
+					});
+				}
+			}
+
+			// Just return the first page of mods
+			return this.allModCache.slice(0, config.pageSize);
+		}
+
+		// On subbsequent calls we want to just return a slice of the cache
+		else {
+			if (config.pageOffset * config.pageSize > this.allModCache.length) {
+				logDebug(`Page offset ${config.pageOffset} is out of bounds for allModCache length ${this.allModCache.length}`);
+				return [];
+			}
+			return this.allModCache.slice(config.pageOffset * config.pageSize, (config.pageOffset + 1) * config.pageSize);
+		}
+	}
+
 	setModEnabled(modName, enabled) {
 		logDebug(`Setting mod ${modName} enabled state to ${enabled}`);
 		if (!this.hasMod(modName)) throw new Error(`Mod not found: ${modName}`);
@@ -826,7 +883,7 @@ class ModsManager {
 		this.mods[modName].isEnabled = enabled;
 		return true;
 	}
-	
+
 	// ------------ INTERNAL ------------
 
 	async _initializeMod(modPath) {
@@ -840,6 +897,24 @@ class ModsManager {
 
 		const modInfoContent = fs.readFileSync(modInfoPath, "utf8");
 		const modInfo = JSON.parse(modInfoContent);
+
+		// ModInfo Schema
+		// WARNING: If you want to change this you will need to change it everywhere
+		// That includes database, database upload, all through here, modloader GUI, site GUI etc
+		//         modID                generated if not present
+		//         name
+		//         version
+		//         author
+		//         modloaderVersion
+		//         shortDescription     optional
+		//         dependencies         optional
+		//         tags                 optional
+		//         electronEntrypoint   optional
+		//         browserEntrypoint    optional
+		//         workerEntrypoint     optional
+		//         defaultConfig        optional
+		//         description          optional
+		//         scriptPath           optional
 
 		// Ensure mod has required mod info
 		if (!modInfo || !modInfo.name || !modInfo.version || !modInfo.author || !modInfo.modloaderVersion) {
@@ -873,7 +948,15 @@ class ModsManager {
 			scripts = await import(`file://${scriptPath}`);
 		}
 
-		return { isLocal, info: modInfo, path: modPath, scripts, isEnabled: true, isLoaded: false };
+		return {
+			info: modInfo,
+			path: modPath,
+			scripts,
+			isLocal: isLocal, // Does the mod have a modID or is it local
+			isInstalled: true, // Does the mod exist in the mods directory
+			isEnabled: true, // Is the mod enabled in the config
+			isLoaded: false, // Is the mod loaded in the game
+		};
 	}
 
 	async _loadMod(mod) {
@@ -1136,9 +1219,9 @@ function setupElectronIPC() {
 		return modsManager.getLoadedMods();
 	});
 
-	ipcMain.handle("ml-modloader:get-mods", (event, args) => {
-		logDebug("Received ml-modloader:get-mods");
-		return modsManager.getMods();
+	ipcMain.handle("ml-modloader:get-all-mods", async (event, args) => {
+		logDebug(`Received ml-modloader:get-all-mods: ${JSON.stringify(args)}`);
+		return await modsManager.getAllMods(args);
 	});
 
 	ipcMain.handle("ml-modloader:refresh-mods", async (event, args) => {

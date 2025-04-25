@@ -16,75 +16,88 @@
 			</div>
 			<div class="tab-content" id="mods-tab-content">
 				<div class="main">
-					<div class="main-leftbar" style="width: 12rem"><div class="resizer"></div></div>
+					<div class="main-leftbar" style="width: 12rem">
+						<h1>Search</h1>
+						<div class="search-bar">
+							<input type="text" id="mods-tab-search" placeholder="Search..." />
+							<div class="search-icon" id="mods-tab-search-button">
+								<img src="./assets/search.png" />
+							</div>
+						</div>
+						<div class="resizer"></div>
+					</div>
 					<div class="main-center">
 						<div class="refresh-mods" id="refresh-mods">
 							<img src="./assets/refresh.png" />
 						</div>
-						<table class="mods-table" id="mods-tab-table">
-							<thead>
-								<tr>
-									<!-- These widths are just the default, they will be overwritten by inline styles from JS -->
-									<th data-column="enabled" style="width: 2.4rem"></th>
-									<th data-column="name" style="width: 6.5rem">
-										Name
-										<div class="resizer"></div>
-									</th>
-									<th data-column="author" style="width: 7rem">
-										Author
-										<div class="resizer"></div>
-									</th>
-									<th data-column="version" style="width: 5.5rem">
-										Version
-										<div class="resizer"></div>
-									</th>
-									<th data-column="description" style="width: 15rem">
-										Description
-										<div class="resizer"></div>
-									</th>
-									<th data-column="last-updated" style="width: 7rem">
-										Last Updated
-										<div class="resizer"></div>
-									</th>
-									<th data-column="tags" style="width: 12rem">
-										Tags
-										<div class="resizer"></div>
-									</th>
-									<!-- Empty header row so table doesn't auto-fill the full width -->
-									<th class="gap-filler"></th>
-								</tr>
-							</thead>
-							<tbody></tbody>
-						</table>
+						<div class="main-center-scroll">
+							<table class="mods-table" id="mods-tab-table">
+								<thead>
+									<tr>
+										<!-- These widths are just the default, they will be overwritten by inline styles from JS -->
+										<th data-column="enabled" style="width: 2.4rem"></th>
+										<th data-column="name" style="width: 6.5rem">
+											Name
+											<div class="resizer"></div>
+										</th>
+										<th data-column="author" style="width: 7rem">
+											Author
+											<div class="resizer"></div>
+										</th>
+										<th data-column="version" style="width: 5.5rem">
+											Version
+											<div class="resizer"></div>
+										</th>
+										<th data-column="description" style="width: 15rem">
+											Description
+											<div class="resizer"></div>
+										</th>
+										<th data-column="last-updated" style="width: 8rem">
+											Last Updated
+											<div class="resizer"></div>
+										</th>
+										<th data-column="tags" style="width: 20rem">
+											Tags
+											<div class="resizer"></div>
+										</th>
+										<!-- Empty header row so table doesn't auto-fill the full width -->
+										<th class="gap-filler"></th>
+									</tr>
+								</thead>
+								<tbody></tbody>
+							</table>
+						</div>
 					</div>
 					<div class="main-rightbar" style="width: 18rem">
 						<div class="resizer left"></div>
-						<div class="mod-info-empty" id="mod-info-empty">
-							<p>No mod selected.</p>
-						</div>
-						<div class="mod-info" id="mod-info" style="display: none">
-							<p class="title" id="mod-info-title">Mod Name</p>
-							<p class="description" id="mod-info-description"></p>
-							<div class="rows">
-								<div class="row">
-									<p class="label">Mod ID</p>
-									<p id="mod-info-mod-id"></p>
-								</div>
-								<div class="row">
-									<p class="label">Author</p>
-									<p id="mod-info-author"></p>
-								</div>
-								<div class="row">
-									<p class="label">Version</p>
-									<p id="mod-info-version"></p>
-								</div>
-								<div class="row">
-									<p class="label">Last Updated</p>
-									<p id="mod-info-last-updated"></p>
-								</div>
-								<div class="row">
-									<p class="label">Tags</p>
-									<p id="mod-info-tags"></p>
+						<div class="main-rightbar-scroll">
+							<div class="mod-info-empty" id="mod-info-empty">
+								<p>No mod selected.</p>
+							</div>
+							<div class="mod-info" id="mod-info" style="display: none">
+								<p class="title" id="mod-info-title">Mod Name</p>
+								<p class="description" id="mod-info-description"></p>
+								<div class="rows">
+									<div class="row">
+										<p class="label">Mod ID</p>
+										<p id="mod-info-mod-id"></p>
+									</div>
+									<div class="row">
+										<p class="label">Author</p>
+										<p id="mod-info-author"></p>
+									</div>
+									<div class="row">
+										<p class="label">Version</p>
+										<p id="mod-info-version"></p>
+									</div>
+									<div class="row">
+										<p class="label">Last Updated</p>
+										<p id="mod-info-last-updated"></p>
+									</div>
+									<div class="row">
+										<p class="label">Tags</p>
+										<p id="mod-info-tags"></p>
+									</div>
 								</div>
 							</div>
 						</div>
