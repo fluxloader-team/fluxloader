@@ -155,7 +155,6 @@ class ModsTab {
 	}
 
 	reloadModList() {
-		this.loadedPages = 0;
 		this.modRows = {};
 
 		const getInfo = {
@@ -225,7 +224,7 @@ class ModsTab {
 				<td>${mod.info.author}</td>
 				<td>${mod.info.version}</td>
 				<td>${mod.info.shortDescription || ""}</td>
-				<td>N/A</td>
+				<td>${mod.info.lastUpdated || "N/A"}</td>
 				<td class="mods-tab-table-tag-list">
 				${
 					mod.info.tags
@@ -309,7 +308,7 @@ class ModsTab {
 		getElement("mod-info-mod-id").innerText = mod.info.modID;
 		getElement("mod-info-author").innerText = mod.info.author;
 		getElement("mod-info-version").innerText = mod.info.version;
-		getElement("mod-info-last-updated").innerText = mod.info.lastUpdated;
+		getElement("mod-info-last-updated").innerText = mod.info.lastUpdated || "N/A";
 
 		if (mod.info.tags) {
 			getElement("mod-info-tags").classList.toggle("empty", mod.info.tags.length === 0);
