@@ -266,6 +266,10 @@ class ElectronModloaderAPI {
 	getLoadedMods() {
 		return modsManager.getLoadedMods();
 	}
+
+	getEnabledMods() {
+		return modsManager.getEnabledMods();
+	}
 }
 
 class ElectronModConfigAPI {
@@ -830,6 +834,10 @@ class ModsManager {
 
 	getLoadedMods() {
 		return this.getInstalledMods().filter((mod) => mod.isLoaded);
+	}
+
+	getEnabledMods() {
+		return this.getInstalledMods().filter((mod) => mod.isEnabled);
 	}
 
 	async getAllMods(config) {
