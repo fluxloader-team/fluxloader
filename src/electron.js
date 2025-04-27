@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, screen } from "electron";
 import path from "path";
 import fs from "fs";
 import process from "process";
@@ -825,14 +825,13 @@ class ModsManager {
 	}
 
 	async getAllMods(config) {
-		// We want to get paginated, filtered, sorted mods
-		// config = { continue, search, tags, page, pageSize }
+		let allMods = [];
 
+		// On page 1 we want to include filtered installed mods
 		if (config.page == 1) {
-			// On page 1 we always want to return all installed mods
-			let installedMods = this.getInstalledMods();
+			allMods = this.getInstalledMods();
 			if (config.search) {
-				installedMods = installedMods.filter((mod) => {
+				allMods = allMods.filter((mod) => {
 					const check = config.search.toLowerCase();
 					let matched = false;
 					matched |= mod.info.modID.toLowerCase().includes(check);
@@ -844,55 +843,67 @@ class ModsManager {
 					return matched;
 				});
 			}
-
-			// If not fetching remote then just return the installed mods
-			if (!config.fetchRemote) {
-				logDebug(`Returning ${installedMods.length} installed mods for page 1, not fetching remote mods.`);
-				return { mods: installedMods, success: true, message: "Fetched local mods successfully" };
-			}
-
-			// First we want to load an arbitrarily large amount of mods from the API
-			// Old Example: https://fluxloader.app/api/mods?search=somemod&page=1&size=5
-			this.fetchedModCache = [];
-			let loadCount = config.pageSize * 10;
-			const response = await fetch(`https://fluxloader.app/api/mods`);
-			let data = null;
-			try {
-				data = await response.json();
-			} catch (e) {
-				// This will be caught in the else
-			}
-			if (data && data.resultsCount) {
-				console.log(`Fetched ${data.resultsCount} mods from the API`);
-				for (const dataMod of data.mods) {
-					this.fetchedModCache.push({
-						info: dataMod.modData,
-						isInstalled: false,
-					});
-				}
-
-				// Now return the first page of mods + installed mods
-				logDebug(`Returning ${installedMods.length} installed mods + ${config.pageSize} fetched mods for page 1`);
-				return { mods: [...installedMods, ...this.fetchedModCache.slice(0, config.pageSize)], success: true, message: "Fetched all mods successfully" };
-			}
-
-			// Could not fetch any so just return the installed mods
-			else {
-				logDebug(`Failed to fetch mods from the API: ${JSON.stringify(data)}`);
-				logDebug(`Returning just ${installedMods.length} installed mods for page 1`);
-				return { mods: installedMods, success: false, message: "Failed to fetch remote mods" };
-			}
+			allMods = allMods.map((mod) => ({
+				modID: mod.info.modID,
+				meta: {
+					info: mod.info,
+					votes: null,
+					uploadTime: null,
+				},
+				isLocal: true,
+				isInstalled: true,
+				isLoaded: mod.isLoaded,
+				isEnabled: mod.isEnabled,
+			}));
 		}
 
-		// On subbsequent calls we want to just return a page from the cache
-		else {
-			if (config.page * config.pageSize > this.fetchedModCache.length) {
-				logDebug(`Page offset ${config.page} is out of bounds for allModCache length ${this.fetchedModCache.length}`);
-				return [];
-			}
-			const mods = this.fetchedModCache.slice(config.page * config.pageSize, (config.page + 1) * config.pageSize);
-			return { mods: mods, success: true, message: `Fetched mod page ${config.page} successfully` };
+		// If not fetching remote just return the installed mods
+		if (!config.fetchRemote) {
+			logDebug(`Returning ${allMods.length} installed mods for page 1. Skipping remote mods.`);
+			return { mods: allMods, success: true, message: "Fetched local mods successfully" };
 		}
+
+		// Fetch a page of mods from the API
+		// Old Example: https://fluxloader.app/api/mods?search=somemod&page=1&size=5
+		const query = { "modData.name": { $regex: "", $options: "i" } };
+		const encodedQuery = encodeURIComponent(JSON.stringify(query));
+		const url = `https://fluxloader.app/api/mods?search=${encodedQuery}&verified=null&page=${config.page}&size=${config.pageSize}`;
+		logDebug(`Fetching mods from API: ${url}`);
+		const response = await fetch(url);
+		let data = null;
+		try {
+			data = await response.json();
+		} catch (e) {
+			// This will be caught in the else
+		}
+
+		// Fetch failed so just returned the installed mods
+		if (!data || !data.resultsCount) {
+			logDebug(`Failed to fetch mods from the API: ${JSON.stringify(data)}`);
+			logDebug(`Returning just ${allMods.length} installed mods for page 1`);
+			return { mods: allMods, success: false, message: "Failed to fetch remote mods" };
+		}
+
+		logDebug(JSON.stringify(data.mods[10], null, 4));
+
+		// Instead return installed + remote mods
+		allMods = [
+			...allMods,
+			...data.mods.map((mod) => ({
+				modID: mod.modID,
+				meta: {
+					info: mod.modData,
+					votes: mod.votes,
+					uploadTime: mod.uploadTime,
+				},
+				isLocal: false,
+				isInstalled: false,
+				isLoaded: false,
+				isEnabled: false,
+			})),
+		];
+		logDebug(`Returning ${allMods.length} total mods for page 1`);
+		return { mods: allMods, success: true, message: "Fetched all mods successfully" };
 	}
 
 	setModEnabled(modID, enabled) {
@@ -1275,9 +1286,15 @@ function startModloaderWindow() {
 	logDebug("Starting modloader window");
 
 	try {
+		const primaryDisplay = screen.getPrimaryDisplay();
+		const { width, height } = primaryDisplay.workAreaSize;
+		let modloaderWindowWidth = 1200;
+		modloaderWindowWidth = Math.floor(width * 0.8);
+		let modloaderWindowHeight = modloaderWindowWidth * (height / width);
+
 		modloaderWindow = new BrowserWindow({
-			width: 1900,
-			height: 1100,
+			width: modloaderWindowWidth,
+			height: modloaderWindowHeight,
 			autoHideMenuBar: true,
 			webPreferences: {
 				preload: resolvePathRelativeToModloader("modloader/modloader-preload.js"),

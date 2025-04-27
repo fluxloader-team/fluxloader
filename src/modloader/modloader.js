@@ -110,10 +110,10 @@ function selectTab(tab) {
 }
 
 class ModsTab {
-	static pageSize = 40;
+	static pageSize = 200;
 
 	columns = {};
-	loadedPages = 0;
+	currentPage = 0;
 	modRows = {};
 	selectedMod = null;
 	filterInfo = { search: null, tags: [] };
@@ -155,30 +155,33 @@ class ModsTab {
 	}
 
 	reloadModList() {
-		this.loadedPages = 0;
-		this.modRows = {};
-
-		const getInfo = {
-			page: 1,
-			fetchRemote: this.isFetchingRemoteMods,
-			pageSize: ModsTab.pageSize,
-			search: this.filterInfo.search,
-			tags: this.filterInfo.tags,
-		};
-
 		setProgressText("Fetching mods...");
 		setProgress(0);
 
+		this.currentPage = 1;
+		this.modRows = {};
+		const getInfo = {
+			search: this.filterInfo.search,
+			tags: this.filterInfo.tags,
+			fetchRemote: this.isFetchingRemoteMods,
+			pageSize: ModsTab.pageSize,
+			page: 1,
+		};
+
 		electron.invoke("ml-modloader:get-all-mods", getInfo).then(({ mods, sucess, message }) => {
+			console.log("Mods loaded:", mods.length, "success:", sucess, "message:", message);
+			console.log(mods[0]);
+			console.log(mods[10]);
+
 			const tbody = getElement("mods-tab-table").querySelector("tbody");
 			tbody.innerHTML = "";
 			for (const mod of mods) {
 				const row = this.createModRow(mod);
-				this.modRows[mod.info.modID] = row;
+				this.modRows[mod.modID] = row;
 				tbody.appendChild(row.element);
 			}
 
-			this.loadedPages++;
+			this.currentPage++;
 
 			// Reselect the selected mod if it is still visible
 			if (this.selectedMod != null) {
@@ -194,24 +197,6 @@ class ModsTab {
 		});
 	}
 
-	loadMoreMods() {
-		const getInfo = {
-			continue: true,
-			pageOffset: this.loadedPages,
-			pageSize: ModsTab.pageSize,
-		};
-
-		electron.invoke("ml-modloader:get-all-mods", getInfo).then((mods) => {
-			const tbody = getElement("mods-tab-table").querySelector("tbody");
-			for (const mod of mods) {
-				const row = this.createModRow(mod);
-				this.modRows[mod.info.modID] = row;
-				tbody.appendChild(row.element);
-			}
-			this.loadedPages++;
-		});
-	}
-
 	createModRow(mod) {
 		const element = createElement(
 			`
@@ -221,15 +206,15 @@ class ModsTab {
 				(mod.isInstalled ? `<input type="checkbox" ${mod.isEnabled ? "checked" : ""}>` : ``) +
 				`
 				</td>
-				<td>${mod.info.name}</td>
-				<td>${mod.info.author}</td>
-				<td>${mod.info.version}</td>
-				<td>${mod.info.shortDescription || ""}</td>
+				<td>${mod.meta.info.name}</td>
+				<td>${mod.meta.info.author}</td>
+				<td>${mod.meta.info.version}</td>
+				<td>${mod.meta.info.shortDescription || ""}</td>
 				<td>N/A</td>
 				<td class="mods-tab-table-tag-list">
 				${
-					mod.info.tags
-						? mod.info.tags.reduce((acc, tag) => {
+					mod.meta.info.tags
+						? mod.meta.info.tags.reduce((acc, tag) => {
 								return acc + `<span class="tag">${tag}</span>`;
 						  }, "")
 						: ""
@@ -241,7 +226,7 @@ class ModsTab {
 
 		element.classList.toggle("disabled", mod.isInstalled && !mod.isEnabled);
 
-		element.addEventListener("click", (e) => this.selectMod(mod.info.modID));
+		element.addEventListener("click", (e) => this.selectMod(mod.modID));
 
 		if (mod.isInstalled) {
 			const checkbox = element.querySelector("input[type='checkbox']");
@@ -250,7 +235,7 @@ class ModsTab {
 				const checkbox = e.target;
 				const isChecked = checkbox.checked;
 				checkbox.disabled = true;
-				electron.invoke("ml-modloader:set-mod-enabled", { modID: mod.info.modID, enabled: isChecked }).then((success) => {
+				electron.invoke("ml-modloader:set-mod-enabled", { modID: mod.modID, enabled: isChecked }).then((success) => {
 					checkbox.disabled = false;
 					if (!success) checkbox.checked = !isChecked;
 					mod.isEnabled = checkbox.checked;
@@ -294,11 +279,11 @@ class ModsTab {
 		getElement("mod-info").style.display = "block";
 		getElement("mod-info-empty").style.display = "none";
 
-		getElement("mod-info-title").innerText = mod.info.name;
+		getElement("mod-info-title").innerText = mod.meta.info.name;
 
-		if (mod.info.description && mod.info.description.length > 0) {
+		if (mod.meta.info.description && mod.meta.info.description.length > 0) {
 			getElement("mod-info-description").classList.remove("empty");
-			electron.invoke("ml-modloader:render-markdown", mod.info.description).then((html) => {
+			electron.invoke("ml-modloader:render-markdown", mod.meta.info.description).then((html) => {
 				getElement("mod-info-description").innerHTML = html;
 			});
 		} else {
@@ -306,18 +291,18 @@ class ModsTab {
 			getElement("mod-info-description").innerText = "No description provided.";
 		}
 
-		getElement("mod-info-mod-id").innerText = mod.info.modID;
-		getElement("mod-info-author").innerText = mod.info.author;
-		getElement("mod-info-version").innerText = mod.info.version;
-		getElement("mod-info-last-updated").innerText = mod.info.lastUpdated;
+		getElement("mod-info-mod-id").innerText = mod.modID;
+		getElement("mod-info-author").innerText = mod.meta.info.author;
+		getElement("mod-info-version").innerText = mod.meta.info.version;
+		getElement("mod-info-last-updated").innerText = mod.meta.info.lastUpdated;
 
-		if (mod.info.tags) {
-			getElement("mod-info-tags").classList.toggle("empty", mod.info.tags.length === 0);
-			if (mod.info.tags.length === 0) {
+		if (mod.meta.info.tags) {
+			getElement("mod-info-tags").classList.toggle("empty", mod.meta.info.tags.length === 0);
+			if (mod.meta.info.tags.length === 0) {
 				getElement("mod-info-tags").innerText = "No tags provided.";
 			} else {
 				getElement("mod-info-tags").innerHTML = "";
-				for (const tag of mod.info.tags) {
+				for (const tag of mod.meta.info.tags) {
 					const tagElement = createElement(`<span class="tag">${tag}</span>`);
 					getElement("mod-info-tags").appendChild(tagElement);
 				}

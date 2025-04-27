@@ -354,10 +354,6 @@ body {
 	overflow-y: auto;
 }
 
-#mods-tab-content .mod-info {
-	font-size: 0.9rem;
-}
-
 #mods-tab-content .mod-info-empty {
 	text-align: center;
 	padding: 2rem;
@@ -371,7 +367,7 @@ body {
 }
 
 #mods-tab-content .mod-info .description {
-	padding: 0.6rem 1rem 1.2rem 1rem;
+	padding: 1.0rem 1.5rem 1.5rem 1.5rem;
 }
 
 #mods-tab-content .mod-info .rows {
