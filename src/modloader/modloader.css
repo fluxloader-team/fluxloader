@@ -238,6 +238,7 @@ body {
 	justify-content: center;
 	border-radius: 0.2rem;
 	margin-top: 2.2rem;
+	margin-bottom: 1.2rem;
 	padding: 0 0.8rem;
 	background: var(--color-bg-load-button);
 }
