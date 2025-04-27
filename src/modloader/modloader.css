@@ -4,6 +4,7 @@
 	padding: 0;
 	user-select: none;
 	border: none;
+	list-style-position: inside;
 }
 
 :root {
@@ -384,6 +385,7 @@ body {
 	flex: 1;
 	overflow: hidden;
 	overflow-y: auto;
+	padding-bottom: 4.5rem;
 }
 
 #mods-tab-content .mod-info-empty {
@@ -396,10 +398,6 @@ body {
 	text-align: center;
 	font-size: 1.2rem;
 	padding: 0.8rem 0 1rem 0;
-}
-
-#mods-tab-content .mod-info .description {
-	padding: 1rem 1.5rem 1.5rem 1.5rem;
 }
 
 #mods-tab-content .mod-info .rows {
@@ -438,6 +436,47 @@ body {
 	padding: 0.2rem 0.5rem;
 	margin: 0.2rem;
 	font-size: 0.8rem;
+}
+
+#mods-tab-content .mod-info .description {
+	padding: 1rem 1.5rem 1.5rem 1.5rem;
+	max-width: 35rem;
+	margin: auto;
+}
+
+#mods-tab-content .rightbar-bottom {
+	position: absolute;
+	bottom: 0;
+	width: 100%;
+	height: 4.5rem;
+	background: var(--color-bg-medium);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+#mods-tab-content .mod-buttons {
+	max-width: 25rem;
+	height: 100%;
+	flex: 1;
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	gap: 1rem;
+}
+
+#mods-tab-content .mod-button {
+	width: 100%;
+	flex-grow: 1;
+	padding: 0.6rem 1rem;
+	background: var(--color-bg-light);
+	text-align: center;
+	font-size: 1.1rem;
+	cursor: pointer;
+}
+
+#mods-tab-content .mod-button:hover {
+	background: var(--color-bg-load-button-hover);
 }
 
 /* ---------------------------- FOOTER ---------------------------- */
