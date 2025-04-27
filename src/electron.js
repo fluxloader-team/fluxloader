@@ -1268,7 +1268,6 @@ function setupElectronIPC() {
 	ipcMain.handle("ml-modloader:refresh-mods", async (event, args) => {
 		logDebug("Received ml-modloader:refresh-mods");
 		await modsManager.refreshMods();
-		return modsManager.getMods();
 	});
 
 	ipcMain.handle("ml-modloader:set-mod-enabled", async (event, args) => {
