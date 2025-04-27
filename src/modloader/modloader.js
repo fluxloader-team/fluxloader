@@ -65,6 +65,24 @@ function setProgress(percent) {
 	getElement("progress-bar").style.width = `${percent}%`;
 }
 
+function setIndicator(state) {
+	if (state === "offline") {
+		getElement("online-indicator").classList.remove("online");
+		getElement("online-indicator").classList.remove("connecting");
+		getElement("online-indicator").classList.add("offline");
+	} else if (state === "connecting") {
+		getElement("online-indicator").classList.remove("offline");
+		getElement("online-indicator").classList.remove("online");
+		getElement("online-indicator").classList.add("connecting");
+	} else if (state === "online") {
+		getElement("online-indicator").classList.remove("offline");
+		getElement("online-indicator").classList.remove("connecting");
+		getElement("online-indicator").classList.add("online");
+	} else {
+		console.error(`Invalid state: ${state}`);
+	}
+}
+
 function handleClickMainButton(button) {
 	if (isMainButtonLoading) return;
 	isMainButtonLoading = true;
@@ -117,7 +135,7 @@ class ModsTab {
 	modRows = {};
 	selectedMod = null;
 	filterInfo = { search: null, tags: [] };
-	isFetchingRemoteMods = false;
+	allowedToConnect = false;
 
 	// --- Loading ---
 
@@ -140,7 +158,7 @@ class ModsTab {
 		});
 
 		getElement("mods-load-button").addEventListener("click", () => {
-			this.isFetchingRemoteMods = true;
+			this.allowedToConnect = true;
 			getElement("mods-load-button").innerText = "Loading...";
 			this.reloadModList();
 		});
@@ -157,19 +175,20 @@ class ModsTab {
 	reloadModList() {
 		setProgressText("Fetching mods...");
 		setProgress(0);
+		if (this.allowedToConnect) setIndicator("connecting");
 
 		this.currentPage = 1;
 		this.modRows = {};
 		const getInfo = {
 			search: this.filterInfo.search,
 			tags: this.filterInfo.tags,
-			fetchRemote: this.isFetchingRemoteMods,
+			fetchRemote: this.allowedToConnect,
 			pageSize: ModsTab.pageSize,
 			page: 1,
 		};
 
-		electron.invoke("ml-modloader:get-all-mods", getInfo).then(({ mods, sucess, message }) => {
-			console.log("Mods loaded:", mods.length, "success:", sucess, "message:", message);
+		electron.invoke("ml-modloader:get-all-mods", getInfo).then(({ mods, success, message }) => {
+			console.log("Mods loaded:", mods.length, "success:", success, "message:", message);
 
 			const tbody = getElement("mods-tab-table").querySelector("tbody");
 			tbody.innerHTML = "";
@@ -180,8 +199,6 @@ class ModsTab {
 				tbody.appendChild(row.element);
 			}
 
-			this.currentPage++;
-
 			// Reselect the selected mod if it is still visible
 			if (this.selectedMod != null) {
 				const oldSelectedMod = this.selectedMod;
@@ -190,9 +207,10 @@ class ModsTab {
 			}
 
 			getElement("mods-load-button").innerText = "Load more mods";
-
 			setProgressText(message);
 			setProgress(0);
+			setIndicator(success && this.allowedToConnect ? "online" : "offline");
+			this.currentPage++;
 		});
 	}
 
@@ -224,7 +242,6 @@ class ModsTab {
 		);
 
 		element.classList.toggle("disabled", mod.isInstalled && !mod.isEnabled);
-
 		element.addEventListener("click", (e) => this.selectMod(mod.modID));
 
 		if (mod.isInstalled) {
@@ -236,7 +253,12 @@ class ModsTab {
 				checkbox.disabled = true;
 				electron.invoke("ml-modloader:set-mod-enabled", { modID: mod.modID, enabled: isChecked }).then((success) => {
 					checkbox.disabled = false;
-					if (!success) checkbox.checked = !isChecked;
+					
+					if (!success) {
+						checkbox.checked = !isChecked;
+						setProgressText("Failed to set mod enabled state.");
+					}
+					
 					mod.isEnabled = checkbox.checked;
 					element.classList.toggle("disabled", mod.isInstalled && !mod.isEnabled);
 				});

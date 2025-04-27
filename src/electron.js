@@ -845,9 +845,8 @@ class ModsManager {
 
 		// On page 1 we want to include filtered installed mods
 		if (config.page == 1) {
-			allMods = this.getInstalledMods();
-			if (config.search) {
-				allMods = allMods.filter((mod) => {
+			for (const mod of this.getInstalledMods()) {
+				if (config.search) {
 					const check = config.search.toLowerCase();
 					let matched = false;
 					matched |= mod.info.modID.toLowerCase().includes(check);
@@ -856,21 +855,21 @@ class ModsManager {
 					matched |= mod.info.author.toLowerCase().includes(check);
 					if (mod.info.shortDescription) matched |= mod.info.shortDescription.toLowerCase().includes(check);
 					if (mod.info.description) matched |= mod.info.description.toLowerCase().includes(check);
-					return matched;
+					if (!matched) continue;
+				}
+				allMods.push({
+					modID: mod.info.modID,
+					meta: {
+						info: mod.info,
+						votes: null,
+						uploadTime: null,
+					},
+					isLocal: true,
+					isInstalled: true,
+					isLoaded: mod.isLoaded,
+					isEnabled: mod.isEnabled,
 				});
 			}
-			allMods = allMods.map((mod) => ({
-				modID: mod.info.modID,
-				meta: {
-					info: mod.info,
-					votes: null,
-					uploadTime: null,
-				},
-				isLocal: true,
-				isInstalled: true,
-				isLoaded: mod.isLoaded,
-				isEnabled: mod.isEnabled,
-			}));
 		}
 
 		// If not fetching remote just return the installed mods
@@ -890,7 +889,7 @@ class ModsManager {
 		try {
 			data = await response.json();
 		} catch (e) {
-			// This will be caught in the else
+			// This will be caught in the next check
 		}
 
 		// Fetch failed so just returned the installed mods
@@ -901,9 +900,8 @@ class ModsManager {
 		}
 
 		// Instead return installed + remote mods
-		allMods = [
-			...allMods,
-			...data.mods.map((mod) => ({
+		for (const mod of data.mods) {
+			allMods.push({
 				modID: mod.modID,
 				meta: {
 					info: mod.modData,
@@ -914,8 +912,8 @@ class ModsManager {
 				isInstalled: false,
 				isLoaded: false,
 				isEnabled: false,
-			})),
-		];
+			});
+		}
 		logDebug(`Returning ${allMods.length} total mods for page 1`);
 		return { mods: allMods, success: true, message: "Fetched all mods successfully" };
 	}

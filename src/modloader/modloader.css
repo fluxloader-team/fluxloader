@@ -36,6 +36,9 @@
 	--color-scrollbar-track: #22242b;
 	--color-scrollbar-thumb: #4c505d;
 	--color-scrollbar-thumb-hover: #5c5f70;
+	--color-indicator-offline: #d9534f;
+	--color-indicator-connecting: #f0ad4e;
+	--color-indicator-online: #5cb85c;
 }
 
 body {
@@ -56,11 +59,13 @@ body {
 	height: var(--header-height);
 	display: flex;
 	background: var(--color-bg-dark);
+	display: flex;
 }
 
 .tab-list {
 	height: 100%;
 	display: flex;
+	flex: 1;
 }
 
 .tab-list .option {
@@ -82,6 +87,32 @@ body {
 
 .tab-list .option.selected {
 	background: var(--color-tab-selected);
+}
+
+.online-indicator {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0.4rem;
+}
+
+.online-indicator-circle {
+	width: 0.9rem;
+	height: 0.9rem;
+	border-radius: 50%;
+	margin-right: 0.4rem;
+}
+
+.online-indicator-circle.offline {
+	background: var(--color-indicator-offline);
+}
+
+.online-indicator-circle.connecting {
+	background: var(--color-indicator-connecting);
+}
+
+.online-indicator-circle.online {
+	background: var(--color-indicator-online);
 }
 
 /* ---------------------------- MAIN ---------------------------- */
@@ -368,7 +399,7 @@ body {
 }
 
 #mods-tab-content .mod-info .description {
-	padding: 1.0rem 1.5rem 1.5rem 1.5rem;
+	padding: 1rem 1.5rem 1.5rem 1.5rem;
 }
 
 #mods-tab-content .mod-info .rows {
