@@ -176,6 +176,7 @@ class ModsTab {
 			const tbody = getElement("mods-tab-table").querySelector("tbody");
 			tbody.innerHTML = "";
 			for (const mod of mods) {
+				mod.meta.lastUpdated = this.convertUploadTimeToString(mod.meta.uploadTime);
 				const row = this.createModRow(mod);
 				this.modRows[mod.modID] = row;
 				tbody.appendChild(row.element);
@@ -210,7 +211,7 @@ class ModsTab {
 				<td>${mod.meta.info.author}</td>
 				<td>${mod.meta.info.version}</td>
 				<td>${mod.meta.info.shortDescription || ""}</td>
-				<td>${this.convertUploadTimeToString(mod.meta.uploadTime)}</td>
+				<td>${mod.meta.lastUpdated}</td>
 				<td class="mods-tab-table-tag-list">
 				${
 					mod.meta.info.tags
@@ -328,7 +329,7 @@ class ModsTab {
 		getElement("mod-info-mod-id").innerText = mod.modID;
 		getElement("mod-info-author").innerText = mod.meta.info.author;
 		getElement("mod-info-version").innerText = mod.meta.info.version;
-		getElement("mod-info-last-updated").innerText = this.convertUploadTimeToString(mod.meta.uploadTime);
+		getElement("mod-info-last-updated").innerText = mod.meta.lastUpdated;
 
 		if (mod.meta.info.tags) {
 			getElement("mod-info-tags").classList.toggle("empty", mod.meta.info.tags.length === 0);
