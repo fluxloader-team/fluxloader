@@ -210,7 +210,7 @@ class ModsTab {
 				<td>${mod.meta.info.author}</td>
 				<td>${mod.meta.info.version}</td>
 				<td>${mod.meta.info.shortDescription || ""}</td>
-				<td>N/A</td>
+				<td>${this.convertUploadTimeToString(mod.meta.uploadTime)}</td>
 				<td class="mods-tab-table-tag-list">
 				${
 					mod.meta.info.tags
@@ -245,6 +245,40 @@ class ModsTab {
 		}
 
 		return { element, mod, isVisible: true };
+	}
+
+	convertUploadTimeToString(uploadTime) {
+		if (uploadTime == null) return "";
+		const date = new Date(uploadTime);
+		const now = new Date();
+		const diff = now - date;
+
+		// if within 1 minute, show as seconds
+		if (diff < 60 * 1000) {
+			const seconds = Math.floor(diff / 1000);
+			return `${seconds}s ago`;
+		}
+
+		// if within 24 hours, show as hours:minutes
+		if (diff < 24 * 60 * 60 * 1000) {
+			const hours = Math.floor(diff / (60 * 60 * 1000));
+			const minutes = Math.floor((diff % (60 * 60 * 1000)) / (60 * 1000));
+			if (hours === 0) return `${minutes}m ago`;
+			else return `${hours}h ${minutes}m ago`;
+		}
+
+		// if within 30 days, show as days:hours
+		if (diff < 30 * 24 * 60 * 60 * 1000) {
+			const days = Math.floor(diff / (24 * 60 * 60 * 1000));
+			const hours = Math.floor((diff % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+			return `${days}d ${hours}h ago`;
+		}
+
+		// if older than 30 days, show as date
+		const options = { year: "numeric", month: "2-digit", day: "2-digit" };
+		const formattedDate = date.toLocaleDateString("en-US", options);
+		const formattedTime = date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+		return `${formattedDate} ${formattedTime}`;
 	}
 
 	// --- Running ---
@@ -294,7 +328,7 @@ class ModsTab {
 		getElement("mod-info-mod-id").innerText = mod.modID;
 		getElement("mod-info-author").innerText = mod.meta.info.author;
 		getElement("mod-info-version").innerText = mod.meta.info.version;
-		getElement("mod-info-last-updated").innerText = mod.meta.info.lastUpdated;
+		getElement("mod-info-last-updated").innerText = this.convertUploadTimeToString(mod.meta.uploadTime);
 
 		if (mod.meta.info.tags) {
 			getElement("mod-info-tags").classList.toggle("empty", mod.meta.info.tags.length === 0);
