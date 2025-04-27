@@ -709,7 +709,7 @@ class ModsManager {
 	modScripts = {};
 	loadOrder = [];
 	loadedModCount = 0;
-	fetchedModCache = [];
+	allModCache = [];
 
 	async refreshMods() {
 		this.mods = {};
@@ -845,6 +845,7 @@ class ModsManager {
 
 		// On page 1 we want to include filtered installed mods
 		if (config.page == 1) {
+			this.allModCache = []; // Reset the cache for page 1
 			for (const mod of this.getInstalledMods()) {
 				if (config.search) {
 					const check = config.search.toLowerCase();
@@ -870,6 +871,7 @@ class ModsManager {
 					isEnabled: mod.isEnabled,
 				});
 			}
+			this.allModCache = allMods;
 		}
 
 		// If not fetching remote just return the installed mods
@@ -899,8 +901,13 @@ class ModsManager {
 			return { mods: allMods, success: false, message: "Failed to fetch remote mods" };
 		}
 
-		// Instead return installed + remote mods
+		// Instead return installed + remote mods and skipping duplicates
 		for (const mod of data.mods) {
+			const alreadyFetched = this.allModCache.find((m) => m.modID === mod.modID);
+			if (alreadyFetched) {
+				logDebug(`Skipping already fetched mod: ${mod.modID}`);
+				continue;
+			}
 			allMods.push({
 				modID: mod.modID,
 				meta: {
@@ -914,6 +921,9 @@ class ModsManager {
 				isEnabled: false,
 			});
 		}
+
+		// TODO: We also should perform a fetch on each installed mod so we can update isLocal / versions etc
+
 		logDebug(`Returning ${allMods.length} total mods for page 1`);
 		return { mods: allMods, success: true, message: "Fetched all mods successfully" };
 	}
