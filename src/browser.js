@@ -87,7 +87,7 @@ async function loadAllMods() {
 		return;
 	}
 
-	`Loading ${loadedMods.length} mods...`;
+	logDebug(`Loading ${loadedMods.length} mods...`);
 
 	for (const mod of loadedMods) {
 		if (!mod.info.browserEntrypoint) continue;

@@ -170,8 +170,6 @@ class ModsTab {
 
 		electron.invoke("ml-modloader:get-all-mods", getInfo).then(({ mods, sucess, message }) => {
 			console.log("Mods loaded:", mods.length, "success:", sucess, "message:", message);
-			console.log(mods[0]);
-			console.log(mods[10]);
 
 			const tbody = getElement("mods-tab-table").querySelector("tbody");
 			tbody.innerHTML = "";

@@ -900,8 +900,6 @@ class ModsManager {
 			return { mods: allMods, success: false, message: "Failed to fetch remote mods" };
 		}
 
-		logDebug(JSON.stringify(data.mods[10], null, 4));
-
 		// Instead return installed + remote mods
 		allMods = [
 			...allMods,
