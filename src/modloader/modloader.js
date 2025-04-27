@@ -177,6 +177,8 @@ class ModsTab {
 		setProgress(0);
 		if (this.allowedToConnect) setIndicator("connecting");
 
+		// TODO: We prob want to clear out tbody and show a loading spinner while we fetch the mods here
+
 		this.currentPage = 1;
 		this.modRows = {};
 		const getInfo = {
@@ -220,6 +222,7 @@ class ModsTab {
 			<tr>
 				<td>
 				` +
+				// TODO: Here we want to show a download option if the mod is not installed
 				(mod.isInstalled ? `<input type="checkbox" ${mod.isEnabled ? "checked" : ""}>` : ``) +
 				`
 				</td>
@@ -253,12 +256,12 @@ class ModsTab {
 				checkbox.disabled = true;
 				electron.invoke("ml-modloader:set-mod-enabled", { modID: mod.modID, enabled: isChecked }).then((success) => {
 					checkbox.disabled = false;
-					
+
 					if (!success) {
 						checkbox.checked = !isChecked;
 						setProgressText("Failed to set mod enabled state.");
 					}
-					
+
 					mod.isEnabled = checkbox.checked;
 					element.classList.toggle("disabled", mod.isInstalled && !mod.isEnabled);
 				});
