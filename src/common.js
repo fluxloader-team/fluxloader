@@ -80,7 +80,8 @@ export const ConfigSchemaHandler = {
 				if (schemaLeaf.min !== undefined && value < schemaLeaf.min) return false;
 				if (schemaLeaf.max !== undefined && value > schemaLeaf.max) return false;
 				// If step is given, checks if the value is close enough to the step value
-				if (schemaLeaf.step !== undefined && value === Math.round(value / schemaLeaf.step) * schemaLeaf.step) return true;
+				if (schemaLeaf.step !== undefined && value !== Math.round(value / schemaLeaf.step) * schemaLeaf.step) return false;
+				return true;
 			case "dropdown":
 				if (!schemaLeaf.options) throw new Error("Schema type 'dropdown' requires an 'options' array");
 				return schemaLeaf.options.includes(value);

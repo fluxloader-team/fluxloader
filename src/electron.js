@@ -258,6 +258,18 @@ class ElectronModloaderAPI {
 	handleBrowserIPC(channel, handler) {
 		ipcMain.handle(`ml-mod:${channel}`, handler);
 	}
+
+	getInstalledMods() {
+		return modsManager.getInstalledMods();
+	}
+
+	getLoadedMods() {
+		return modsManager.getLoadedMods();
+	}
+
+	getEnabledMods() {
+		return modsManager.getEnabledMods();
+	}
 }
 
 class ElectronModConfigAPI {
@@ -725,7 +737,7 @@ class ModsManager {
 				for (let i = 0; i < this.loadOrder.length; i++) {
 					const otherMod = this.mods[this.loadOrder[i]];
 					if (otherMod.info.dependencies && Object.keys(otherMod.info.dependencies).includes(mod.info.modID)) {
-						if (modIndex < insertIndex) insertIndex = modIndex;
+						if (i < insertIndex) insertIndex = i;
 					}
 				}
 
@@ -822,6 +834,10 @@ class ModsManager {
 
 	getLoadedMods() {
 		return this.getInstalledMods().filter((mod) => mod.isLoaded);
+	}
+
+	getEnabledMods() {
+		return this.getInstalledMods().filter((mod) => mod.isEnabled);
 	}
 
 	async getAllMods(config) {
