@@ -860,7 +860,7 @@ class ModsManager {
 			return null;
 		}
 
-		logDebug(`Returning ${data.mods.length} total mods for page 1`);
+		logDebug(`Returning ${data.mods.length} total mods for page ${config.page} of size ${config.pageSize} (${data.resultsCount} total)`);
 		return data.mods;
 	}
 

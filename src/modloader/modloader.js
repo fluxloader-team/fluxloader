@@ -49,6 +49,7 @@ function handleResizer(resizer) {
 
 let isPlaying = false;
 let isMainButtonLoading = false;
+let connectionIndicatorState = "offline";
 let selectedTab = null;
 let tabs = {
 	mods: null,
@@ -65,7 +66,7 @@ function setProgress(percent) {
 	getElement("progress-bar").style.width = `${percent}%`;
 }
 
-function setIndicator(state) {
+function setConnectionIndicator(state) {
 	if (state === "offline") {
 		getElement("online-indicator").classList.remove("online");
 		getElement("online-indicator").classList.remove("connecting");
@@ -80,7 +81,9 @@ function setIndicator(state) {
 		getElement("online-indicator").classList.add("online");
 	} else {
 		console.error(`Invalid state: ${state}`);
+		return;
 	}
+	connectionIndicatorState = state;
 }
 
 function handleClickMainButton(button) {
@@ -169,7 +172,6 @@ class ModsTab {
 	modRows = {};
 	selectedMod = null;
 	filterInfo = { search: null, tags: [] };
-	allowedToConnect = false;
 	isLoadingInstalledMods = false;
 	isLoadingRemoteMods = false;
 
@@ -194,7 +196,6 @@ class ModsTab {
 		});
 
 		getElement("mods-load-button").addEventListener("click", () => {
-			this.allowedToConnect = true;
 			this.loadMoreIntoModsView();
 		});
 	}
@@ -223,7 +224,6 @@ class ModsTab {
 
 		// The mod list should always have installed mods first
 		const mods = await electron.invoke("ml-modloader:get-installed-mods");
-		console.log("Installed mods loaded:", mods.length);
 
 		for (const mod of mods) {
 			// We need to manually filter the installed mods here
@@ -258,7 +258,7 @@ class ModsTab {
 		}
 
 		// Load remote mods on reload if we are allowed to connect
-		if (this.allowedToConnect) {
+		if (connectionIndicatorState === "online") {
 			await this.loadMoreIntoModsView();
 		}
 
@@ -279,7 +279,7 @@ class ModsTab {
 		this.isLoadingRemoteMods = true;
 
 		this.setLoadButtonText("Loading...");
-		setIndicator("connecting");
+		setConnectionIndicator("connecting");
 		setProgressText("Getting remote mods...");
 		setProgress(0);
 
@@ -290,17 +290,15 @@ class ModsTab {
 			page: this.currentModPage + 1,
 		};
 		const mods = await electron.invoke("ml-modloader:get-remote-mods", getInfo);
-		console.log("Remote mods loaded:", mods.length);
 
-		if (mods == null) {
+		if (mods == null || mods == []) {
 			this.setLoadButtonText("Load mods");
-			setIndicator("offline");
-			setProgressText("Could not fetch remote mods.");
+			setConnectionIndicator("offline");
+			setProgressText("No remote mods available.");
 			this.isLoadingRemoteMods = false;
-			this.allowedToConnect = false;
 			return;
 		}
-
+		
 		const tbody = getElement("mods-tab-table").querySelector("tbody");
 		for (const mod of mods) {
 			if (this.modRows[mod.modID] != null) {
@@ -327,7 +325,7 @@ class ModsTab {
 		}
 
 		setProgressText("Fetched remote mods successfully.");
-		setIndicator("online");
+		setConnectionIndicator("online");
 		this.setLoadButtonText("Load more mods");
 		this.isLoadingRemoteMods = false;
 		this.currentModPage++;
