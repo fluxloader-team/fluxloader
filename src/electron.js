@@ -798,20 +798,51 @@ class ModsManager {
 		logDebug("All mods unloaded successfully");
 	}
 
-	changeLoadOrder(newLoadOrder) {
-		logDebug("Reordering mod load order...");
+	installMod(modID, version) {
+		logDebug(`Installing mod: ${modID} (v${version})`);
+	}
 
-		if (newLoadOrder.length !== this.loadOrder.length) {
-			throw new Error(`Invalid new mod order length: ${newLoadOrder.length} vs ${this.loadOrder.length}`);
+	uninstallMod(modID) {
+		if (!this.hasMod(modID)) throw new Error(`Mod not found: ${modID}`);
+		if (this.installedMods[modID].isLoaded) throw new Error(`Cannot uninstall mod while loaded: ${modID}`);
+
+		logDebug(`Uninstalling mod: ${modID}`);
+
+		try {
+			fs.rmSync(this.installedMods[modID].path, { recursive: true });
+		} catch (e) {
+			throw new Error(`Failed to delete mod directory: ${this.installedMods[modID].path}, ${e.stack}`);
 		}
 
-		for (const modID of newLoadOrder) {
-			if (!this.hasMod(modID)) {
-				throw new Error(`Invalid mod name in new order: ${modID}`);
-			}
+		delete this.installedMods[modID];
+		delete this.modScripts[modID];
+		this.loadOrder = this.loadOrder.filter((id) => id !== modID);
+		logDebug(`Mod uninstalled successfully: ${modID}`);
+	}
+
+	async fetchRemoteMods(config) {
+		// config: { page, pageSize, search }
+
+		const query = { "modData.name": { $regex: "", $options: "i" } };
+		const encodedQuery = encodeURIComponent(JSON.stringify(query));
+		const url = `https://fluxloader.app/api/mods?search=${encodedQuery}&verified=null&page=${config.page}&size=${config.pageSize}`;
+
+		logDebug(`Fetching mods from API: ${url}`);
+		let data;
+		try {
+			const response = await fetch(url);
+			data = await response.json();
+		} catch (e) {
+			// This will be caught in the next check
 		}
 
-		this.loadOrder = newLoadOrder;
+		if (!data || !Object.hasOwn(data, "resultsCount")) {
+			logDebug(`Failed to fetch mods from the API: ${JSON.stringify(data)}`);
+			return null;
+		}
+
+		logDebug(`Returning ${data.mods.length} total mods for page ${config.page} of size ${config.pageSize} (${data.resultsCount} total)`);
+		return data.mods;
 	}
 
 	hasMod(modID) {
@@ -846,31 +877,6 @@ class ModsManager {
 		return this.getInstalledMods().filter((mod) => mod.isEnabled);
 	}
 
-	async getRemoteMods(config) {
-		// config: { page, pageSize, search }
-
-		const query = { "modData.name": { $regex: "", $options: "i" } };
-		const encodedQuery = encodeURIComponent(JSON.stringify(query));
-		const url = `https://fluxloader.app/api/mods?search=${encodedQuery}&verified=null&page=${config.page}&size=${config.pageSize}`;
-
-		logDebug(`Fetching mods from API: ${url}`);
-		let data;
-		try {
-			const response = await fetch(url);
-			data = await response.json();
-		} catch (e) {
-			// This will be caught in the next check
-		}
-
-		if (!data || !Object.hasOwn(data, "resultsCount")) {
-			logDebug(`Failed to fetch mods from the API: ${JSON.stringify(data)}`);
-			return null;
-		}
-
-		logDebug(`Returning ${data.mods.length} total mods for page ${config.page} of size ${config.pageSize} (${data.resultsCount} total)`);
-		return data.mods;
-	}
-
 	setModEnabled(modID, enabled) {
 		// Ensure mod exists and should be toggled
 		if (!this.hasMod(modID)) throw new Error(`Mod not found: ${modID}`);
@@ -886,14 +892,30 @@ class ModsManager {
 		return true;
 	}
 
+	setLoadOrder(newLoadOrder) {
+		logDebug("Reordering mod load order...");
+
+		if (newLoadOrder.length !== this.loadOrder.length) {
+			throw new Error(`Invalid new mod order length: ${newLoadOrder.length} vs ${this.loadOrder.length}`);
+		}
+
+		for (const modID of newLoadOrder) {
+			if (!this.hasMod(modID)) {
+				throw new Error(`Invalid mod name in new order: ${modID}`);
+			}
+		}
+
+		this.loadOrder = newLoadOrder;
+	}
+
 	// ------------ INTERNAL ------------
 
 	async _initializeMod(modPath) {
 		// Load the modInfo schema on the first call
 		if (!this.modInfoSchema) {
 			try {
-				modInfoSchemaPath = resolvePathInsideModloader(modInfoSchemaPath);
-				this.modInfoSchema = JSON.parse(fs.readFileSync(modInfoSchemaPath, "utf8"));
+				const resolvedPath = resolvePathInsideModloader(modInfoSchemaPath);
+				this.modInfoSchema = JSON.parse(fs.readFileSync(resolvedPath, "utf8"));
 			} catch (e) {
 				throw new Error(`Failed to read modinfo schema: ${e.stack}`);
 			}
@@ -906,7 +928,7 @@ class ModsManager {
 		const modInfo = JSON.parse(fs.readFileSync(modInfoPath, "utf8"));
 
 		// Validate it against the schema
-		if (!SchemaValidation.validate(modInfo, this.modInfoSchema)) {
+		if (!SchemaValidation.validate(modInfo, this.modInfoSchema, { unknownKeyMethod: "ignore" })) {
 			throw new Error(`Invalid modinfo.json found: ${modInfoPath}`);
 		}
 
@@ -1222,9 +1244,9 @@ function setupElectronIPC() {
 		return modsManager.getInstalledMods();
 	});
 
-	ipcMain.handle("ml-modloader:get-remote-mods", async (event, args) => {
-		logDebug(`Received ml-modloader:get-remote-mods: ${JSON.stringify(args)}`);
-		return await modsManager.getRemoteMods(args);
+	ipcMain.handle("ml-modloader:fetch-remote-mods", async (event, args) => {
+		logDebug(`Received ml-modloader:fetch-remote-mods: ${JSON.stringify(args)}`);
+		return await modsManager.fetchRemoteMods(args);
 	});
 
 	ipcMain.handle("ml-modloader:find-installed-mods", async (event, args) => {
@@ -1250,6 +1272,16 @@ function setupElectronIPC() {
 	ipcMain.handle("ml-modloader:stop-game", (event, args) => {
 		logDebug("Received ml-modloader:stop-game");
 		closeGameWindow();
+	});
+
+	ipcMain.handle("ml-modloader:install-mod", (event, args) => {
+		logDebug("Received ml-modloader:install-mod");
+		modsManager.installMod(args.modID, args.version);
+	});
+
+	ipcMain.handle("ml-modloader:uninstall-mod", (event, args) => {
+		logDebug("Received ml-modloader:uninstall-mod");
+		modsManager.uninstallMod(args);
 	});
 
 	ipcMain.handle("ml-modloader:render-markdown", (event, args) => {

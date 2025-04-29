@@ -6,17 +6,18 @@
 - [x] Resizable columns
 - [x] Enable / disable mods (IPC with backend)
 - [x] Select mod and view info
-- [ ] Custom right click menu (uninstall, enable / disable?)
 - [x] Serialize enabled mods
 - [x] Search / filter mods
 - [x] Port modinfo and modloader-config to config validation
-- [ ] UI for mod config and modloader config
+
 - [ ] installing / uninstall mods
-- [ ] swapping between versions
 - [ ] queueing installs / uninstall / versions
-- [ ] previewing the above queue
+
+- [ ] Custom right click menu (uninstall, enable / disable?)
+- [ ] UI for mod config and modloader config
+- [ ] Read markdown file for locally installed mods
+- [ ] swapping between versions
+- [ ] previewing the action queue
 - [ ] filtering on tags
-- [ ] upvotes / reports
-- [ ] General GUI work download buttons, dropdown for different start options, loading screens, stuff everywhere
 - [ ] Load order GUI + saving
 - [ ] CI / CD for packaging into electron

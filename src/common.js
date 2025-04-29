@@ -54,14 +54,14 @@ export class SchemaValidation {
 		// Ensure every key in target is also in the schema
 		for (const configKey of Object.keys(target)) {
 			if (schema[configKey] === undefined) {
-				if (!config.unknownKeyMethod || config.unknownKeyMethod === "error") {
-					log("error", "", `Target Invalid: Key '${configKey}' is not in the schema`);
-					return false;
-				} else if (config.unknownKeyMethod === "ignore") {
+				if (!config.unknownKeyMethod || config.unknownKeyMethod === "ignore") {
 					log("warn", "", `Target warning: Key '${configKey}' is not in the schema, ignoring...`);
 				} else if (config.unknownKeyMethod === "delete") {
 					log("warn", "", `Target warning: Key '${configKey}' is not in the schema, deleting...`);
 					delete target[configKey];
+				} else if (config.unknownKeyMethod === "error") {
+					log("error", "", `Target Invalid: Key '${configKey}' is not in the schema`);
+					return false;
 				}
 			}
 		}

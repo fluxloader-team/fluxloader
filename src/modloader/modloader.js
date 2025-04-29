@@ -172,8 +172,10 @@ class ModsTab {
 	modRows = {};
 	selectedMod = null;
 	filterInfo = { search: null, tags: [] };
+	queuedActions = [];
 	isLoadingInstalledMods = false;
 	isLoadingRemoteMods = false;
+	isPerformingActions = false;
 
 	// --- Setup ---
 
@@ -245,7 +247,7 @@ class ModsTab {
 				meta: {
 					info: mod.info,
 					votes: null,
-					lastUpdated: ""
+					lastUpdated: "",
 				},
 				isLocal: true,
 				isInstalled: true,
@@ -289,7 +291,7 @@ class ModsTab {
 			pageSize: ModsTab.pageSize,
 			page: this.currentModPage + 1,
 		};
-		const mods = await electron.invoke("ml-modloader:get-remote-mods", getInfo);
+		const mods = await electron.invoke("ml-modloader:fetch-remote-mods", getInfo);
 
 		if (mods == null || mods == []) {
 			this.setLoadButtonText("Load mods");
@@ -298,7 +300,7 @@ class ModsTab {
 			this.isLoadingRemoteMods = false;
 			return;
 		}
-		
+
 		const tbody = getElement("mods-tab-table").querySelector("tbody");
 		for (const mod of mods) {
 			if (this.modRows[mod.modID] != null) {
@@ -455,7 +457,7 @@ class ModsTab {
 				{
 					text: "Uninstall",
 					onClick: () => {
-						console.log(`Uninstalling mod ${modData.modID}`);
+						this.queueUninstall(modData.modID);
 					},
 				},
 			]);
@@ -464,7 +466,7 @@ class ModsTab {
 				{
 					text: "Install",
 					onClick: () => {
-						console.log(`Installing mod ${modData.modID}`);
+						this.queueInstall(modData.modID, modData.meta.info.version);
 					},
 				},
 			]);
@@ -495,6 +497,24 @@ class ModsTab {
 
 	setLoadButtonText(text) {
 		getElement("mods-load-button").innerText = text;
+	}
+
+	// --- Queueing and Actions ---
+
+	queueInstall(modID, version) {
+		if (this.isPerformingActions) return;
+		console.log(`Installing mod ${modID} version ${version}`);
+		this.queuedActions.push({ action: "install", modID, version });
+	}
+
+	queueUninstall(modID) {
+		if (this.isPerformingActions) return;
+		console.log(`Uninstalling mod ${modID}`);
+		this.queuedActions.push({ action: "uninstall", modID });
+	}
+
+	performQueuedActions() {
+		this.isPerformingActions = true;
 	}
 
 	// --- Filtering ---

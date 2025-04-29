@@ -9,7 +9,7 @@
 
 :root {
 	--header-height: 2.7rem;
-	--footer-height: 3.5rem;
+	--footer-height: 4rem;
 
 	/* Generic */
 	--color-bg-dark: #1f222b;
@@ -539,11 +539,11 @@ body {
 }
 
 .footer-control-input.button {
-	width: 5rem;
+	width: 7rem;
 }
 
 .footer-control-input.dropdown {
-	width: 1.2rem;
+	width: 1.6rem;
 }
 
 .footer-control-input:hover {

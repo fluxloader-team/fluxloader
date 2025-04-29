@@ -9,3 +9,4 @@ package-lock.json
 **/*.exe
 **/*.log
 **/mods/
+example-mods/config

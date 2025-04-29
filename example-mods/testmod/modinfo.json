@@ -1,17 +1,18 @@
 {
-	"name": "testmod",
+	"modID": "testmod",
+	"name": "Test Mod",
 	"version": "1.0.0",
 	"author": "tomster12",
 	"shortDescription": "A test mod for the Electron Modloader",
 	"description": "A test mod for the Electron Modloader.\nThis is another line of text.",
 	"modloaderVersion": ">=1.0.0",
 	"dependencies": { "someothermod": "=1.2.0" },
-	"tags": [ "map", "tag2", "tag3" ],
+	"tags": ["map", "tag2", "tag3"],
 	"electronEntrypoint": "entry.electron.js",
 	"browserEntrypoint": "entry.browser.js",
 	"workerEntrypoint": "entry.worker.js",
 	"configSchema": {
-		"someSetting": true,
-		"someValue": 203
+		"someSetting": { "type": "boolean", "default": true },
+		"someValue": { "type": "number", "default": 203 }
 	}
 }
