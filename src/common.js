@@ -65,7 +65,13 @@ export class SchemaValidation {
 
 			// Validate the target value against the schema leaf node
 			if (this.isSchemaLeafNode(schemaValue)) {
-				if (!Object.hasOwn(target, schemaKey)) target[schemaKey] = schemaValue.default;
+				if (!Object.hasOwn(target, schemaKey)) {
+					if (!Object.hasOwn(schemaValue, "default")) {
+						log("warn", "", `Target Invalid: Key '${schemaKey}' is required by the schema`);
+						return false;
+					}
+					target[schemaKey] = schemaValue.default;
+				}
 				if (!this.validateValue(target[schemaKey], schemaValue)) {
 					log("warn", "", `Target Invalid: Key '${schemaKey}' is not valid`);
 					return false;

@@ -38,7 +38,8 @@ globalThis.gameWindow = undefined;
 let logLevels = ["debug", "info", "warn", "error"];
 let preConfigLogLevel = "info";
 let configPath = "modloader-config.json";
-let configSchemaPath = "modloader-config.schema.json";
+let configSchemaPath = "schema.modloader-config.json";
+let modInfoSchemaPath = "schema.mod-info.json";
 let logFilePath = undefined;
 let config = undefined;
 let configLoaded = false;
@@ -704,6 +705,7 @@ class ModsManager {
 	modScripts = {};
 	loadOrder = [];
 	loadedModCount = 0;
+	modInfoSchema = undefined;
 
 	async findInstalledMods() {
 		this.installedMods = {};
@@ -718,6 +720,7 @@ class ModsManager {
 		modPaths = modPaths.filter((p) => fs.statSync(p).isDirectory());
 		logDebug(`Found ${modPaths.length} mod${modPaths.length === 1 ? "" : "s"} to initialize inside: ${this.baseModsPath}`);
 
+		// Try and initialize each mod
 		for (const modPath of modPaths) {
 			try {
 				// Initialize and save the mod
@@ -748,6 +751,9 @@ class ModsManager {
 			}
 		}
 
+		// TODO: Here we should check dependencies and modloader versions probably
+
+		// Final report of installed mods
 		const modCount = Object.keys(this.installedMods).length;
 		logInfo(
 			`Successfully initialized ${modCount} mod${modCount == 1 ? "" : "s"}: [ ${Object.values(this.installedMods)
@@ -883,50 +889,39 @@ class ModsManager {
 	// ------------ INTERNAL ------------
 
 	async _initializeMod(modPath) {
+		// Load the modInfo schema on the first call
+		if (!this.modInfoSchema) {
+			try {
+				modInfoSchemaPath = resolvePathInsideModloader(modInfoSchemaPath);
+				this.modInfoSchema = JSON.parse(fs.readFileSync(modInfoSchemaPath, "utf8"));
+			} catch (e) {
+				throw new Error(`Failed to read modinfo schema: ${e.stack}`);
+			}
+		}
+
 		// Try and read the modinfo.json
 		const modInfoPath = path.join(modPath, "modinfo.json");
 		logDebug(`Initializing mod: ${modInfoPath}`);
+		if (!fs.existsSync(modInfoPath)) throw new Error(`modinfo.json not found: ${modInfoPath}`);
+		const modInfo = JSON.parse(fs.readFileSync(modInfoPath, "utf8"));
 
-		if (!fs.existsSync(modInfoPath)) {
-			throw new Error(`modinfo.json not found: ${modInfoPath}`);
-		}
-
-		const modInfoContent = fs.readFileSync(modInfoPath, "utf8");
-		const modInfo = JSON.parse(modInfoContent);
-
-		// ModInfo Schema
-		// WARNING: If you want to change this you will need to change it everywhere
-		// That includes database, database upload, all through here, modloader GUI, site GUI etc
-		//         modID                generated if not present
-		//         name
-		//         version
-		//         author
-		//         modloaderVersion
-		//         shortDescription     optional
-		//         dependencies         optional
-		//         tags                 optional
-		//         electronEntrypoint   optional
-		//         browserEntrypoint    optional
-		//         workerEntrypoint     optional
-		//         defaultConfig        optional
-		//         description          optional
-		//         scriptPath           optional
-
-		// Ensure mod has required mod info
-		if (!modInfo || !modInfo.modID || !modInfo.name || !modInfo.version || !modInfo.author || !modInfo.modloaderVersion) {
+		// Validate it against the schema
+		if (!SchemaValidation.validate(modInfo, this.modInfoSchema)) {
 			throw new Error(`Invalid modinfo.json found: ${modInfoPath}`);
 		}
-		// If mod info defines entrypoints check they both exist
-		if (modInfo.electronEntrypoint && !fs.existsSync(path.join(modPath, modInfo.electronEntrypoint))) {
-			throw new Error(`Mod defines electron entrypoint ${modInfo.electronEntrypoint} but file not found: ${modPath}`);
-		}
-		if (modInfo.browserEntrypoint && !fs.existsSync(path.join(modPath, modInfo.browserEntrypoint))) {
-			throw new Error(`Mod defines browser entrypoint ${modInfo.browserEntrypoint} but file none found: ${modPath}`);
-		}
-		if (modInfo.workerEntrypoint && !fs.existsSync(path.join(modPath, modInfo.workerEntrypoint))) {
-			throw new Error(`Mod defines worker entrypoint ${modInfo.workerEntrypoint} but file none found: ${modPath}`);
-		}
 
+		// Validate each entrypoint
+		const validateEntrypoint = (type) => {
+			const entrypointPath = modInfo[`${type}Entrypoint`];
+			if (entrypointPath && !fs.existsSync(path.join(modPath, entrypointPath))) {
+				throw new Error(`Mod defines ${type} entrypoint ${entrypointPath} but file not found: ${modPath}`);
+			}
+		};
+		validateEntrypoint("electron");
+		validateEntrypoint("browser");
+		validateEntrypoint("worker");
+
+		// Load the mod scripts if they exist
 		let scripts = null;
 		if (modInfo.scriptPath) {
 			const scriptPath = path.join(modPath, modInfo.scriptPath);
@@ -939,9 +934,9 @@ class ModsManager {
 			mod: {
 				info: modInfo,
 				path: modPath,
-				isInstalled: true, // Does the mod exist in the mods directory
-				isEnabled: true, // Is the mod enabled in the config
-				isLoaded: false, // Is the mod loaded in the game
+				isInstalled: true,
+				isEnabled: true,
+				isLoaded: false,
 			},
 		};
 	}
@@ -950,11 +945,15 @@ class ModsManager {
 		if (mod.isLoaded) throw new Error(`Mod already loaded: ${mod.info.modID}`);
 
 		logDebug(`Loading mod: ${mod.info.modID}`);
+
+		// if it defines a config schema then we need to validate it
 		if (mod.info.configSchema) {
-			logDebug(`Modifying and validating schema for mod: ${mod.info.modID}`);
 			if (this.modScripts[mod.info.modID] && this.modScripts[mod.info.modID].modifySchema) {
+				logDebug(`Modifying schema for mod: ${mod.info.modID}`);
 				this.modScripts[mod.info.modID].modifySchema(mod.info.configSchema);
 			}
+
+			logDebug(`Validating schema for mod: ${mod.info.modID}`);
 			let config = modloaderAPI.config.get(mod.info.modID);
 			SchemaValidation.validate(config, mod.info.configSchema);
 			modloaderAPI.config.set(mod.info.modID, config);
