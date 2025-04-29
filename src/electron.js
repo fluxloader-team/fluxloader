@@ -705,14 +705,13 @@ class GameFileManager {
 
 class ModsManager {
 	baseModsPath = undefined;
-	mods = {};
+	installedMods = {};
 	modScripts = {};
 	loadOrder = [];
 	loadedModCount = 0;
-	allModCache = [];
 
 	async refreshMods() {
-		this.mods = {};
+		this.installedMods = {};
 		this.loadOrder = [];
 		this.loadedModCount = 0;
 
@@ -728,14 +727,14 @@ class ModsManager {
 			try {
 				// Initialize and save the mod
 				const { mod, scripts } = await this._initializeMod(modPath);
-				this.mods[mod.info.modID] = mod;
+				this.installedMods[mod.info.modID] = mod;
 				this.modScripts[mod.info.modID] = scripts;
 
 				// We want to make sure this mod is placed before any mod that depends on it
 				// We start by putting it at the end, then we check each currently loaded mod
 				let insertIndex = this.loadOrder.length;
 				for (let i = 0; i < this.loadOrder.length; i++) {
-					const otherMod = this.mods[this.loadOrder[i]];
+					const otherMod = this.installedMods[this.loadOrder[i]];
 					if (otherMod.info.dependencies && Object.keys(otherMod.info.dependencies).includes(mod.info.modID)) {
 						if (i < insertIndex) insertIndex = i;
 					}
@@ -748,9 +747,9 @@ class ModsManager {
 			}
 		}
 
-		const modCount = Object.keys(this.mods).length;
+		const modCount = Object.keys(this.installedMods).length;
 		logInfo(
-			`Successfully initialized ${modCount} mod${modCount == 1 ? "" : "s"}: [ ${Object.values(this.mods)
+			`Successfully initialized ${modCount} mod${modCount == 1 ? "" : "s"}: [ ${Object.values(this.installedMods)
 				.map((mod) => `${mod.info.modID} (v${mod.info.version})`)
 				.join(", ")} ]`
 		);
@@ -760,7 +759,7 @@ class ModsManager {
 	async loadAllMods() {
 		if (this.loadedModCount > 0) throw new Error("Cannot load mods, some mods are already loaded");
 
-		const enabledCount = this.loadOrder.filter((modID) => this.mods[modID].isEnabled).length;
+		const enabledCount = this.loadOrder.filter((modID) => this.installedMods[modID].isEnabled).length;
 		if (enabledCount == this.loadOrder.length) {
 			logDebug(`Loading ${this.loadOrder.length} mods...`);
 		} else {
@@ -768,8 +767,8 @@ class ModsManager {
 		}
 
 		for (const modID of this.loadOrder) {
-			if (this.mods[modID].isEnabled) {
-				await this._loadMod(this.mods[modID]);
+			if (this.installedMods[modID].isEnabled) {
+				await this._loadMod(this.installedMods[modID]);
 			}
 		}
 
@@ -783,8 +782,8 @@ class ModsManager {
 		logDebug("Unloading all mods...");
 
 		for (const modID of this.loadOrder) {
-			if (this.mods[modID].isLoaded) {
-				this._unloadMod(this.mods[modID]);
+			if (this.installedMods[modID].isLoaded) {
+				this._unloadMod(this.installedMods[modID]);
 			}
 		}
 
@@ -809,7 +808,7 @@ class ModsManager {
 	}
 
 	hasMod(modID) {
-		return Object.hasOwn(this.mods, modID);
+		return Object.hasOwn(this.installedMods, modID);
 	}
 
 	logContents() {
@@ -819,9 +818,9 @@ class ModsManager {
 		outputString += `  |  |  Load Order: [ ${this.loadOrder.join(", ")} ]\n`;
 
 		outputString += `  |  \n`;
-		outputString += `  |  Mods (${Object.keys(this.mods).length})\n`;
+		outputString += `  |  Mods (${Object.keys(this.installedMods).length})\n`;
 		for (const modID of this.loadOrder) {
-			const mod = this.mods[modID];
+			const mod = this.installedMods[modID];
 			outputString += `  |  |  '${mod.info.modID}': ${mod.isLoaded ? "LOADED" : "UNLOADED"}, path: ${mod.path}\n`;
 		}
 
@@ -829,7 +828,7 @@ class ModsManager {
 	}
 
 	getInstalledMods() {
-		return this.loadOrder.map((modID) => this.mods[modID]);
+		return this.loadOrder.map((modID) => this.installedMods[modID]);
 	}
 
 	getLoadedMods() {
@@ -840,99 +839,36 @@ class ModsManager {
 		return this.getInstalledMods().filter((mod) => mod.isEnabled);
 	}
 
-	async getAllMods(config) {
-		let allMods = [];
+	async getRemoteMods(config) {
+		// config: { page, pageSize, search }
 
-		// On page 1 we want to include filtered installed mods
-		if (config.page == 1) {
-			this.allModCache = []; // Reset the cache for page 1
-			for (const mod of this.getInstalledMods()) {
-				if (config.search) {
-					const check = config.search.toLowerCase();
-					let matched = false;
-					matched |= mod.info.modID.toLowerCase().includes(check);
-					matched |= mod.info.name.toLowerCase().includes(check);
-					matched |= mod.info.version.toLowerCase().includes(check);
-					matched |= mod.info.author.toLowerCase().includes(check);
-					if (mod.info.shortDescription) matched |= mod.info.shortDescription.toLowerCase().includes(check);
-					if (mod.info.description) matched |= mod.info.description.toLowerCase().includes(check);
-					if (!matched) continue;
-				}
-				allMods.push({
-					modID: mod.info.modID,
-					meta: {
-						info: mod.info,
-						votes: null,
-						uploadTime: null,
-					},
-					isLocal: true,
-					isInstalled: true,
-					isLoaded: mod.isLoaded,
-					isEnabled: mod.isEnabled,
-				});
-			}
-			this.allModCache = allMods;
-		}
-
-		// If not fetching remote just return the installed mods
-		if (!config.fetchRemote) {
-			logDebug(`Returning ${allMods.length} installed mods for page 1. Skipping remote mods.`);
-			return { mods: allMods, success: true, message: "Fetched local mods successfully" };
-		}
-
-		// Fetch a page of mods from the API
-		// Old Example: https://fluxloader.app/api/mods?search=somemod&page=1&size=5
 		const query = { "modData.name": { $regex: "", $options: "i" } };
 		const encodedQuery = encodeURIComponent(JSON.stringify(query));
 		const url = `https://fluxloader.app/api/mods?search=${encodedQuery}&verified=null&page=${config.page}&size=${config.pageSize}`;
+
 		logDebug(`Fetching mods from API: ${url}`);
-		const response = await fetch(url);
-		let data = null;
+		let data;
 		try {
+			const response = await fetch(url);
 			data = await response.json();
 		} catch (e) {
 			// This will be caught in the next check
 		}
 
-		// Fetch failed so just returned the installed mods
-		if (!data || !data.resultsCount) {
+		if (!data || !Object.hasOwn(data, "resultsCount")) {
 			logDebug(`Failed to fetch mods from the API: ${JSON.stringify(data)}`);
-			logDebug(`Returning just ${allMods.length} installed mods for page 1`);
-			return { mods: allMods, success: false, message: "Failed to fetch remote mods" };
+			return null;
 		}
 
-		// Instead return installed + remote mods and skipping duplicates
-		for (const mod of data.mods) {
-			const alreadyFetched = this.allModCache.find((m) => m.modID === mod.modID);
-			if (alreadyFetched) {
-				logDebug(`Skipping already fetched mod: ${mod.modID}`);
-				continue;
-			}
-			allMods.push({
-				modID: mod.modID,
-				meta: {
-					info: mod.modData,
-					votes: mod.votes,
-					uploadTime: mod.uploadTime,
-				},
-				isLocal: false,
-				isInstalled: false,
-				isLoaded: false,
-				isEnabled: false,
-			});
-		}
-
-		// TODO: We also should perform a fetch on each installed mod so we can update isLocal / versions etc
-
-		logDebug(`Returning ${allMods.length} total mods for page 1`);
-		return { mods: allMods, success: true, message: "Fetched all mods successfully" };
+		logDebug(`Returning ${data.mods.length} total mods for page 1`);
+		return data.mods;
 	}
 
 	setModEnabled(modID, enabled) {
 		if (!this.hasMod(modID)) throw new Error(`Mod not found: ${modID}`);
 		logDebug(`Setting mod ${modID} enabled state to ${enabled}`);
-		if (this.mods[modID].isEnabled === enabled) return;
-		this.mods[modID].isEnabled = enabled;
+		if (this.installedMods[modID].isEnabled === enabled) return;
+		this.installedMods[modID].isEnabled = enabled;
 		return true;
 	}
 
@@ -1266,9 +1202,9 @@ function setupElectronIPC() {
 		return modsManager.getInstalledMods();
 	});
 
-	ipcMain.handle("ml-modloader:get-all-mods", async (event, args) => {
-		logDebug(`Received ml-modloader:get-all-mods: ${JSON.stringify(args)}`);
-		return await modsManager.getAllMods(args);
+	ipcMain.handle("ml-modloader:get-remote-mods", async (event, args) => {
+		logDebug(`Received ml-modloader:get-remote-mods: ${JSON.stringify(args)}`);
+		return await modsManager.getRemoteMods(args);
 	});
 
 	ipcMain.handle("ml-modloader:refresh-mods", async (event, args) => {
