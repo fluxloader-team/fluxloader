@@ -505,12 +505,17 @@ class ModsTab {
 		if (this.isPerformingActions) return;
 		console.log(`Installing mod ${modID} version ${version}`);
 		this.queuedActions.push({ action: "install", modID, version });
+		this.addQueueElement(this.queuedActions[this.queuedActions.length - 1]);
 	}
 
 	queueUninstall(modID) {
 		if (this.isPerformingActions) return;
 		console.log(`Uninstalling mod ${modID}`);
 		this.queuedActions.push({ action: "uninstall", modID });
+		this.addQueueElement(this.queuedActions[this.queuedActions.length - 1]);
+	} 
+
+	addQueueElement(action) {
 	}
 
 	performQueuedActions() {

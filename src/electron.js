@@ -969,7 +969,7 @@ class ModsManager {
 		logDebug(`Loading mod: ${mod.info.modID}`);
 
 		// if it defines a config schema then we need to validate it
-		if (mod.info.configSchema) {
+		if (mod.info.configSchema && Object.keys(mod.info.configSchema).length > 0) {
 			if (this.modScripts[mod.info.modID] && this.modScripts[mod.info.modID].modifySchema) {
 				logDebug(`Modifying schema for mod: ${mod.info.modID}`);
 				this.modScripts[mod.info.modID].modifySchema(mod.info.configSchema);
