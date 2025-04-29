@@ -39,68 +39,91 @@ export class EventBus {
 	}
 }
 
-export const ConfigSchemaHandler = {
-	// Recursive function to load default config values as well as validate them
-	validateConfig: function (config, schema) {
-		if (typeof config !== "object") throw new Error("Invalid config provided");
-		if (!this.validateSchema(schema)) throw new Error("Invalid schema provided");
+export class SchemaValidation {
+	// Errors if the schema is invalid
+	// Return true / false if the target is valid
 
-		for (const [entry, entrySchema] of Object.entries(schema)) {
-			if (!this.isLeafNode(entrySchema)) {
-				if (config[entry] === undefined) config[entry] = {};
-				this.validateConfig(config[entry], entrySchema);
-			} else {
-				// Use default value from schema if config value is undefined
-				if (config[entry] === undefined) config[entry] = entrySchema.default;
-				let result = this.validateConfigValue(config[entry], entrySchema);
-				if (!result) throw new Error(`Config value '${JSON.stringify(config[entry])}' failed the check for '${entrySchema.type}' type`);
+	static validate(target, schema) {
+		// Recursively validates the target object against the schema object
+		if (typeof schema !== "object") throw new Error("Schema must be an object");
+		if (typeof target !== "object") {
+			log("warn", "", `Target Invalid: Target is not an object`);
+			return false;
+		}
+
+		// Ensure every key in target is also in the schema
+		for (const configKey of Object.keys(target)) {
+			if (schema[configKey] === undefined) {
+				log("warn", "", `Target Invalid: Key '${configKey}' is not in the schema`);
+				return false;
 			}
 		}
-	},
 
-	// Checks a specific value in the config against its corresponding schema leaf node
-	// Errors are only thrown here if the validation cannot continue - ie. Fatal errors during validation
-	// Returns true/false based on if the value is valid based on the schema given
-	validateConfigValue: function (value, schemaLeaf) {
-		if (!value) throw new Error("No value given");
-		if (!schemaLeaf) throw new Error("No schema leaf given");
-		if (!schemaLeaf.type) {
-			if (!schemaLeaf.default) throw new Error("Schema type not provided and default value was missing");
-			// Use type of default if no type is provided
-			schemaLeaf.type = typeof schemaLeaf.default;
-			globalThis.log("debug", "", `Schema type not provided, assuming type from default value: ${schemaLeaf.type}`);
-		}
-		switch (schemaLeaf.type) {
-			case "boolean":
-				return value === true || value === false;
-			case "string":
-				return typeof value === "string";
-			case "number":
-				if (typeof value !== "number") return false;
-				if (schemaLeaf.min !== undefined && value < schemaLeaf.min) return false;
-				if (schemaLeaf.max !== undefined && value > schemaLeaf.max) return false;
-				// If step is given, checks if the value is close enough to the step value
-				if (schemaLeaf.step !== undefined && value !== Math.round(value / schemaLeaf.step) * schemaLeaf.step) return false;
-				return true;
-			case "dropdown":
-				if (!schemaLeaf.options) throw new Error("Schema type 'dropdown' requires an 'options' array");
-				return schemaLeaf.options.includes(value);
-		}
-		throw new Error(`Unknown schema type: ${schemaLeaf.type}`);
-	},
+		for (const [schemaKey, schemaValue] of Object.entries(schema)) {
+			// The schema value must be an object
+			if (typeof schemaValue !== "object") throw new Error(`Schema invalid: Key '${schemaKey}' is not an object`);
 
-	validateSchema: function (schema) {
-		// TODO: Proper schema format validation
+			// Validate the target value against the schema leaf node
+			if (this.isSchemaLeafNode(schemaValue)) {
+				if (!Object.hasOwn(target, schemaKey)) target[schemaKey] = schemaValue.default;
+				if (!this.validateValue(target[schemaKey], schemaValue)) {
+					log("warn", "", `Target Invalid: Key '${schemaKey}' is not valid`);
+					return false;
+				}
+			}
+
+			// Otherwise recurse into the target and schema object
+			else {
+				if (!Object.hasOwn(target, schemaKey)) target[schemaKey] = {};
+				if (!this.validate(target[schemaKey], schemaValue)) return false;
+			}
+		}
+
 		return true;
-	},
+	}
 
-	// Checks if any value of schemaNode is not an object
-	// (since at least one value of a leaf node should be a non-object)
-	isLeafNode: function (schemaNode) {
-		if (typeof schemaNode !== "object") return false; // schemaNode should be an object...
-		for (const value of Object.values(schemaNode)) {
-			if (typeof value !== "object") return true;
+	static validateValue(targetValue, schemaLeafValue) {
+		switch (schemaLeafValue.type) {
+			case "boolean":
+				return targetValue === true || targetValue === false;
+
+			case "string":
+				return typeof targetValue === "string";
+
+			case "number":
+				if (typeof targetValue !== "number") return false;
+				if (Object.hasOwn(schemaLeafValue, "min") && targetValue < schemaLeafValue.min) return false;
+				if (Object.hasOwn(schemaLeafValue, "max") && targetValue > schemaLeafValue.max) return false;
+				// If step is given, checks if the value is close enough to the step value
+				if (Object.hasOwn(schemaLeafValue, "step") && targetValue !== Math.round(targetValue / schemaLeafValue.step) * schemaLeafValue.step) return false;
+				return true;
+
+			case "dropdown":
+				if (!schemaLeafValue.options) throw new Error("Schema invalid: Type 'dropdown' requires an 'options' array");
+				return schemaLeafValue.options.includes(targetValue);
+
+			case "object":
+				return typeof targetValue === "object";
+
+			case "array":
+				return Array.isArray(targetValue);
+
+			default:
+				throw new Error(`Schema invalid: Unknown schema type '${schemaLeafValue.type}'`);
 		}
+	}
+
+	static isSchemaLeafNode(schemaValue) {
+		// This should be caught in the validate function but just in case we check here too
+		if (typeof schemaValue !== "object") throw new Error("Schema invalid: Schema value is not an object");
+
+		// If the schema value has "type" defined it is a leaf node
+		const hasType = Object.hasOwn(schemaValue, "type");
+		if (hasType) return true;
+
+		// If it does not have "type" defined it must only contain other objects or be empty
+		const anyValues = Object.values(schemaValue).some((value) => typeof value !== "object");
+		if (anyValues) throw new Error(`Schema invalid: Schema nodes must either have "type" or only values that are objects`);
 		return false;
-	},
-};
+	}
+}

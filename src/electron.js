@@ -4,7 +4,7 @@ import fs from "fs";
 import process from "process";
 import os from "os";
 import asar from "asar";
-import { EventBus, ConfigSchemaHandler } from "./common.js";
+import { EventBus, SchemaValidation } from "./common.js";
 import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
 import { marked } from "marked";
@@ -36,34 +36,16 @@ globalThis.gameElectronFuncs = undefined;
 globalThis.gameWindow = undefined;
 
 let logLevels = ["debug", "info", "warn", "error"];
-let logFilePath = undefined;
 let preConfigLogLevel = "info";
 let configPath = "modloader-config.json";
+let configSchemaPath = "modloader-config.schema.json";
+let logFilePath = undefined;
 let config = undefined;
+let configLoaded = false;
 let modsManager = undefined;
 let gameFileManager = undefined;
 let modloaderWindow = undefined;
 let hasRanOnce = false;
-
-let modloaderConfigSchema = {
-	gamePath: ".",
-	modsPath: "./mods",
-	logging: {
-		logToFile: true,
-		logToConsole: true,
-		consoleLogLevel: "info",
-		fileLogLevel: "debug",
-		logFilePath: "modloader.log",
-	},
-	application: {
-		loadIntoModloader: true,
-	},
-	debug: {
-		enableDebugMenu: false,
-		debugMenuZoom: 0.8,
-		openDevTools: false,
-	},
-};
 
 // ------------- UTILTY -------------
 
@@ -90,23 +72,24 @@ function colourText(text, colour) {
 	return `${COLOUR_MAP[colour]}${text}\x1b[0m`;
 }
 
-globalThis.log = function (level, tag, message) {
-	function setupLogFile() {
-		if (logFilePath) return;
-		logFilePath = resolvePathRelativeToModloader(config.logging.logFilePath);
-		try {
-			fs.appendFileSync(logFilePath, new Date().toISOString() + "\n");
-		} catch (e) {
-			throw new Error(`Error writing to log file: ${e.stack}`);
-		}
-		const stat = fs.statSync(logFilePath);
-		const fileSize = stat.size / 1024 / 1024;
-		if (fileSize > 2) {
-			logWarn(`Log file is over 2MB: ${logFilePath} (${fileSize.toFixed(2)}MB)`);
-		}
-		logDebug(`Modloader log path: ${logFilePath}`);
+function setupLogFile() {
+	if (!configLoaded) return;
+	if (logFilePath) return;
+	logFilePath = resolvePathRelativeToModloader(config.logging.logFilePath);
+	try {
+		fs.appendFileSync(logFilePath, new Date().toISOString() + "\n");
+	} catch (e) {
+		throw new Error(`Error writing to log file: ${e.stack}`);
 	}
+	const stat = fs.statSync(logFilePath);
+	const fileSize = stat.size / 1024 / 1024;
+	if (fileSize > 2) {
+		logWarn(`Log file is over 2MB: ${logFilePath} (${fileSize.toFixed(2)}MB)`);
+	}
+	logDebug(`Modloader log path: ${logFilePath}`);
+}
 
+globalThis.log = function (level, tag, message) {
 	// Back out early if given wrong log level
 	if (!logLevels.includes(level)) {
 		throw new Error(`Invalid log level: ${level}`);
@@ -119,7 +102,7 @@ globalThis.log = function (level, tag, message) {
 	let headerColoured = colourText("[", "grey") + colourText(tag ? `${tag} ` : "", "blue") + colourText(`${levelText} ${timestamp}]`, "grey");
 
 	// Only log to file if defined by the config and level is allowed
-	if (config && config.logging.logToFile) {
+	if (configLoaded && config.logging.logToFile) {
 		if (levelIndex >= logLevels.indexOf(config.logging.fileLogLevel)) {
 			if (!logFilePath) setupLogFile();
 			fs.appendFileSync(logFilePath, `${header} ${message}\n`);
@@ -129,8 +112,8 @@ globalThis.log = function (level, tag, message) {
 	// If config is not loaded then use the pre-config log level as the filter
 	// Otherwise only log to console based on config level and console log flag
 	let consoleLevelLimit = preConfigLogLevel;
-	if (config) consoleLevelLimit = config.logging.consoleLogLevel;
-	if (!config || config.logging.logToConsole) {
+	if (configLoaded) consoleLevelLimit = config.logging.consoleLogLevel;
+	if (!configLoaded || config.logging.logToConsole) {
 		if (levelIndex >= logLevels.indexOf(consoleLevelLimit)) {
 			console.log(`${headerColoured} ${message}`);
 		}
@@ -145,6 +128,18 @@ globalThis.logError = (...args) => log("error", "", args.join(" "));
 function resolvePathRelativeToModloader(name) {
 	// If absolute then return the path as is
 	if (path.isAbsolute(name)) return name;
+
+	// Otherwise relative to mod-loader.exe
+	const __filename = fileURLToPath(import.meta.url);
+	const __dirname = path.dirname(__filename);
+	return path.join(__dirname, name);
+}
+
+function resolvePathInsideModloader(name) {
+	// If absolute then return the path as is
+	if (path.isAbsolute(name)) return name;
+
+	// TODO: In the future this needs to accommodate for electron exe packaging
 
 	// Otherwise relative to mod-loader.exe
 	const __filename = fileURLToPath(import.meta.url);
@@ -710,7 +705,7 @@ class ModsManager {
 	loadOrder = [];
 	loadedModCount = 0;
 
-	async refreshMods() {
+	async findInstalledMods() {
 		this.installedMods = {};
 		this.loadOrder = [];
 		this.loadedModCount = 0;
@@ -730,6 +725,14 @@ class ModsManager {
 				this.installedMods[mod.info.modID] = mod;
 				this.modScripts[mod.info.modID] = scripts;
 
+				// Check if the mod is disabled in the config (as-per a previous user choice)
+				if (Object.hasOwn(config.modsEnabled, mod.info.modID) && !config.modsEnabled[mod.info.modID]) {
+					logDebug(`Mod ${mod.info.modID} is disabled in the config`);
+					mod.isEnabled = false;
+				} else {
+					mod.isEnabled = true;
+				}
+
 				// We want to make sure this mod is placed before any mod that depends on it
 				// We start by putting it at the end, then we check each currently loaded mod
 				let insertIndex = this.loadOrder.length;
@@ -739,8 +742,6 @@ class ModsManager {
 						if (i < insertIndex) insertIndex = i;
 					}
 				}
-
-				// Place into load order
 				this.loadOrder.splice(insertIndex, 0, mod.info.modID);
 			} catch (e) {
 				logWarn(`Error initializing mod at path ${modPath}: ${e.stack}`);
@@ -750,7 +751,7 @@ class ModsManager {
 		const modCount = Object.keys(this.installedMods).length;
 		logInfo(
 			`Successfully initialized ${modCount} mod${modCount == 1 ? "" : "s"}: [ ${Object.values(this.installedMods)
-				.map((mod) => `${mod.info.modID} (v${mod.info.version})`)
+				.map((mod) => `${!mod.isEnabled ? "(DISABLED) " : ""}${mod.info.modID} (v${mod.info.version})`)
 				.join(", ")} ]`
 		);
 		logInfo(`Mod load order: [ ${this.loadOrder.join(", ")} ]`);
@@ -865,10 +866,17 @@ class ModsManager {
 	}
 
 	setModEnabled(modID, enabled) {
+		// Ensure mod exists and should be toggled
 		if (!this.hasMod(modID)) throw new Error(`Mod not found: ${modID}`);
+		if (this.installedMods[modID].isEnabled === enabled) return false;
+
 		logDebug(`Setting mod ${modID} enabled state to ${enabled}`);
-		if (this.installedMods[modID].isEnabled === enabled) return;
 		this.installedMods[modID].isEnabled = enabled;
+
+		// Save this to the config file
+		config.modsEnabled[modID] = enabled;
+		updateModloaderConfig();
+
 		return true;
 	}
 
@@ -948,7 +956,7 @@ class ModsManager {
 				this.modScripts[mod.info.modID].modifySchema(mod.info.configSchema);
 			}
 			let config = modloaderAPI.config.get(mod.info.modID);
-			ConfigSchemaHandler.validateConfig(config, mod.info.configSchema);
+			SchemaValidation.validate(config, mod.info.configSchema);
 			modloaderAPI.config.set(mod.info.modID, config);
 		}
 
@@ -977,26 +985,39 @@ class ModsManager {
 }
 
 function loadModloaderConfig() {
-	configPath = resolvePathRelativeToModloader(configPath);
+	let configSchema = {};
 	logDebug(`Reading config from: ${configPath}`);
 
-	// If config file doesnt exist then create it with the defaults
-	if (!fs.existsSync(configPath)) {
-		fs.writeFileSync(configPath, JSON.stringify(modloaderConfigSchema, null, 4));
-		config = modloaderConfigSchema;
-		logDebug(`No config found at '${configPath}', set to default`);
+	// We must be able to read the config schema
+	try {
+		configSchemaPath = resolvePathInsideModloader(configSchemaPath);
+		configSchema = JSON.parse(fs.readFileSync(configSchemaPath, "utf8"));
+	} catch (e) {
+		throw new Error(`Failed to read config schema: ${e.stack}`);
 	}
 
-	// If a config file exists compare it to the default
-	else {
+	// If we fail to read config just use {}
+	try {
+		configPath = resolvePathRelativeToModloader(configPath);
 		config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-		let modified = updateObjectWithDefaults(modloaderConfigSchema, config);
-		if (!modified) {
-			logDebug(`Modloader config is up-to-date: ${configPath}`);
-		} else {
-			updateModloaderConfig();
-		}
+	} catch (e) {
+		logDebug(`Failed to read config file: ${e.stack}`);
+		config = {};
 	}
+
+	// Validating against the schema will also set default values for any missing fields
+	let valid = SchemaValidation.validate(config, configSchema);
+
+	if (!valid) {
+		logDebug(`Config file is invalid, resetting to default values: ${configPath}`);
+		config = {};
+		valid = SchemaValidation.validate(config, configSchema);
+		if (!valid) throw new Error(`Failed to validate empty config file: ${configPath}`);
+	}
+
+	updateModloaderConfig();
+	configLoaded = true;
+	logDebug(`Config loaded successfully: ${configPath}`);
 }
 
 function updateModloaderConfig() {
@@ -1207,16 +1228,15 @@ function setupElectronIPC() {
 		return await modsManager.getRemoteMods(args);
 	});
 
-	ipcMain.handle("ml-modloader:refresh-mods", async (event, args) => {
-		logDebug("Received ml-modloader:refresh-mods");
-		await modsManager.refreshMods();
+	ipcMain.handle("ml-modloader:find-installed-mods", async (event, args) => {
+		logDebug("Received ml-modloader:find-installed-mods");
+		await modsManager.findInstalledMods();
 	});
 
 	ipcMain.handle("ml-modloader:set-mod-enabled", async (event, args) => {
 		logDebug(`Received ml-modloader:set-mod-enabled: ${JSON.stringify(args)}`);
 		try {
-			modsManager.setModEnabled(args.modID, args.enabled);
-			return true;
+			return modsManager.setModEnabled(args.modID, args.enabled);
 		} catch (e) {
 			logError(`Error setting mod enabled state: ${e.stack}`);
 			return false;
@@ -1254,7 +1274,7 @@ function startModloaderWindow() {
 			height: modloaderWindowHeight,
 			autoHideMenuBar: true,
 			webPreferences: {
-				preload: resolvePathRelativeToModloader("modloader/modloader-preload.js"),
+				preload: resolvePathInsideModloader("modloader/modloader-preload.js"),
 			},
 		});
 		modloaderWindow.on("closed", cleanupModloaderWindow);
@@ -1331,10 +1351,12 @@ function cleanupApp() {
 async function startApp() {
 	logInfo(`Starting electron modloader ${modloaderVersion}`);
 
-	// Wait for electron to be ready to go
+	// These are enabled for running the game
 	process.env["ELECTRON_DISABLE_SECURITY_WARNINGS"] = "true";
 	app.commandLine.appendSwitch("enable-features", "SharedArrayBuffer");
 	app.commandLine.appendSwitch("force_high_performance_gpu");
+
+	// Wait for electron to be ready to go
 	await app.whenReady();
 	app.on("window-all-closed", () => {
 		logInfo("All windows closed, exiting...");
@@ -1350,7 +1372,7 @@ async function startApp() {
 	gameFileManager = new GameFileManager(fullGamePath, asarPath);
 	modloaderAPI = new ElectronModloaderAPI();
 	modsManager = new ModsManager();
-	await modsManager.refreshMods();
+	await modsManager.findInstalledMods();
 	setupElectronIPC();
 
 	// Start the windows now everything is setup

@@ -527,7 +527,7 @@ class ModsTab {
 	document.querySelectorAll(".resizer").forEach(handleResizer);
 
 	getElement("refresh-mods").addEventListener("click", () => {
-		electron.invoke("ml-modloader:refresh-mods").then(() => tabs.mods.reloadModsView());
+		electron.invoke("ml-modloader:find-installed-mods").then(() => tabs.mods.reloadModsView());
 	});
 
 	setProgressText("");
