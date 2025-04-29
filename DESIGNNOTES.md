@@ -1,21 +1,22 @@
 # v2.0.0 Design Notes
 
-## Notes / To-Do
-
-Serialize load order
-
-- Only in manual mode
-
-Serialize enabled mods
-
-Allow mods modinfo.json to have specific fields missing gracefully
-
-Modloader window site and IPC
+## To-Do
 
 - [x] Start / stop game (IPC with backend)
 - [x] Resizable columns
-- [ ] Sortable columns
-- [ ] Enable / disable mods (IPC with backend)
-- [ ] Select mod and view info
+- [x] Enable / disable mods (IPC with backend)
+- [x] Select mod and view info
 - [ ] Custom right click menu (uninstall, enable / disable?)
-- [ ] Search / filter mods
+- [x] Serialize enabled mods
+- [x] Search / filter mods
+- [x] Port modinfo and modloader-config to config validation
+- [ ] UI for mod config and modloader config
+- [ ] installing / uninstall mods
+- [ ] swapping between versions
+- [ ] queueing installs / uninstall / versions
+- [ ] previewing the above queue
+- [ ] filtering on tags
+- [ ] upvotes / reports
+- [ ] General GUI work download buttons, dropdown for different start options, loading screens, stuff everywhere
+- [ ] Load order GUI + saving
+- [ ] CI / CD for packaging into electron

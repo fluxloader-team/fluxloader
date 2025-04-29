@@ -292,7 +292,7 @@ class ElectronModConfigAPI {
 				return JSON.parse(fs.readFileSync(modConfigPath, "utf8"));
 			}
 		} catch (e) {
-			logWarn(`Error while parsing mod config: ${e.stack}`);
+			logError(`Error while parsing mod config: ${e.stack}`);
 		}
 		return {};
 	}
@@ -309,7 +309,7 @@ class ElectronModConfigAPI {
 			fs.writeFileSync(modConfigPath, JSON.stringify(_config, null, 4), "utf8");
 			return true;
 		} catch (e) {
-			logWarn(`Error while writing mod config: ${e.stack}`);
+			logError(`Error while writing mod config: ${e.stack}`);
 		}
 
 		return false;
@@ -518,7 +518,7 @@ class GameFileManager {
 					fs.rmSync(fullPath, { recursive: true });
 				}
 			} catch (e) {
-				logWarn(`Error deleting old temp directory: ${e.stack}`);
+				logError(`Error deleting old temp directory: ${e.stack}`);
 			}
 		}
 	}
@@ -747,7 +747,7 @@ class ModsManager {
 				}
 				this.loadOrder.splice(insertIndex, 0, mod.info.modID);
 			} catch (e) {
-				logWarn(`Error initializing mod at path ${modPath}: ${e.stack}`);
+				logError(`Error initializing mod at path ${modPath}: ${e.stack}`);
 			}
 		}
 
@@ -1005,7 +1005,7 @@ function loadModloaderConfig() {
 	}
 
 	// Validating against the schema will also set default values for any missing fields
-	let valid = SchemaValidation.validate(config, configSchema);
+	let valid = SchemaValidation.validate(config, configSchema, { unknownKeyMethod: "delete" });
 
 	if (!valid) {
 		logDebug(`Config file is invalid, resetting to default values: ${configPath}`);

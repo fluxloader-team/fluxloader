@@ -43,19 +43,26 @@ export class SchemaValidation {
 	// Errors if the schema is invalid
 	// Return true / false if the target is valid
 
-	static validate(target, schema) {
+	static validate(target, schema, config = {}) {
 		// Recursively validates the target object against the schema object
 		if (typeof schema !== "object") throw new Error("Schema must be an object");
 		if (typeof target !== "object") {
-			log("warn", "", `Target Invalid: Target is not an object`);
+			log("error", "", `Target Invalid: Target is not an object`);
 			return false;
 		}
 
 		// Ensure every key in target is also in the schema
 		for (const configKey of Object.keys(target)) {
 			if (schema[configKey] === undefined) {
-				log("warn", "", `Target Invalid: Key '${configKey}' is not in the schema`);
-				return false;
+				if (!config.unknownKeyMethod || config.unknownKeyMethod === "error") {
+					log("error", "", `Target Invalid: Key '${configKey}' is not in the schema`);
+					return false;
+				} else if (config.unknownKeyMethod === "ignore") {
+					log("warn", "", `Target warning: Key '${configKey}' is not in the schema, ignoring...`);
+				} else if (config.unknownKeyMethod === "delete") {
+					log("warn", "", `Target warning: Key '${configKey}' is not in the schema, deleting...`);
+					delete target[configKey];
+				}
 			}
 		}
 
@@ -67,13 +74,13 @@ export class SchemaValidation {
 			if (this.isSchemaLeafNode(schemaValue)) {
 				if (!Object.hasOwn(target, schemaKey)) {
 					if (!Object.hasOwn(schemaValue, "default")) {
-						log("warn", "", `Target Invalid: Key '${schemaKey}' is required by the schema`);
+						log("error", "", `Target Invalid: Key '${schemaKey}' is required by the schema`);
 						return false;
 					}
 					target[schemaKey] = schemaValue.default;
 				}
 				if (!this.validateValue(target[schemaKey], schemaValue)) {
-					log("warn", "", `Target Invalid: Key '${schemaKey}' is not valid`);
+					log("error", "", `Target Invalid: Key '${schemaKey}' is not valid`);
 					return false;
 				}
 			}
