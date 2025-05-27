@@ -219,7 +219,7 @@ function updateObjectWithDefaults(defaultValues, target) {
 // ------------- MAIN -------------
 
 class ElectronModloaderAPI {
-	static allEvents = ["ml:onModLoaded", "ml:onModUnloaded", "ml:onAllModsLoaded", "ml:onAllModsUnloaded", "ml:onGameStarted", "ml:onGameClosed", "ml:onModloaderClosed"];
+	static allEvents = ["ml:onModLoaded", "ml:onModUnloaded", "ml:onAllModsLoaded", "ml:onAllModsUnloaded", "ml:onGameStarted", "ml:onGameClosed", "ml:onModloaderClosed", "ml:onPageRedirect"];
 	events = undefined;
 	config = undefined;
 	fileManager = gameFileManager;
@@ -1225,6 +1225,12 @@ function addModloaderPatches() {
 			to: "return;e.debug.active&&(t.session.paused",
 		});
 	}
+
+	gameFileManager.setPatch("js/bundle.js", "modloader:onPageRedirect", {
+		type: "replace",
+		from: 'window.history.replaceState({},"",n),',
+		to: 'window.history.replaceState({},"",n),modloader_onPageRedirect(e),',
+	});
 }
 
 // ------------ ELECTRON  ------------
@@ -1242,6 +1248,10 @@ function setupElectronIPC() {
 	ipcMain.handle("ml-modloader:get-installed-mods", (event, args) => {
 		logDebug("Received ml-modloader:get-installed-mods");
 		return modsManager.getInstalledMods();
+	});
+
+	ipcMain.handle("ml-modloader:trigger-page-redirect", (event, args) => {
+		modloaderAPI.events.trigger("ml:onPageRedirect", args);
 	});
 
 	ipcMain.handle("ml-modloader:fetch-remote-mods", async (event, args) => {

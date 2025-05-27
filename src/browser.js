@@ -29,7 +29,7 @@ const logError = (...args) => log("error", "", args.join(" "));
 // ------------- MAIN -------------
 
 class BrowserModloaderAPI {
-	static allEvents = ["ml:onMenuLoaded", "ml:onGameLoaded"];
+	static allEvents = ["ml:onMenuLoaded", "ml:onGameLoaded", "ml:onPageRedirect"];
 	events = undefined;
 	config = undefined;
 	gameWorld = undefined;
@@ -121,4 +121,9 @@ globalThis.modloader_onWorkerMessage = (m) => {
 	m.data.shift();
 	const channel = m.data.shift();
 	modloaderAPI._onWorkerMessage(channel, ...m.data);
+};
+
+globalThis.modloader_onPageRedirect = async (path) => {
+	modloaderAPI.events.trigger("ml:onPageRedirect", path);
+	await window.electron.invoke("ml-modloader:trigger-page-redirect", path);
 };
