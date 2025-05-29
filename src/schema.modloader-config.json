@@ -54,6 +54,10 @@
 			"default": false
 		}
 	},
+	"disableMenuSubtitle": {
+		"type": "boolean",
+		"default": false
+	},
 	"modsEnabled": {
 		"type": "object",
 		"default": {}

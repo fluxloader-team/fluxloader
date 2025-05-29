@@ -1231,6 +1231,18 @@ function addModloaderPatches() {
 		from: 'window.history.replaceState({},"",n),',
 		to: 'window.history.replaceState({},"",n),modloader_onPageRedirect(e),',
 	});
+
+	if (!config.disableMenuSubtitle) {
+		// Pass in subtitle image path to browser
+		let image = resolvePathInsideModloader("images/subtitle.png");
+		gameFileManager.setPatch("js/bundle.js", "modloader:menuSubtitle", {
+			type: "regex",
+			pattern: "if\\(t\\.store\\.scene\\.active===x\\.MainMenu\\)(.+?)else",
+			// this relies on minified name "Od" which places blocks
+			// If this breaks search the code for "e" for placing blocks in debug
+			replace: `if(t.store.scene.active===x.MainMenu){globalThis.setupModdedSubtitle(Od,"${image}");$1}else`,
+		});
+	}
 }
 
 // ------------ ELECTRON  ------------
