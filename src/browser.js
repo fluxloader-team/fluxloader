@@ -142,6 +142,7 @@ globalThis.setupModdedSubtitle = function (spawnSolid, imagePath) {
 	let canvas = document.createElement("canvas");
 	let ctx = canvas.getContext("2d");
 	img.src = imagePath;
+
 	img.onload = () => {
 		canvas.width = img.width;
 		canvas.height = img.height;
@@ -177,6 +178,7 @@ globalThis.setupModdedSubtitle = function (spawnSolid, imagePath) {
 
 		interval = setInterval(loop, 60);
 	};
+
 	document.body.appendChild(canvas);
 
 	function loop() {

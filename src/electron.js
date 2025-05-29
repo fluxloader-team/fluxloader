@@ -1235,6 +1235,7 @@ function addModloaderPatches() {
 	if (!config.disableMenuSubtitle) {
 		// Pass in subtitle image path to browser
 		let image = resolvePathInsideModloader("images/subtitle.png");
+		image = image.replaceAll("\\", "/");
 		gameFileManager.setPatch("js/bundle.js", "modloader:menuSubtitle", {
 			type: "regex",
 			pattern: "if\\(t\\.store\\.scene\\.active===x\\.MainMenu\\)(.+?)else",
