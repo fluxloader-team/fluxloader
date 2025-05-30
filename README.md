@@ -5,7 +5,6 @@
 ### Small changes
 
 - Better error message on missing file for patches / other (see electrics message)
-- Support for token in replace patch
 - Check that regex patches work with capture groups as expected (and naming scheme is good)
 - Look over `fileManager` access through the `ElectronModloaderAPI`
 

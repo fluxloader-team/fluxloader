@@ -1,5 +1,5 @@
 // Some arbitrary delays that make it all feel a bit smoother
-const DELAY_DESCRIPTION_LOAD_MS = 150;
+const DELAY_DESCRIPTION_LOAD_MS = 800;
 const DELAY_PLAY_MS = 150;
 const DELAY_LOAD_REMOTE_MS = 150;
 
@@ -65,7 +65,7 @@ function handleResizer(resizer) {
 // ---------------- MAIN ----------------
 
 let isPlaying = false;
-let isMainButtonLoading = false;
+let isMainControlButtonLoading = false;
 let connectionIndicatorState = "offline";
 let selectedTab = null;
 let tabs = {
@@ -104,7 +104,7 @@ function setConnectionIndicator(state) {
 }
 
 function updateMainControlButtonText() {
-	if (isMainButtonLoading) {
+	if (isMainControlButtonLoading) {
 		getElement("main-control-button").innerText = "Loading...";
 	} else {
 		getElement("main-control-button").innerText = isPlaying ? "Stop" : "Start";
@@ -112,9 +112,22 @@ function updateMainControlButtonText() {
 }
 
 function handleClickMainControlButton(button) {
-	if (isMainButtonLoading) return;
+	if (isMainControlButtonLoading) {
+		logWarn("Main control button is already loading, ignoring click.");
+		return;
+	}
 
-	isMainButtonLoading = true;
+	if (tabs.mods.isLoadingInstalledMods || tabs.mods.isLoadingRemoteMods) {
+		logWarn("Mods tab is currently loading, ignoring click.");
+		return;
+	}
+
+	if (tabs.mods.isPerformingActions) {
+		logWarn("Mods tab is currently performing actions, ignoring click.");
+		return;
+	}
+
+	isMainControlButtonLoading = true;
 	updateMainControlButtonText();
 	getElement("main-control-button").classList.toggle("active", true);
 
@@ -134,7 +147,7 @@ function togglePlaying() {
 				setProgressText("Game started.");
 				setProgress(100);
 
-				isMainButtonLoading = false;
+				isMainControlButtonLoading = false;
 				isPlaying = true;
 				updateMainControlButtonText();
 				getElement("main-control-button").classList.toggle("active", true);
@@ -155,7 +168,7 @@ function togglePlaying() {
 			setProgressText("Game stopped.");
 			setProgress(100);
 
-			isMainButtonLoading = false;
+			isMainControlButtonLoading = false;
 			isPlaying = false;
 			updateMainControlButtonText("Start");
 			getElement("main-control-button").classList.toggle("active", false);
@@ -226,7 +239,7 @@ function convertUploadTimeToString(uploadTime) {
 }
 
 class ModsTab {
-	static pageSize = 200;
+	static PAGE_SIZE = 200;
 
 	columns = {};
 	currentModPage = 0;
@@ -286,8 +299,10 @@ class ModsTab {
 		this.currentModPage = 0;
 
 		// The mod list should always have installed mods first
+		// Look for 'find-installed-mods' for where they are actually reloaded on the backend
 		const mods = await electron.invoke("ml-modloader:get-installed-mods");
 
+		let newModIDs = [];
 		for (const mod of mods) {
 			// We need to manually filter the installed mods here
 			if (this.filterInfo.search) {
@@ -303,7 +318,7 @@ class ModsTab {
 			}
 
 			// And now convert them to the modData format and put into the table
-			const modData = {
+			let modData = {
 				modID: mod.info.modID,
 				meta: {
 					info: mod.info,
@@ -316,8 +331,17 @@ class ModsTab {
 				isEnabled: mod.isEnabled,
 			};
 
+			if (modData.meta.info.description && modData.meta.info.description.length > 0) {
+				const html = await electron.invoke("ml-modloader:render-markdown", modData.meta.info.description);
+				modData.renderedDescription = html;
+			}
+
 			this.modRows[modData.modID] = this.createModRow(modData);
-			tbody.appendChild(this.modRows[modData.modID].element);
+			newModIDs.push(modData.modID);
+		}
+
+		for (const modID of newModIDs) {
+			tbody.appendChild(this.modRows[modID].element);
 		}
 
 		// Load remote mods on reload if we are allowed to connect
@@ -349,7 +373,7 @@ class ModsTab {
 		const getInfo = {
 			search: this.filterInfo.search,
 			tags: this.filterInfo.tags,
-			pageSize: ModsTab.pageSize,
+			pageSize: ModsTab.PAGE_SIZE,
 			page: this.currentModPage + 1,
 		};
 
@@ -370,6 +394,7 @@ class ModsTab {
 		}
 
 		const tbody = getElement("mods-tab-table").querySelector("tbody");
+		let newModIDs = [];
 		for (const mod of mods) {
 			if (this.modRows[mod.modID] != null) {
 				logDebug(`Skipping already existing mod: ${mod.modID}`);
@@ -377,7 +402,7 @@ class ModsTab {
 			}
 
 			// Convert into modData format and put into the table
-			const modData = {
+			let modData = {
 				modID: mod.modID,
 				meta: {
 					info: mod.modData,
@@ -390,8 +415,17 @@ class ModsTab {
 				isEnabled: false,
 			};
 
+			if (modData.meta.info.description && modData.meta.info.description.length > 0) {
+				const html = await electron.invoke("ml-modloader:render-markdown", modData.meta.info.description);
+				modData.renderedDescription = html;
+			}
+
 			this.modRows[modData.modID] = this.createModRow(modData);
-			tbody.appendChild(this.modRows[modData.modID].element);
+			newModIDs.push(modData.modID);
+		}
+
+		for (const modID of newModIDs) {
+			tbody.appendChild(this.modRows[modID].element);
 		}
 
 		setProgressText("Fetched remote mods successfully.");
@@ -494,17 +528,7 @@ class ModsTab {
 
 		if (modData.meta.info.description && modData.meta.info.description.length > 0) {
 			getElement("mod-info-description").classList.remove("empty");
-			getElement("mod-info-description").innerHTML = ``;
-			for (let i = 0; i < 12; i++) getElement("mod-info-description").innerHTML += `<div class="loading-text-filler"></div>`;
-			const startTime = Date.now();
-			electron.invoke("ml-modloader:render-markdown", modData.meta.info.description).then(async (html) => {
-				const endTime = Date.now();
-				if (endTime - startTime < DELAY_DESCRIPTION_LOAD_MS) {
-					await new Promise((resolve) => setTimeout(resolve, DELAY_DESCRIPTION_LOAD_MS - (endTime - startTime)));
-				}
-
-				getElement("mod-info-description").innerHTML = html;
-			});
+			getElement("mod-info-description").innerHTML = modData.renderedDescription;
 		} else {
 			getElement("mod-info-description").classList.add("empty");
 			getElement("mod-info-description").innerText = "No description provided.";

@@ -619,6 +619,7 @@ class GameFileManager {
 
 		const fullPath = this.fileData[file].fullPath;
 		logDebug(`Applying ${this.fileData[file].patches.size} patches to file: ${fullPath}`);
+
 		let fileContent;
 		try {
 			fileContent = fs.readFileSync(fullPath, "utf8");
@@ -629,12 +630,15 @@ class GameFileManager {
 		for (const patch of this.fileData[file].patches.values()) {
 			fileContent = this._applyPatchToContent(fileContent, patch);
 		}
+
 		logDebug(`Writing patched content back to file: ${fullPath}`);
+
 		try {
 			fs.writeFileSync(fullPath, fileContent, "utf8");
 		} catch (e) {
 			throw new Error(`Error writing patched content to file: ${fullPath}`);
 		}
+
 		this.fileData[file].isModified = true;
 		this.isGameModified = true;
 	}
@@ -678,18 +682,29 @@ class GameFileManager {
 				if (!Object.hasOwn(patch, "from") || !Object.hasOwn(patch, "to")) {
 					throw new Error(`Failed to apply replace patch. Missing "from" or "to" field.`);
 				}
-				let index = fileContent.indexOf(patch.from);
+				let to = patch.to;
+				if (Object.hasOwn(patch, "token")) {
+					if (!to.includes(patch.token)) {
+						logWarn(`Patch 'to' string does not include the specified token '${patch.token}'`);
+					}
+					to = to.replaceAll(patch.token, patch.from);
+				}
 				let actualMatches = 0;
-				while (index !== -1) {
+				let searchIndex = 0;
+				while (true) {
+					const index = fileContent.indexOf(patch.from, searchIndex);
+					if (index === -1) break;
 					actualMatches++;
-					fileContent = fileContent.slice(0, index) + patch.to + fileContent.slice(index + patch.from.length);
-					index = fileContent.indexOf(patch.from, index + patch.to.length);
+					searchIndex = index + patch.from.length;
 				}
 				let expectedMatches = patch.expectedMatches || 1;
 				if (expectedMatches > 0) {
 					if (actualMatches != expectedMatches) {
 						throw new Error(`Failed to apply replace patch: "${patch.from}" -> "${patch.to}", ${actualMatches} != ${expectedMatches} match(s).`);
 					}
+				}
+				if (actualMatches > 0) {
+					fileContent = fileContent.split(patch.from).join(to);
 				}
 				break;
 			}
@@ -1124,7 +1139,8 @@ function addModloaderPatches() {
 	gameFileManager.setPatch("js/bundle.js", "modloader:preloadBundle", {
 		type: "replace",
 		from: `(()=>{var e,t,n={8916`,
-		to: `import "${browserScriptPath}";modloader_preloadBundle().then(()=>{var e,t,n={8916`,
+		to: `import "${browserScriptPath}";modloader_preloadBundle().then$$`,
+		token: "$$",
 	});
 	gameFileManager.setPatch("js/bundle.js", "modloader:preloadBundleFinalize", {
 		type: "replace",
@@ -1136,14 +1152,16 @@ function addModloaderPatches() {
 	gameFileManager.setPatch("js/bundle.js", "modloader:gameWorldInitialized", {
 		type: "replace",
 		from: `console.log("initializing workers"),`,
-		to: `console.log("initializing workers"),modloader_onGameWorldInitialized(s),`,
+		to: `$$modloader_onGameWorldInitialized(s),`,
+		token: "$$",
 	});
 
 	// Listen for modloader worker messages in bundle.js
 	gameFileManager.setPatch("js/bundle.js", "modloader:onWorkerMessage", {
 		type: "replace",
 		from: "case f.InitFinished:",
-		to: "case 'modloaderMessage':modloader_onWorkerMessage(r);break;case f.InitFinished:",
+		to: "case 'modloaderMessage':modloader_onWorkerMessage(r);break;$$",
+		token: "$$",
 	});
 
 	const workers = ["546", "336"];
@@ -1152,7 +1170,8 @@ function addModloaderPatches() {
 		gameFileManager.setPatch(`js/${worker}.bundle.js`, "modloader:onWorkerMessage", {
 			type: "replace",
 			from: `case i.dD.Init:`,
-			to: `case 'modloaderMessage':modloader_onWorkerMessage(e);break;case i.dD.Init:`,
+			to: `case 'modloaderMessage':modloader_onWorkerMessage(e);break;$$`,
+			token: "$$",
 		});
 
 		// Add worker.js to each worker, and dont start until it is ready
@@ -1160,7 +1179,8 @@ function addModloaderPatches() {
 		gameFileManager.setPatch(`js/${worker}.bundle.js`, "modloader:preloadBundle", {
 			type: "replace",
 			from: `(()=>{"use strict"`,
-			to: `importScripts("${workerScriptPath}");modloader_preloadBundle().then(()=>{"use strict"`,
+			to: `importScripts("${workerScriptPath}");modloader_preloadBundle().then$$`,
+			token: "$$",
 		});
 		gameFileManager.setPatch(`js/${worker}.bundle.js`, "modloader:preloadBundleFinalize", {
 			type: "replace",
@@ -1174,7 +1194,8 @@ function addModloaderPatches() {
 	gameFileManager.setPatch(`js/336.bundle.js`, "modloader:workerInitialized", {
 		type: "replace",
 		from: `W.environment.postMessage([i.dD.InitFinished]);`,
-		to: `modloader_onWorkerInitialized(W);W.environment.postMessage([i.dD.InitFinished]);`,
+		to: `modloader_onWorkerInitialized(W);$$`,
+		token: "$$",
 	});
 	gameFileManager.setPatch(`js/546.bundle.js`, "modloader:workerInitialized2", {
 		type: "replace",
@@ -1194,42 +1215,48 @@ function addModloaderPatches() {
 		gameFileManager.setPatch("js/bundle.js", "modloader:debugMenuZoom", {
 			type: "replace",
 			from: 'className:"fixed bottom-2 right-2 w-96 pt-12 text-white"',
-			to: `className:"fixed bottom-2 right-2 w-96 pt-12 text-white",style:{zoom:"${config.game.debugMenuZoom * 100}%"}`,
+			to: `$$,style:{zoom:"${config.game.debugMenuZoom * 100}%"}`,
+			token: "$$",
 		});
 	} else {
 		// Disables the debug menu
 		gameFileManager.setPatch("js/bundle.js", "modloader:disableDebugMenu", {
 			type: "replace",
 			from: "function _m(t){",
-			to: "function _m(t){return;",
+			to: "$$return;",
+			token: "$$",
 		});
 
 		// Disables the debug keybinds
 		gameFileManager.setPatch("js/bundle.js", "modloader:disableDebugKeybinds", {
 			type: "replace",
 			from: "spawnElements:function(n,r){",
-			to: "spawnElements:function(n,r){return false;",
+			to: "$$return false;",
+			token: "$$",
 		});
 
 		// Disables the pause camera keybind
 		gameFileManager.setPatch("js/bundle.js", "modloader:disablePauseCamera", {
 			type: "replace",
 			from: "e.debug.active&&(t.session.overrideCamera",
-			to: "return;e.debug.active&&(t.session.overrideCamera",
+			to: "return;$$",
+			token: "$$",
 		});
 
 		// Disables the pause keybind
 		gameFileManager.setPatch("js/bundle.js", "modloader:disablePause", {
 			type: "replace",
 			from: "e.debug.active&&(t.session.paused",
-			to: "return;e.debug.active&&(t.session.paused",
+			to: "return;$$",
+			token: "$$",
 		});
 	}
 
 	gameFileManager.setPatch("js/bundle.js", "modloader:onPageRedirect", {
 		type: "replace",
 		from: 'window.history.replaceState({},"",n),',
-		to: 'window.history.replaceState({},"",n),modloader_onPageRedirect(e),',
+		to: "$$modloader_onPageRedirect(e),",
+		token: "$$",
 	});
 
 	if (!config.game.disableMenuSubtitle) {
