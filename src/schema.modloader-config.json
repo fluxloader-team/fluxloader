@@ -7,6 +7,19 @@
 		"type": "string",
 		"default": "./mods"
 	},
+
+	"modsEnabled": {
+		"type": "object",
+		"default": {}
+	},
+	"loadOrder": {
+		"type": "object",
+		"default": []
+	},
+	"loadIntoModloader": {
+		"type": "boolean",
+		"default": true
+	},
 	"logging": {
 		"logToFile": {
 			"type": "boolean",
@@ -31,13 +44,7 @@
 			"default": "modloader.log"
 		}
 	},
-	"application": {
-		"loadIntoModloader": {
-			"type": "boolean",
-			"default": true
-		}
-	},
-	"debug": {
+	"game": {
 		"enableDebugMenu": {
 			"type": "boolean",
 			"default": false
@@ -52,18 +59,16 @@
 		"openDevTools": {
 			"type": "boolean",
 			"default": false
+		},
+		"disableMenuSubtitle": {
+			"type": "boolean",
+			"default": false
 		}
 	},
-	"disableMenuSubtitle": {
-		"type": "boolean",
-		"default": false
-	},
-	"modsEnabled": {
-		"type": "object",
-		"default": {}
-	},
-	"loadOrder": {
-		"type": "object",
-		"default": []
+	"gui": {
+		"openDevTools": {
+			"type": "boolean",
+			"default": false
+		}
 	}
 }

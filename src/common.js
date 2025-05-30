@@ -20,6 +20,14 @@ export class EventBus {
 		this.events[event].push(func);
 	}
 
+	off(event, func) {
+		log("debug", "", `Removing event listener for '${event}'`);
+		if (!this.events[event]) throw new Error(`Cannot remove listener from non-existent event: ${event}`);
+		const index = this.events[event].indexOf(func);
+		if (index === -1) throw new Error(`Listener not found for event: ${event}`);
+		this.events[event].splice(index, 1);
+	}
+
 	reset() {
 		log("debug", "", "Resetting EventBus");
 		for (const event in this.events) {

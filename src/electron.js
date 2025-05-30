@@ -1189,12 +1189,12 @@ function addModloaderPatches() {
 		to: `globalThis.React=i(6540);var Cl,kl=React`,
 	});
 
-	if (config.debug.enableDebugMenu) {
+	if (config.game.enableDebugMenu) {
 		// Adds configrable zoom
 		gameFileManager.setPatch("js/bundle.js", "modloader:debugMenuZoom", {
 			type: "replace",
 			from: 'className:"fixed bottom-2 right-2 w-96 pt-12 text-white"',
-			to: `className:"fixed bottom-2 right-2 w-96 pt-12 text-white",style:{zoom:"${config.debug.debugMenuZoom * 100}%"}`,
+			to: `className:"fixed bottom-2 right-2 w-96 pt-12 text-white",style:{zoom:"${config.game.debugMenuZoom * 100}%"}`,
 		});
 	} else {
 		// Disables the debug menu
@@ -1232,7 +1232,7 @@ function addModloaderPatches() {
 		to: 'window.history.replaceState({},"",n),modloader_onPageRedirect(e),',
 	});
 
-	if (!config.disableMenuSubtitle) {
+	if (!config.game.disableMenuSubtitle) {
 		// Pass in subtitle image path to browser
 		let image = resolvePathInsideModloader("images/subtitle.png");
 		image = image.replaceAll("\\", "/");
@@ -1297,6 +1297,17 @@ function setupElectronIPC() {
 		closeGameWindow();
 	});
 
+	ipcMain.handle("ml-modloader:wait-for-game-closed", async (event, args) => {
+		logDebug("Received ml-modloader:wait-for-game");
+		return new Promise((resolve) => {
+			const handler = () => {
+				modloaderAPI.events.off("ml:onGameClosed", handler);
+				resolve();
+			};
+			modloaderAPI.events.on("ml:onGameClosed", handler);
+		});
+	});
+
 	ipcMain.handle("ml-modloader:install-mod", (event, args) => {
 		logDebug("Received ml-modloader:install-mod");
 		modsManager.installMod(args.modID, args.version);
@@ -1333,6 +1344,7 @@ function startModloaderWindow() {
 		});
 		modloaderWindow.on("closed", cleanupModloaderWindow);
 		modloaderWindow.loadFile("src/modloader/modloader.html");
+		if (config.gui.openDevTools) modloaderWindow.openDevTools();
 	} catch (e) {
 		cleanupModloaderWindow();
 		throw new Error(`Error starting modloader window: ${e.stack}`);
@@ -1363,7 +1375,7 @@ async function startGameWindow() {
 	try {
 		gameElectronFuncs.createWindow();
 		gameWindow.on("closed", cleanupGameWindow);
-		if (config.debug.openDevTools) gameWindow.openDevTools();
+		if (config.game.openDevTools) gameWindow.openDevTools();
 		hasRanOnce = true;
 	} catch (e) {
 		cleanupGameWindow();
@@ -1430,7 +1442,7 @@ async function startApp() {
 	setupElectronIPC();
 
 	// Start the windows now everything is setup
-	if (config.application.loadIntoModloader) {
+	if (config.loadIntoModloader) {
 		startModloaderWindow();
 	} else {
 		await startGameWindow();

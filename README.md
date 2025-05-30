@@ -6,7 +6,6 @@
 
 - Game close when modloader close (config to disable)
 - GUI progress bar update when game start
-- GUI detect when game closed (currently hangs on stop)
 - Visuals for when mods / descriptions are loading
 
 ### Primary Requirements

@@ -1,15 +1,27 @@
-// ---------------- Utility ----------------
+// ---------------- UTILITY ----------------
 
-let elements = {};
+globalThis.log = function (level, tag, message) {
+	const timestamp = new Date().toISOString().split("T")[1].split("Z")[0];
+	const levelText = level.toUpperCase();
+	let header = `[${tag ? tag + " " : ""}${levelText} ${timestamp}]`;
+	console.log(`${header} ${message}`);
+};
+
+globalThis.logDebug = (...args) => log("debug", "", args.join(" "));
+globalThis.logInfo = (...args) => log("info", "", args.join(" "));
+globalThis.logWarn = (...args) => log("warn", "", args.join(" "));
+globalThis.logError = (...args) => log("error", "", args.join(" "));
+
+let _elements = {};
 function getElement(id) {
-	if (!elements[id]) {
-		elements[id] = document.getElementById(id);
-		if (!elements[id]) {
+	if (!_elements[id]) {
+		_elements[id] = document.getElementById(id);
+		if (!_elements[id]) {
 			console.error(`Element with id ${id} not found`);
 			return null;
 		}
 	}
-	return elements[id];
+	return _elements[id];
 }
 
 function createElement(html) {
@@ -45,7 +57,7 @@ function handleResizer(resizer) {
 	}
 }
 
-// ---------------- Definitions ----------------
+// ---------------- MAIN ----------------
 
 let isPlaying = false;
 let isMainButtonLoading = false;
@@ -86,20 +98,45 @@ function setConnectionIndicator(state) {
 	connectionIndicatorState = state;
 }
 
-function handleClickMainButton(button) {
+function handleClickMainControlButton(button) {
 	if (isMainButtonLoading) return;
+
 	isMainButtonLoading = true;
+	setMainControlButtonText("Loading...");
+	getElement("main-control-button").classList.toggle("active", true);
 
-	const mlEvent = isPlaying ? "stop-game" : "start-game";
-	getElement("main-control-button").innerText = "Loading...";
+	if (true) {
+		togglePlaying();
+	}
+}
 
-	if (!isPlaying) getElement("main-control-button").classList.toggle("active", true);
-	electron.invoke(`ml-modloader:${mlEvent}`).then(() => {
-		isMainButtonLoading = false;
-		isPlaying = !isPlaying;
-		getElement("main-control-button").innerText = isPlaying ? "Stop" : "Play";
-		getElement("main-control-button").classList.toggle("active", isPlaying);
-	});
+function togglePlaying() {
+	if (!isPlaying) {
+		electron.invoke(`ml-modloader:start-game`).then(() => {
+			isMainButtonLoading = false;
+			isPlaying = true;
+			setMainControlButtonText("Stop");
+			getElement("main-control-button").classList.toggle("active", true);
+
+			// Wait for the game to finish
+			electron.invoke(`ml-modloader:wait-for-game-closed`).then(() => {
+				isPlaying = false;
+				setMainControlButtonText("Start");
+				getElement("main-control-button").classList.toggle("active", false);
+			});
+		});
+	} else {
+		electron.invoke(`ml-modloader:stop-game`).then(() => {
+			isMainButtonLoading = false;
+			isPlaying = false;
+			setMainControlButtonText("Start");
+			getElement("main-control-button").classList.toggle("active", false);
+		});
+	}
+}
+
+function setMainControlButtonText(text) {
+	getElement("main-control-button").innerText = text;
 }
 
 function setupTabs() {
@@ -503,20 +540,19 @@ class ModsTab {
 
 	queueInstall(modID, version) {
 		if (this.isPerformingActions) return;
-		console.log(`Installing mod ${modID} version ${version}`);
+		logInfo(`Installing mod ${modID} version ${version}`);
 		this.queuedActions.push({ action: "install", modID, version });
 		this.addQueueElement(this.queuedActions[this.queuedActions.length - 1]);
 	}
 
 	queueUninstall(modID) {
 		if (this.isPerformingActions) return;
-		console.log(`Uninstalling mod ${modID}`);
+		logInfo(`Uninstalling mod ${modID}`);
 		this.queuedActions.push({ action: "uninstall", modID });
 		this.addQueueElement(this.queuedActions[this.queuedActions.length - 1]);
-	} 
-
-	addQueueElement(action) {
 	}
+
+	addQueueElement(action) {}
 
 	performQueuedActions() {
 		this.isPerformingActions = true;
@@ -542,12 +578,12 @@ class ModsTab {
 	}
 }
 
-// ---------------- Main ----------------
+// ---------------- DRIVER ----------------
 
 (() => {
 	setupTabs();
 
-	getElement("main-control-button").addEventListener("click", () => handleClickMainButton());
+	getElement("main-control-button").addEventListener("click", () => handleClickMainControlButton());
 
 	document.querySelectorAll(".resizer").forEach(handleResizer);
 
