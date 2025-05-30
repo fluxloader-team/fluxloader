@@ -98,45 +98,62 @@ function setConnectionIndicator(state) {
 	connectionIndicatorState = state;
 }
 
+function updateMainControlButtonText() {
+	if (isMainButtonLoading) {
+		getElement("main-control-button").innerText = "Loading...";
+	} else {
+		getElement("main-control-button").innerText = isPlaying ? "Stop" : "Start";
+	}
+}
+
 function handleClickMainControlButton(button) {
 	if (isMainButtonLoading) return;
 
 	isMainButtonLoading = true;
-	setMainControlButtonText("Loading...");
+	updateMainControlButtonText();
 	getElement("main-control-button").classList.toggle("active", true);
 
+	// Here we would normally change the functionality
 	if (true) {
 		togglePlaying();
 	}
 }
 
 function togglePlaying() {
+	setProgressText("Loading...");
+	setProgress(0);
+
 	if (!isPlaying) {
 		electron.invoke(`ml-modloader:start-game`).then(() => {
+			setProgressText("Game started.");
+			setProgress(100);
+
 			isMainButtonLoading = false;
 			isPlaying = true;
-			setMainControlButtonText("Stop");
+			updateMainControlButtonText();
 			getElement("main-control-button").classList.toggle("active", true);
 
 			// Wait for the game to finish
 			electron.invoke(`ml-modloader:wait-for-game-closed`).then(() => {
+				setProgressText("Game closed.");
+				setProgress(0);
+
 				isPlaying = false;
-				setMainControlButtonText("Start");
+				updateMainControlButtonText();
 				getElement("main-control-button").classList.toggle("active", false);
 			});
 		});
 	} else {
 		electron.invoke(`ml-modloader:stop-game`).then(() => {
+			setProgressText("Game stopped.");
+			setProgress(100);
+
 			isMainButtonLoading = false;
 			isPlaying = false;
-			setMainControlButtonText("Start");
+			updateMainControlButtonText("Start");
 			getElement("main-control-button").classList.toggle("active", false);
 		});
 	}
-}
-
-function setMainControlButtonText(text) {
-	getElement("main-control-button").innerText = text;
 }
 
 function setupTabs() {
