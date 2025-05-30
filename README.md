@@ -4,7 +4,6 @@
 
 ### Immediate QOL
 
-- Game close when modloader close (config to disable)
 - GUI progress bar update when game start
 - Visuals for when mods / descriptions are loading
 

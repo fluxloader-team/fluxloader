@@ -1358,6 +1358,11 @@ function closeModloaderWindow() {
 
 function cleanupModloaderWindow() {
 	modloaderWindow = null;
+
+	if (config.closeGameWithModloader && gameWindow) {
+		logDebug("Closing game window with modloader window");
+		closeGameWindow();
+	}
 }
 
 async function startGameWindow() {
@@ -1424,6 +1429,8 @@ async function startApp() {
 
 	// Wait for electron to be ready to go
 	await app.whenReady();
+
+	// The electron app as a whole closed when all windows are closed
 	app.on("window-all-closed", () => {
 		logInfo("All windows closed, exiting...");
 		if (process.platform !== "darwin") {

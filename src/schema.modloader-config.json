@@ -7,7 +7,6 @@
 		"type": "string",
 		"default": "./mods"
 	},
-
 	"modsEnabled": {
 		"type": "object",
 		"default": {}
@@ -17,6 +16,10 @@
 		"default": []
 	},
 	"loadIntoModloader": {
+		"type": "boolean",
+		"default": true
+	},
+	"closeGameWithModloader": {
 		"type": "boolean",
 		"default": true
 	},
@@ -45,6 +48,10 @@
 		}
 	},
 	"game": {
+		"openDevTools": {
+			"type": "boolean",
+			"default": false
+		},
 		"enableDebugMenu": {
 			"type": "boolean",
 			"default": false
@@ -55,10 +62,6 @@
 			"min": 0.1,
 			"max": 2.0,
 			"step": 0.1
-		},
-		"openDevTools": {
-			"type": "boolean",
-			"default": false
 		},
 		"disableMenuSubtitle": {
 			"type": "boolean",
