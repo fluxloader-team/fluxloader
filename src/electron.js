@@ -46,7 +46,6 @@ let configLoaded = false;
 let modsManager = undefined;
 let gameFileManager = undefined;
 let modloaderWindow = undefined;
-let hasRanOnce = false;
 
 // ------------- UTILTY -------------
 
@@ -158,13 +157,17 @@ function ensureDirectoryExists(dirPath) {
 function catchUnexpectedExits() {
 	process.on("uncaughtException", (err) => {
 		logError(`Uncaught exception: ${err.stack}`);
-		cleanupApp();
-		process.exit(1);
+		if (!config.ignoreUnhandledExceptions) {
+			cleanupApp();
+			process.exit(1);
+		}
 	});
 	process.on("unhandledRejection", (err) => {
 		logError(`Unhandled rejection: ${err.stack}`);
-		cleanupApp();
-		process.exit(1);
+		if (!config.ignoreUnhandledExceptions) {
+			cleanupApp();
+			process.exit(1);
+		}
 	});
 	process.on("SIGINT", () => {
 		logInfo("SIGINT received, exiting...");
@@ -365,7 +368,14 @@ class GameFileManager {
 	setPatch(file, tag, patch) {
 		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot add patch");
 
-		if (!this.fileData[file]) this._initializeFileData(file);
+		if (!this.fileData[file]) {
+			try {
+				this._initializeFileData(file);
+			} catch (e) {
+				logError(`Failed to initialize file data for '${file}' when adding patch '${tag}'`);
+				throw e;
+			}
+		}
 
 		logDebug(`Setting patch '${tag}' in file: ${file}`);
 		this.fileData[file].patches.set(tag, patch);
@@ -374,7 +384,14 @@ class GameFileManager {
 	removePatch(file, tag) {
 		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot remove patch");
 
-		if (!this.fileData[file]) this._initializeFileData(file);
+		if (!this.fileData[file]) {
+			try {
+				this._initializeFileData(file);
+			} catch (e) {
+				logError(`Failed to initialize file data for '${file}' when removing patch '${tag}'`);
+				throw e;
+			}
+		}
 
 		if (!this.fileData[file].patches.has(tag)) throw new Error(`Patch '${tag}' does not exist for file: ${file}`);
 
@@ -392,9 +409,11 @@ class GameFileManager {
 	async patchAndRunGameElectron() {
 		if (!this.isGameExtracted) throw new Error("Game files not extracted cannot process game app");
 
-		// TODO: Once we have CJS in use again we want to shut down the main.js execution after we close the game
-		// Currently if you try and run it again it won't work as expected as the main.js is cached
-		if (hasRanOnce) return;
+		if (gameElectronFuncs && Object.keys(gameElectronFuncs).length > 0) {
+			logDebug("Game electron functions already initialized, skipping patching");
+			return;
+		}
+			
 
 		gameElectronFuncs = {};
 
@@ -449,12 +468,22 @@ class GameFileManager {
 
 		// Run the code to register their functions
 		const mainPath = path.join(this.tempExtractedPath, "main.js");
+		const gameElectronURL = `file://${mainPath}?value=${Math.random()}`;
 		gameElectronFuncs = {};
-		logDebug(`Executing modified games electron main.js`);
+		logInfo(`Executing modified games electron main.js: ${gameElectronURL}`);
 		try {
-			await import(`file://${mainPath}`);
+			// Use a timestamp to avoid caching issues
+			await import(gameElectronURL);
 		} catch (e) {
 			throw new Error(`Error evaluating game main.js: ${e.stack}`);
+		}
+
+		// Ensure it worked correctly
+		let requiredFunctions = ["createWindow", "setupIpcHandlers", "loadSettingsSync"];
+		for (const func of requiredFunctions) {
+			if (!Object.hasOwn(gameElectronFuncs, func)) {
+				throw new Error(`Game electron function '${func}' is not defined after evaluation`);
+			}
 		}
 
 		// Now we need to run the setupIpcHandlers() function to register the ipcMain handlers
@@ -462,7 +491,8 @@ class GameFileManager {
 			logDebug("Calling games electron setupIpcHandlers()");
 			gameElectronFuncs.setupIpcHandlers();
 		} catch (e) {
-			throw new Error(`Error during setup of games electron setupIpcHandlers(), see patchAndRunGameElectron(): ${e.stack}`);
+			logError(`Error during setup of games electron setupIpcHandlers()`);
+			throw e;
 		}
 	}
 
@@ -999,6 +1029,7 @@ class ModsManager {
 		if (mod.info.electronEntrypoint) {
 			const electronEntrypoint = path.join(mod.path, mod.info.electronEntrypoint);
 			logDebug(`Loading electron entrypoint: ${electronEntrypoint}`);
+			// TODO: Try catch here? what about cache avoidance?
 			await import(`file://${electronEntrypoint}`);
 		}
 
@@ -1408,10 +1439,9 @@ async function startGameWindow() {
 		gameElectronFuncs.createWindow();
 		gameWindow.on("closed", cleanupGameWindow);
 		if (config.game.openDevTools) gameWindow.openDevTools();
-		hasRanOnce = true;
 	} catch (e) {
 		cleanupGameWindow();
-		throw new Error(`Error during games electron createWindow(), see patchAndRunGameElectron(): ${e.stack}`);
+		throw e;
 	}
 }
 

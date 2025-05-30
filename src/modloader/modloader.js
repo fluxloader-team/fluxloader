@@ -166,7 +166,7 @@ function togglePlaying() {
 	} else {
 		electron.invoke(`ml-modloader:stop-game`).then(() => {
 			setProgressText("Game stopped.");
-			setProgress(100);
+			setProgress(0);
 
 			isMainControlButtonLoading = false;
 			isPlaying = false;

@@ -10,7 +10,8 @@ if (config.someSetting) {
 	modloaderAPI.addPatch("js/bundle.js", {
 		type: "replace",
 		from: "t.store.resources.artifacts++,",
-		to: `t.store.resources.artifacts++,console.log('You got an artifact, config: ${config.someValue}'),`,
+		to: `$$console.log('You got an artifact, config: ${config.someValue}'),`,
+		token: "$$"
 	});
 }
 
@@ -30,7 +31,7 @@ modloaderAPI.events.on("ml:onModUnloaded", () => {
 	log("info", "testmod", "I have been loaded");
 });
 
-log("info", "testmod", "Listening to other envionments");
+log("info", "testmod", "Listening to other environments");
 
 modloaderAPI.handleBrowserIPC("testmod:electronfunc", (event, args) => {
 	log("info", "testmod", `electronfunc arguments ${JSON.stringify(args)}`);

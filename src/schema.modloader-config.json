@@ -23,6 +23,10 @@
 		"type": "boolean",
 		"default": true
 	},
+	"ignoreUnhandledExceptions": {
+		"type": "boolean",
+		"default": false
+	},
 	"logging": {
 		"logToFile": {
 			"type": "boolean",
