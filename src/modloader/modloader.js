@@ -1,3 +1,8 @@
+// Some arbitrary delays that make it all feel a bit smoother
+const DELAY_DESCRIPTION_LOAD_MS = 150;
+const DELAY_PLAY_MS = 150;
+const DELAY_LOAD_REMOTE_MS = 150;
+
 // ---------------- UTILITY ----------------
 
 globalThis.log = function (level, tag, message) {
@@ -124,25 +129,27 @@ function togglePlaying() {
 	setProgress(0);
 
 	if (!isPlaying) {
-		electron.invoke(`ml-modloader:start-game`).then(() => {
-			setProgressText("Game started.");
-			setProgress(100);
+		setTimeout(() => {
+			electron.invoke(`ml-modloader:start-game`).then(() => {
+				setProgressText("Game started.");
+				setProgress(100);
 
-			isMainButtonLoading = false;
-			isPlaying = true;
-			updateMainControlButtonText();
-			getElement("main-control-button").classList.toggle("active", true);
-
-			// Wait for the game to finish
-			electron.invoke(`ml-modloader:wait-for-game-closed`).then(() => {
-				setProgressText("Game closed.");
-				setProgress(0);
-
-				isPlaying = false;
+				isMainButtonLoading = false;
+				isPlaying = true;
 				updateMainControlButtonText();
-				getElement("main-control-button").classList.toggle("active", false);
+				getElement("main-control-button").classList.toggle("active", true);
+
+				// Wait for the game to finish
+				electron.invoke(`ml-modloader:wait-for-game-closed`).then(() => {
+					setProgressText("Game closed.");
+					setProgress(0);
+
+					isPlaying = false;
+					updateMainControlButtonText();
+					getElement("main-control-button").classList.toggle("active", false);
+				});
 			});
-		});
+		}, DELAY_PLAY_MS);
 	} else {
 		electron.invoke(`ml-modloader:stop-game`).then(() => {
 			setProgressText("Game stopped.");
@@ -345,7 +352,14 @@ class ModsTab {
 			pageSize: ModsTab.pageSize,
 			page: this.currentModPage + 1,
 		};
+
+		const startTime = Date.now();
 		const mods = await electron.invoke("ml-modloader:fetch-remote-mods", getInfo);
+		const endTime = Date.now();
+
+		if (endTime - startTime < DELAY_LOAD_REMOTE_MS) {
+			await new Promise((resolve) => setTimeout(resolve, DELAY_LOAD_REMOTE_MS - (endTime - startTime)));
+		}
 
 		if (mods == null || mods == []) {
 			this.setLoadButtonText("Load mods");
@@ -480,7 +494,15 @@ class ModsTab {
 
 		if (modData.meta.info.description && modData.meta.info.description.length > 0) {
 			getElement("mod-info-description").classList.remove("empty");
-			electron.invoke("ml-modloader:render-markdown", modData.meta.info.description).then((html) => {
+			getElement("mod-info-description").innerHTML = ``;
+			for (let i = 0; i < 12; i++) getElement("mod-info-description").innerHTML += `<div class="loading-text-filler"></div>`;
+			const startTime = Date.now();
+			electron.invoke("ml-modloader:render-markdown", modData.meta.info.description).then(async (html) => {
+				const endTime = Date.now();
+				if (endTime - startTime < DELAY_DESCRIPTION_LOAD_MS) {
+					await new Promise((resolve) => setTimeout(resolve, DELAY_DESCRIPTION_LOAD_MS - (endTime - startTime)));
+				}
+
 				getElement("mod-info-description").innerHTML = html;
 			});
 		} else {

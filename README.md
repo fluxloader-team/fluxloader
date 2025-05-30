@@ -2,10 +2,6 @@
 
 ## TODO
 
-### Immediate QOL
-
-- Visuals for when mods / descriptions are loading
-
 ### Primary Requirements
 
 - Install / uninstall mods
