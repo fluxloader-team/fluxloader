@@ -1,4 +1,4 @@
-# Sandustry Modloader
+# Sandustry Flux Modloader
 
 ## TODO
 

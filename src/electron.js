@@ -4,10 +4,11 @@ import fs from "fs";
 import process from "process";
 import os from "os";
 import asar from "asar";
-import { EventBus, SchemaValidation } from "./common.js";
+import url from "url";
+import vm from "vm";
 import { randomUUID } from "crypto";
-import { fileURLToPath } from "url";
 import { marked } from "marked";
+import { EventBus, SchemaValidation } from "./common.js";
 
 // ------------- MODDING DOCUMENTATION -------------
 
@@ -19,7 +20,7 @@ import { marked } from "marked";
 
 // Be aware that the following error is related to an experimental feature in the devtools that is not supported by electron.
 // - "Request Autofill.enable failed. {"code":-32601,"message":"'Autofill.enable' wasn't found"}", source: devtools://devtools/bundled/core/protocol_client/protocol_client.js (1)
-// Is deemed not worthy to fix by the electron team and is not a bug in the modloader:
+// It is deemed not worthy to fix by the electron team and is not a bug in the modloader:
 // - https://github.com/electron/electron/issues/41614#issuecomment-2006678760
 
 // Before any modding occurs we patch the games electron main.js
@@ -129,8 +130,8 @@ function resolvePathRelativeToModloader(name) {
 	// If absolute then return the path as is
 	if (path.isAbsolute(name)) return name;
 
-	// Otherwise relative to mod-loader.exe
-	const __filename = fileURLToPath(import.meta.url);
+	// Otherwise relative to fluxmodloader.exe
+	const __filename = url.fileURLToPath(import.meta.url);
 	const __dirname = path.dirname(__filename);
 	return path.join(__dirname, name);
 }
@@ -141,8 +142,8 @@ function resolvePathInsideModloader(name) {
 
 	// TODO: In the future this needs to accommodate for electron exe packaging
 
-	// Otherwise relative to mod-loader.exe
-	const __filename = fileURLToPath(import.meta.url);
+	// Otherwise relative to fluxmodloader.exe
+	const __filename = url.fileURLToPath(import.meta.url);
 	const __dirname = path.dirname(__filename);
 	return path.join(__dirname, name);
 }
@@ -255,7 +256,9 @@ class ElectronModloaderAPI {
 	}
 
 	handleBrowserIPC(channel, handler) {
-		ipcMain.handle(`ml-mod:${channel}`, handler);
+		const fullChannel = `ml-mod:${channel}`;
+		this._modIPCHandlers.push({ channel: fullChannel, handler });
+		ipcMain.handle(fullChannel, handler);
 	}
 
 	getInstalledMods() {
@@ -268,6 +271,18 @@ class ElectronModloaderAPI {
 
 	getEnabledMods() {
 		return modsManager.getEnabledMods();
+	}
+
+	// ------------ INTERNAL ------------
+
+	_modIPCHandlers = [];
+
+	_clearModIPCHandlers() {
+		for (const handler of this._modIPCHandlers) {
+			logDebug(`Removing IPC handler for channel: ${handler.channel}`);
+			ipcMain.removeHandler(handler.channel);
+		}
+		this._modIPCHandlers = [];
 	}
 }
 
@@ -365,6 +380,15 @@ class GameFileManager {
 		logDebug("Extracted app.asar set to default successfully");
 	}
 
+	clearPatches() {
+		logDebug("Clearing all patches from game files");
+
+		// This is not modifying the files, just clearing the in-memory patches
+		for (const file in this.fileData) {
+			this.fileData[file].patches.clear();
+		}
+	}
+
 	setPatch(file, tag, patch) {
 		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot add patch");
 
@@ -409,14 +433,6 @@ class GameFileManager {
 	async patchAndRunGameElectron() {
 		if (!this.isGameExtracted) throw new Error("Game files not extracted cannot process game app");
 
-		if (gameElectronFuncs && Object.keys(gameElectronFuncs).length > 0) {
-			logDebug("Game electron functions already initialized, skipping patching");
-			return;
-		}
-			
-
-		gameElectronFuncs = {};
-
 		// Here we basically want to isolate createWindow(), setupIpcHandlers(), and loadSettingsSync()
 		// This is potentially very brittle and may need fixing in the future if main.js changes
 		// We need to disable the default app listeners (so they're not ran when we run eval(...))
@@ -440,10 +456,10 @@ class GameFileManager {
 		replaceAllMain("modloader:electron-block-execution-2", "app.on('window-all-closed', function () {", "var _ = (() => {");
 
 		// Ensure that the app thinks it is still running inside the app.asar
-		// - Fix the userData path to be 'sandustrydemo' instead of 'mod-loader'
+		// - Fix the userData path to be 'sandustrydemo' instead of 'flux-modloader'
 		// - Override relative "preload.js" to absolute
 		// - Override relative "index.html" to absolute
-		replaceAllMain("modloader:electron-fix-paths-1", 'getPath("userData")', 'getPath("userData").replace("mod-loader", "sandustrydemo")');
+		replaceAllMain("modloader:electron-fix-paths-1", 'getPath("userData")', 'getPath("userData").replace("flux-modloader", "sandustrydemo")');
 		replaceAllMain("modloader:electron-fix-paths-2", "path.join(__dirname, 'preload.js')", `'${path.join(this.tempExtractedPath, "preload.js").replaceAll("\\", "/")}'`);
 		replaceAllMain("modloader:electron-fix-paths-3", "loadFile('index.html')", `loadFile('${path.join(this.tempExtractedPath, "index.html").replaceAll("\\", "/")}')`);
 
@@ -466,13 +482,22 @@ class GameFileManager {
 		gameFileManager._repatchFile("main.js");
 		gameFileManager._repatchFile("preload.js");
 
-		// Run the code to register their functions
-		const mainPath = path.join(this.tempExtractedPath, "main.js");
-		const gameElectronURL = `file://${mainPath}?value=${Math.random()}`;
+		// We want to run the patches main.js to register the functions to the global gameElectronFuncs object
+		// Currently this does not work well due to dynamic import() query string cache invalidation not working on files that have require() inside of them
+		// Therefore main.js will only be evaluated once on the first run and not again after that due to nodes aggressive caching
+		// This means if mods try and change main.js (which they shouldn't) and that changes between executions of the game it will not work
+		const hasAlreadyRan = gameElectronFuncs && Object.keys(gameElectronFuncs).length > 0;
+		if (hasAlreadyRan) {
+			logDebug("Game electron functions already initialized");
+			return;
+		}
+
+		// Assuming this is the first time, run the modified main.js to register the functions
 		gameElectronFuncs = {};
-		logInfo(`Executing modified games electron main.js: ${gameElectronURL}`);
 		try {
-			// Use a timestamp to avoid caching issues
+			const mainPath = path.join(this.tempExtractedPath, "main.js");
+			const gameElectronURL = `file://${mainPath}`;
+			logInfo(`Executing modified games electron main.js: ${gameElectronURL}`);
 			await import(gameElectronURL);
 		} catch (e) {
 			throw new Error(`Error evaluating game main.js: ${e.stack}`);
@@ -486,7 +511,8 @@ class GameFileManager {
 			}
 		}
 
-		// Now we need to run the setupIpcHandlers() function to register the ipcMain handlers
+		// Now run the setupIpcHandlers() function to register the ipcMain handlers
+		// Again, we should only do this once, so this code relies on that fact otherwise the handlers will be registered multiple times and error
 		try {
 			logDebug("Calling games electron setupIpcHandlers()");
 			gameElectronFuncs.setupIpcHandlers();
@@ -542,7 +568,7 @@ class GameFileManager {
 		}
 		for (const file of files) {
 			try {
-				if (file.startsWith("sandustry-modloader-")) {
+				if (file.startsWith("sandustry-flux-modloader-")) {
 					const fullPath = path.join(basePath, file);
 					logDebug(`Deleting old temp directory: ${fullPath}`);
 					fs.rmSync(fullPath, { recursive: true });
@@ -558,7 +584,7 @@ class GameFileManager {
 	_createTempDirectory() {
 		if (this.isTempInitialized) throw new Error("Temp directory already initialized");
 
-		const newTempBasePath = path.join(os.tmpdir(), `sandustry-modloader-${Date.now()}`);
+		const newTempBasePath = path.join(os.tmpdir(), `sandustry-flux-modloader-${Date.now()}`);
 		logDebug(`Creating game files temp directory: ${newTempBasePath}`);
 		ensureDirectoryExists(newTempBasePath);
 		this.tempBasePath = newTempBasePath;
@@ -746,11 +772,14 @@ class GameFileManager {
 
 class ModsManager {
 	baseModsPath = undefined;
-	installedMods = {};
-	modScripts = {};
-	loadOrder = [];
-	loadedModCount = 0;
 	modInfoSchema = undefined;
+	installedMods = {};
+	loadOrder = [];
+	areModsLoaded = false;
+	modContext = undefined;
+	loadedModCount = 0;
+	modScriptsImport = {};
+	modElectronModules = {};
 
 	async findInstalledMods() {
 		this.installedMods = {};
@@ -771,7 +800,7 @@ class ModsManager {
 				// Initialize and save the mod
 				const { mod, scripts } = await this._initializeMod(modPath);
 				this.installedMods[mod.info.modID] = mod;
-				this.modScripts[mod.info.modID] = scripts;
+				this.modScriptsImport[mod.info.modID] = scripts;
 
 				// Check if the mod is disabled in the config (as-per a previous user choice)
 				if (Object.hasOwn(config.modsEnabled, mod.info.modID) && !config.modsEnabled[mod.info.modID]) {
@@ -809,7 +838,7 @@ class ModsManager {
 	}
 
 	async loadAllMods() {
-		if (this.loadedModCount > 0) throw new Error("Cannot load mods, some mods are already loaded");
+		if (this.areModsLoaded) throw new Error("Cannot load mods, some mods are already loaded");
 
 		const enabledCount = this.loadOrder.filter((modID) => this.installedMods[modID].isEnabled).length;
 		if (enabledCount == this.loadOrder.length) {
@@ -818,26 +847,49 @@ class ModsManager {
 			logDebug(`Loading ${enabledCount} / ${this.loadOrder.length} mods...`);
 		}
 
+		// Setup the context for the mods and expose whatever they need to access
+		this.modContext = vm.createContext({
+			log,
+			console,
+			modloaderAPI,
+		});
+
 		for (const modID of this.loadOrder) {
 			if (this.installedMods[modID].isEnabled) {
 				await this._loadMod(this.installedMods[modID]);
 			}
 		}
 
+		this.areModsLoaded = true;
+
 		modloaderAPI.events.trigger("ml:onAllModsLoaded");
 		logDebug(`All mods loaded successfully`);
 	}
 
 	unloadAllMods() {
-		if (this.loadedModCount === 0) return;
-
 		logDebug("Unloading all mods...");
+
+		if (!this.areModsLoaded) {
+			logWarn("No mods are currently loaded, skipping unload");
+			return;
+		}
 
 		for (const modID of this.loadOrder) {
 			if (this.installedMods[modID].isLoaded) {
 				this._unloadMod(this.installedMods[modID]);
 			}
 		}
+
+		this.areModsLoaded = false;
+		this.modContext = undefined;
+		this.loadedModCount = 0;
+		this.modScriptsImport = {};
+		this.modElectronModules = {};
+
+		// Mods also have side effects on game files, IPC handlers, and events
+		gameFileManager.clearPatches();
+		modloaderAPI._clearModIPCHandlers();
+		modloaderAPI.events.reset();
 
 		modloaderAPI.events.trigger("ml:onAllModsUnloaded");
 		logDebug("All mods unloaded successfully");
@@ -860,7 +912,7 @@ class ModsManager {
 		}
 
 		delete this.installedMods[modID];
-		delete this.modScripts[modID];
+		delete this.modScriptsImport[modID];
 		this.loadOrder = this.loadOrder.filter((id) => id !== modID);
 		logDebug(`Mod uninstalled successfully: ${modID}`);
 	}
@@ -1013,11 +1065,11 @@ class ModsManager {
 
 		logDebug(`Loading mod: ${mod.info.modID}`);
 
-		// if it defines a config schema then we need to validate it
+		// if it defines a config schema then we need to validate it first
 		if (mod.info.configSchema && Object.keys(mod.info.configSchema).length > 0) {
-			if (this.modScripts[mod.info.modID] && this.modScripts[mod.info.modID].modifySchema) {
+			if (this.modScriptsImport[mod.info.modID] && this.modScriptsImport[mod.info.modID].modifySchema) {
 				logDebug(`Modifying schema for mod: ${mod.info.modID}`);
-				this.modScripts[mod.info.modID].modifySchema(mod.info.configSchema);
+				this.modScriptsImport[mod.info.modID].modifySchema(mod.info.configSchema);
 			}
 
 			logDebug(`Validating schema for mod: ${mod.info.modID}`);
@@ -1027,10 +1079,25 @@ class ModsManager {
 		}
 
 		if (mod.info.electronEntrypoint) {
-			const electronEntrypoint = path.join(mod.path, mod.info.electronEntrypoint);
-			logDebug(`Loading electron entrypoint: ${electronEntrypoint}`);
-			// TODO: Try catch here? what about cache avoidance?
-			await import(`file://${electronEntrypoint}`);
+			try {
+				// Load and start the electron entrypoint as a module in the context
+				const entrypointPath = path.join(mod.path, mod.info.electronEntrypoint);
+				const entrypointCode = fs.readFileSync(entrypointPath, "utf8");
+				const identifier = url.pathToFileURL(entrypointPath).href;
+				logDebug(`Loading electron entrypoint: ${identifier}`);
+				const module = new vm.SourceTextModule(entrypointCode, { context: this.modContext, identifier });
+
+				// This mod linking is for import calls inside the module, ignore for now
+				await module.link((specifier) => {
+					logWarn(`Mod ${mod.info.modID} is trying to import '${specifier}'`);
+					return null;
+				});
+
+				module.evaluate();
+				this.modElectronModules[mod.info.modID] = module;
+			} catch (e) {
+				throw new Error(`Error loading electron entrypoint for mod ${mod.info.modID}: ${e.stack}`);
+			}
 		}
 
 		mod.isLoaded = true;
@@ -1043,6 +1110,9 @@ class ModsManager {
 		if (!mod.isLoaded) throw new Error(`Mod already unloaded: ${mod.info.modID}`);
 
 		logDebug(`Unloading mod: ${mod.info.modID}`);
+
+		delete this.modScriptsImport[mod.info.modID];
+		delete this.modElectronModules[mod.info.modID];
 
 		modloaderAPI.events.trigger("ml:onModUnloaded", mod);
 
@@ -1452,10 +1522,10 @@ function closeGameWindow() {
 }
 
 function cleanupGameWindow() {
+	// We need to counter-act everything from startGameWindow() here
 	gameWindow = null;
-	modsManager.unloadAllMods();
 	modloaderAPI.events.trigger("ml:onGameClosed");
-	modloaderAPI.events.reset();
+	modsManager.unloadAllMods();
 }
 
 function closeApp() {
@@ -1469,7 +1539,6 @@ function cleanupApp() {
 		if (modloaderWindow) closeModloaderWindow();
 		if (gameWindow) closeGameWindow();
 		gameFileManager.deleteFiles();
-		modsManager.unloadAllMods();
 	} catch (e) {
 		logError(`Error during cleanup: ${e.stack}`);
 	}
@@ -1477,7 +1546,7 @@ function cleanupApp() {
 }
 
 async function startApp() {
-	logInfo(`Starting electron modloader ${modloaderVersion}`);
+	logInfo(`Starting Sandustry Flux Modloader ${modloaderVersion}`);
 
 	// These are enabled for running the game
 	process.env["ELECTRON_DISABLE_SECURITY_WARNINGS"] = "true";

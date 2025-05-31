@@ -1,10 +1,10 @@
 {
-	"name": "mod-loader",
+	"name": "flux-modloader",
 	"version": "1.0.0",
 	"main": "src/electron.js",
 	"type": "module",
 	"scripts": {
-		"start": "electron ."
+		"start": "set \"NODE_OPTIONS=--experimental-vm-modules\" && electron ."
 	},
 	"dependencies": {
 		"acorn": "^8.14.0",

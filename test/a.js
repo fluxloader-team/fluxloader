@@ -5,38 +5,29 @@ import url from "url";
 
 // https://nodejs.org/api/vm.html#new-vmsourcetextmodulecode-options
 
-async function executeIsolated(filePath) {
-	const context = vm.createContext({
-		console,
-		shared: { foo: "bar" },
-	});
-
-	filePath = path.resolve(filePath);
-
+async function executeIsolated(context, filePath) {
 	const code = await fs.readFile(filePath, "utf8");
-
-	const module = new vm.SourceTextModule(code, {
-		context,
-		identifier: url.pathToFileURL(filePath).href,
-		initializeImportMeta: (meta) => {
-			meta.url = url.pathToFileURL(filePath).href;
-		},
-	});
+	const identifier = url.pathToFileURL(filePath).href;
+	const module = new vm.SourceTextModule(code, { context, identifier });
 
 	await module.link(async (specifier, referencingModule) => {
-		console.log("Linking:", specifier, "from", referencingModule.identifier);
-        // Do nothing for now
+		console.log(`Linking currently unsupported (specifier: ${specifier}, referencingModule: ${referencingModule.identifier})`);
+		return null;
 	});
 
 	await module.evaluate();
-
-	console.log("Shared context:", context.shared);
-
-	for (const key of Object.keys(context)) {
-		context[key] = undefined;
-	}
 }
 
-executeIsolated("./b.js");
+const context = vm.createContext({
+	console,
+	shared: { foo: "bar" },
+});
 
+let filePath = path.resolve("./b.js");
 
+await executeIsolated(context, filePath);
+await executeIsolated(context, filePath);
+
+for (const key of Object.keys(context)) {
+	context[key] = undefined;
+}
