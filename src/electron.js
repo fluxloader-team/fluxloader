@@ -243,8 +243,16 @@ class ElectronModloaderAPI {
 		gameFileManager.setPatch(file, tag, patch);
 	}
 
+	patchExists(file, tag) {
+		gameFileManager.patchExists(file, tag);
+	}
+
 	removePatch(file, tag) {
 		gameFileManager.removePatch(file, tag);
+	}
+
+	tryRemovePatch(file, tag) {
+		gameFileManager.tryRemovePatch(file, tag);
 	}
 
 	repatchAllFiles() {
@@ -392,19 +400,34 @@ class GameFileManager {
 	}
 
 	setPatch(file, tag, patch) {
-		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot add patch");
+		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot set patch");
 
 		if (!this.fileData[file]) {
 			try {
 				this._initializeFileData(file);
 			} catch (e) {
-				logError(`Failed to initialize file data for '${file}' when adding patch '${tag}'`);
+				logError(`Failed to initialize file data for '${file}' when setting patch '${tag}'`);
 				throw e;
 			}
 		}
 
 		logDebug(`Setting patch '${tag}' in file: ${file}`);
 		this.fileData[file].patches.set(tag, patch);
+	}
+
+	patchExists(file, tag) {
+		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot check if patch exists");
+
+		if (!this.fileData[file]) {
+			try {
+				this._initializeFileData(file);
+			} catch (e) {
+				logError(`Failed to initialize file data for '${file}' when checking if patch '${tag}' exists`);
+				throw e;
+			}
+		}
+
+		return this.fileData[file].patches.has(tag);
 	}
 
 	removePatch(file, tag) {
@@ -423,6 +446,15 @@ class GameFileManager {
 
 		logDebug(`Removing patch '${tag}' from file: ${file}`);
 		this.fileData[file].patches.delete(tag);
+	}
+
+	// Silently failing version of removePatch (yes it is just a try catch wrapper)
+	tryRemovePatch(file, tag) {
+		try {
+			this.removePatch(file, tag);
+		} catch {
+			logDebug(`Silently failed to remove patch '${tag}' from file: ${file}`);
+		}
 	}
 
 	repatchAllFiles() {
@@ -858,6 +890,7 @@ class ModsManager {
 			path,
 			randomUUID,
 			url,
+			process,
 		});
 
 		for (const modID of this.loadOrder) {
