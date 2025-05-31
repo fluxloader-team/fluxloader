@@ -231,10 +231,6 @@ class ElectronModloaderAPI {
 	constructor() {
 		this.events = new EventBus();
 		this.config = new ElectronModConfigAPI();
-
-		for (const event of ElectronModloaderAPI.allEvents) {
-			this.events.registerEvent(event);
-		}
 	}
 
 	addPatch(file, patch) {
@@ -283,6 +279,12 @@ class ElectronModloaderAPI {
 			ipcMain.removeHandler(handler.channel);
 		}
 		this._modIPCHandlers = [];
+	}
+
+	_initializeEvents() {
+		for (const event of ElectronModloaderAPI.allEvents) {
+			this.events.registerEvent(event);
+		}
 	}
 }
 
@@ -852,6 +854,10 @@ class ModsManager {
 			log,
 			console,
 			modloaderAPI,
+			fs,
+			path,
+			randomUUID,
+			url,
 		});
 
 		for (const modID of this.loadOrder) {
@@ -889,9 +895,10 @@ class ModsManager {
 		// Mods also have side effects on game files, IPC handlers, and events
 		gameFileManager.clearPatches();
 		modloaderAPI._clearModIPCHandlers();
-		modloaderAPI.events.reset();
 
+		// Literally useless event but sure
 		modloaderAPI.events.trigger("ml:onAllModsUnloaded");
+		modloaderAPI.events.reset();
 		logDebug("All mods unloaded successfully");
 	}
 
@@ -1087,10 +1094,10 @@ class ModsManager {
 				logDebug(`Loading electron entrypoint: ${identifier}`);
 				const module = new vm.SourceTextModule(entrypointCode, { context: this.modContext, identifier });
 
-				// This mod linking is for import calls inside the module, ignore for now
-				await module.link((specifier) => {
-					logWarn(`Mod ${mod.info.modID} is trying to import '${specifier}'`);
-					return null;
+				// This mod linking is for import calls inside the module
+				// (May or may not work for relative imports)
+				await module.link(async (specifier) => {
+					return await import(specifier);
 				});
 
 				module.evaluate();
@@ -1498,6 +1505,7 @@ async function startGameWindow() {
 
 	logInfo("Starting game window");
 
+	modloaderAPI._initializeEvents();
 	gameFileManager.resetToBaseFiles();
 	await gameFileManager.patchAndRunGameElectron();
 	addModloaderPatches();
