@@ -101,23 +101,22 @@ class ConfigSchemaElement {
 
 			// Otherwise we want to render this leaf as an input
 			else {
-				const value = configSection?.[key] ?? schemaValue.default;
-				const wrapper = document.createElement("div");
-				const label = document.createElement("label");
-				wrapper.classList.add("config-input-wrapper");
-				label.classList.add("config-input-label");
-				label.textContent = key;
-				wrapper.appendChild(label);
-				logDebug(`Rendering input for ${currentPath.join(".")}:`, schemaValue);
+				if (schemaValue.hidden && schemaValue.hidden === true) {
+					logDebug(`Skipping hidden config key: ${currentPath.join(".")}`);
+					continue;
+				}
 
 				// Create the input element based on the schema type
+				const value = configSection?.[key] ?? schemaValue.default;
 				let input;
+
 				switch (schemaValue.type) {
 					case "string":
 						input = document.createElement("input");
 						input.type = "text";
 						input.value = value;
 						break;
+
 					case "number":
 						input = document.createElement("input");
 						input.type = "number";
@@ -126,11 +125,13 @@ class ConfigSchemaElement {
 						if ("max" in schemaValue) input.max = schemaValue.max;
 						if ("step" in schemaValue) input.step = schemaValue.step;
 						break;
+
 					case "boolean":
 						input = document.createElement("input");
 						input.type = "checkbox";
 						input.checked = value;
 						break;
+
 					case "dropdown":
 						input = document.createElement("select");
 						for (const option of schemaValue.options) {
@@ -142,6 +143,7 @@ class ConfigSchemaElement {
 						}
 						break;
 					case "object":
+
 					case "array":
 						// Not directly editable in this version
 						continue;
@@ -149,11 +151,36 @@ class ConfigSchemaElement {
 						throw new Error(`Unsupported input type: ${schemaValue.type}`);
 				}
 
-				// Listen to the input then store it in the right places
+				// Create the wrapper, label, description and add the input to the container
+				const wrapper = document.createElement("div");
+				wrapper.classList.add("config-input-wrapper");
+
+				const labelRow = document.createElement("div");
+				labelRow.classList.add("config-input-label-row");
+				const label = document.createElement("label");
+				label.classList.add("config-input-label");
+				label.textContent = key;
+				labelRow.appendChild(label);
+				if (schemaValue.description) {
+					const desc = document.createElement("span");
+					desc.classList.add("config-input-description");
+					desc.textContent = schemaValue.description;
+					labelRow.appendChild(desc);
+				}
+
+				this.inputs.set(currentPath.join("."), input);
 				input.addEventListener("change", () => this.handleInputChange(currentPath, input, schemaValue));
 				input.classList.add("config-input");
-				this.inputs.set(currentPath.join("."), input);
-				wrapper.appendChild(input);
+
+				if (schemaValue.type === "boolean") {
+					wrapper.classList.add("same-row");
+					wrapper.appendChild(input);
+					wrapper.appendChild(labelRow);
+				} else {
+					wrapper.appendChild(labelRow);
+					wrapper.appendChild(input);
+				}
+
 				container.appendChild(wrapper);
 			}
 		}

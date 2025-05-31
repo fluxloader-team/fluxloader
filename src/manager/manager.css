@@ -520,11 +520,10 @@ body {
 
 .config-schema-root {
 	width: 100%;
-	height: 100%;
 	padding: 1rem;
 	display: flex;
 	flex-direction: column;
-	gap: 0.6rem;
+	gap: 1.2rem;
 }
 
 .config-schema-root .config-section {
@@ -533,7 +532,7 @@ body {
 	padding: 0.8rem;
 	display: flex;
 	flex-direction: column;
-	gap: 0.6rem;
+	gap: 1rem;
 }
 
 .config-schema-root .config-section-title {
@@ -548,9 +547,38 @@ body {
 	flex-direction: column;
 }
 
+.config-schema-root .config-input-wrapper.same-row {
+	flex-direction: row;
+	gap: 1rem;
+	padding: 0 0.2rem;
+	align-items: center;
+	align-content: center;
+}
+
+.config-schema-root .config-input-wrapper.same-row .config-input-label-row {
+	margin-bottom: 0;
+}
+
+.config-schema-root .config-input-label-row {
+	flex: 1;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.4rem;
+	margin-bottom: 0.4rem;
+}
+
 .config-schema-root .config-input-label {
 	color: var(--color-text-muted);
 	font-size: 1rem;
+}
+
+.config-schema-root .config-input-description {
+	color: var(--color-text-secondary);
+	font-size: 0.9rem;
+	margin-left: 1rem;
+	text-align: right;
+	flex-shrink: 0;
 }
 
 .config-schema-root .config-input {
@@ -572,7 +600,6 @@ body {
 
 .config-schema-root .config-input[type="checkbox"] {
 	width: auto;
-	align-self: flex-start;
 }
 
 .config-schema-root .config-input.invalid {
