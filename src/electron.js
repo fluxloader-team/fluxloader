@@ -204,7 +204,7 @@ function updateObjectWithDefaults(defaultValues, target) {
 // ------------- MAIN -------------
 
 class ElectronFluxloaderAPI {
-	static allEvents = ["fl:mod-loaded", "fl:mod-unloaded", "fl:all-mods-loaded", "fl:all-mods-unloaded", "fl:game-started", "fl:game-closed", "fl:fluxloader-closing", "fl:page-redirect"];
+	static allEvents = ["fl:mod-loaded", "fl:mod-unloaded", "fl:all-mods-loaded", "fl:all-mods-unloaded", "fl:game-started", "fl:game-closed", "fl:page-redirect"];
 	events = undefined;
 	config = undefined;
 	fileManager = gameFilesManager;
@@ -225,15 +225,15 @@ class ElectronFluxloaderAPI {
 	}
 
 	patchExists(file, tag) {
-		gameFileManager.patchExists(file, tag);
+		gameFilesManager.patchExists(file, tag);
 	}
 
 	patchExists(file, tag) {
-		gameFileManager.patchExists(file, tag);
+		gameFilesManager.patchExists(file, tag);
 	}
 
 	patchExists(file, tag) {
-		gameFileManager.patchExists(file, tag);
+		gameFilesManager.patchExists(file, tag);
 	}
 
 	removePatch(file, tag) {
@@ -241,15 +241,15 @@ class ElectronFluxloaderAPI {
 	}
 
 	tryRemovePatch(file, tag) {
-		gameFileManager.tryRemovePatch(file, tag);
+		gameFilesManager.tryRemovePatch(file, tag);
 	}
 
 	tryRemovePatch(file, tag) {
-		gameFileManager.tryRemovePatch(file, tag);
+		gameFilesManager.tryRemovePatch(file, tag);
 	}
 
 	tryRemovePatch(file, tag) {
-		gameFileManager.tryRemovePatch(file, tag);
+		gameFilesManager.tryRemovePatch(file, tag);
 	}
 
 	repatchAllFiles() {
@@ -287,7 +287,7 @@ class ElectronFluxloaderAPI {
 	}
 
 	_initializeEvents() {
-		for (const event of ElectronModloaderAPI.allEvents) {
+		for (const event of ElectronFluxloaderAPI.allEvents) {
 			this.events.registerEvent(event);
 		}
 	}
@@ -820,7 +820,7 @@ class ModsManager {
 		this.baseModsPath = resolvePathRelativeToFluxloader(config.modsPath);
 		ensureDirectoryExists(this.baseModsPath);
 		let modPaths = fs.readdirSync(this.baseModsPath);
-		modPaths = modPaths.filter((p) = p !== "config");
+		modPaths = modPaths.filter((p) => p !== "config");
 		modPaths = modPaths.map((p) => path.join(this.baseModsPath, p));
 		modPaths = modPaths.filter((p) => fs.statSync(p).isDirectory());
 		logDebug(`Found ${modPaths.length} mod${modPaths.length === 1 ? "" : "s"} to initialize inside: ${this.baseModsPath}`);
@@ -923,7 +923,7 @@ class ModsManager {
 		this.modElectronModules = {};
 
 		// Mods also have side effects on game files, IPC handlers, and events
-		gameFileManager.clearPatches();
+		gameFilesManager.clearPatches();
 		fluxloaderAPI._clearModIPCHandlers();
 
 		// Literally useless event but sure
@@ -1507,21 +1507,23 @@ function startManagerWindow() {
 				preload: resolvePathInsideFluxloader("manager/manager-preload.js"),
 			},
 		});
-		managerWindow.on("closed", cleanupManagerWIndow);
+		managerWindow.on("closed", cleanupManagerWindow);
 		managerWindow.loadFile("src/manager/manager.html");
 		if (config.manager.openDevTools) managerWindow.openDevTools();
 	} catch (e) {
-		cleanupManagerWIndow();
+		cleanupManagerWindow();
 		throw new Error(`Error starting manager window: ${e.stack}`);
 	}
 }
 
 function closeManagerWindow() {
+	if (!managerWindow) return;
 	managerWindow.close();
-	cleanupManagerWIndow();
+	cleanupManagerWindow();
 }
 
-function cleanupManagerWIndow() {
+function cleanupManagerWindow() {
+	if (!managerWindow) return;
 	managerWindow = null;
 	if (config.closeGameWithManager && gameWindow) {
 		logDebug("Closing game window with fluxloader window");
@@ -1535,8 +1537,8 @@ async function startGameWindow() {
 	logInfo("Starting game window");
 
 	fluxloaderAPI._initializeEvents();
-	gameFileManager.resetToBaseFiles();
-	await gameFileManager.patchAndRunGameElectron();
+	gameFilesManager.resetToBaseFiles();
+	await gameFilesManager.patchAndRunGameElectron();
 	addModloaderPatches();
 	await modsManager.loadAllMods();
 	gameFilesManager.repatchAllFiles();
@@ -1559,7 +1561,7 @@ function closeGameWindow() {
 }
 
 function cleanupGameWindow() {
-	// We need to counter-act everything from startGameWindow() here
+	if (!gameWindow) return;
 	gameWindow = null;
 	fluxloaderAPI.events.trigger("fl:game-closed");
 	modsManager.unloadAllMods();
@@ -1572,7 +1574,6 @@ function closeApp() {
 
 function cleanupApp() {
 	try {
-		fluxloaderAPI.events.trigger("fl:fluxloader-closing");
 		if (managerWindow) closeManagerWindow();
 		if (gameWindow) closeGameWindow();
 		gameFilesManager.deleteFiles();
