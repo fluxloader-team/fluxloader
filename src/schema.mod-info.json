@@ -11,7 +11,7 @@
 	"author": {
 		"type": "string"
 	},
-	"modloaderVersion": {
+	"fluxloaderVersion": {
 		"type": "string",
 		"default": ""
 	},
@@ -35,7 +35,7 @@
 		"type": "string",
 		"default": ""
 	},
-	"browserEntrypoint": {
+	"gameEntrypoint": {
 		"type": "string",
 		"default": ""
 	},

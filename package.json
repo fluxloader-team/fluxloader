@@ -1,5 +1,5 @@
 {
-	"name": "flux-modloader",
+	"name": "sandustry-fluxloader",
 	"version": "1.0.0",
 	"main": "src/electron.js",
 	"type": "module",

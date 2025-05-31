@@ -143,7 +143,7 @@ function togglePlaying() {
 
 	if (!isPlaying) {
 		setTimeout(() => {
-			electron.invoke(`ml-modloader:start-game`).then(() => {
+			electron.invoke(`fl:start-game`).then(() => {
 				setProgressText("Game started.");
 				setProgress(100);
 
@@ -153,7 +153,7 @@ function togglePlaying() {
 				getElement("main-control-button").classList.toggle("active", true);
 
 				// Wait for the game to finish
-				electron.invoke(`ml-modloader:wait-for-game-closed`).then(() => {
+				electron.invoke(`fl:wait-for-game-closed`).then(() => {
 					setProgressText("Game closed.");
 					setProgress(0);
 
@@ -164,7 +164,7 @@ function togglePlaying() {
 			});
 		}, DELAY_PLAY_MS);
 	} else {
-		electron.invoke(`ml-modloader:stop-game`).then(() => {
+		electron.invoke(`fl:stop-game`).then(() => {
 			setProgressText("Game stopped.");
 			setProgress(0);
 
@@ -300,7 +300,7 @@ class ModsTab {
 
 		// The mod list should always have installed mods first
 		// Look for 'find-installed-mods' for where they are actually reloaded on the backend
-		const mods = await electron.invoke("ml-modloader:get-installed-mods");
+		const mods = await electron.invoke("fl:get-installed-mods");
 
 		let newModIDs = [];
 		for (const mod of mods) {
@@ -332,7 +332,7 @@ class ModsTab {
 			};
 
 			if (modData.meta.info.description && modData.meta.info.description.length > 0) {
-				const html = await electron.invoke("ml-modloader:render-markdown", modData.meta.info.description);
+				const html = await electron.invoke("fl:render-markdown", modData.meta.info.description);
 				modData.renderedDescription = html;
 			}
 
@@ -378,7 +378,7 @@ class ModsTab {
 		};
 
 		const startTime = Date.now();
-		const mods = await electron.invoke("ml-modloader:fetch-remote-mods", getInfo);
+		const mods = await electron.invoke("fl:fetch-remote-mods", getInfo);
 		const endTime = Date.now();
 
 		if (endTime - startTime < DELAY_LOAD_REMOTE_MS) {
@@ -416,7 +416,7 @@ class ModsTab {
 			};
 
 			if (modData.meta.info.description && modData.meta.info.description.length > 0) {
-				const html = await electron.invoke("ml-modloader:render-markdown", modData.meta.info.description);
+				const html = await electron.invoke("fl:render-markdown", modData.meta.info.description);
 				modData.renderedDescription = html;
 			}
 
@@ -473,7 +473,7 @@ class ModsTab {
 				const checkbox = e.target;
 				const isChecked = checkbox.checked;
 				checkbox.disabled = true;
-				electron.invoke("ml-modloader:set-mod-enabled", { modID: modData.modID, enabled: isChecked }).then((success) => {
+				electron.invoke("fl:set-mod-enabled", { modID: modData.modID, enabled: isChecked }).then((success) => {
 					checkbox.disabled = false;
 
 					if (!success) {
@@ -651,7 +651,7 @@ class ModsTab {
 	document.querySelectorAll(".resizer").forEach(handleResizer);
 
 	getElement("refresh-mods").addEventListener("click", () => {
-		electron.invoke("ml-modloader:find-installed-mods").then(() => tabs.mods.reloadModsView());
+		electron.invoke("fl:find-installed-mods").then(() => tabs.mods.reloadModsView());
 	});
 
 	setProgressText("");

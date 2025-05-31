@@ -10,43 +10,24 @@ import { randomUUID } from "crypto";
 import { marked } from "marked";
 import { EventBus, SchemaValidation } from "./common.js";
 
-// ------------- MODDING DOCUMENTATION -------------
-
-// NOTE: This file and branch is WIP, at no specific commit does it reflect the planned expected behaviour.
-
-// Mods are defined in /mods/<modname> and require a 'modinfo.json' file.
-
-// Mods are ran inside the (electron), (browser) and (worker) environment with their entrypoints files.
-
-// Be aware that the following error is related to an experimental feature in the devtools that is not supported by electron.
-// - "Request Autofill.enable failed. {"code":-32601,"message":"'Autofill.enable' wasn't found"}", source: devtools://devtools/bundled/core/protocol_client/protocol_client.js (1)
-// It is deemed not worthy to fix by the electron team and is not a bug in the modloader:
-// - https://github.com/electron/electron/issues/41614#issuecomment-2006678760
-
-// Before any modding occurs we patch the games electron main.js
-// - Disable any immediately ran functions
-// - Make the useful functions global so we can call them
-// - Ensure the app thinks it is still running inside the app.asar
-// These are all potentially flaky but is needed if we want to run the game as the original does
-
 // ------------- VARIABLES -------------
 
-globalThis.modloaderVersion = "2.0.0";
-globalThis.modloaderAPI = undefined;
+globalThis.fluxloaderVersion = "2.0.0";
+globalThis.fluxloaderAPI = undefined;
 globalThis.gameElectronFuncs = undefined;
 globalThis.gameWindow = undefined;
 
 let logLevels = ["debug", "info", "warn", "error"];
 let preConfigLogLevel = "info";
-let configPath = "modloader-config.json";
-let configSchemaPath = "schema.modloader-config.json";
+let configPath = "fluxloader-config.json";
+let configSchemaPath = "schema.fluxloader-config.json";
 let modInfoSchemaPath = "schema.mod-info.json";
 let logFilePath = undefined;
 let config = undefined;
 let configLoaded = false;
 let modsManager = undefined;
-let gameFileManager = undefined;
-let modloaderWindow = undefined;
+let gameFilesManager = undefined;
+let managerWindow = undefined;
 
 // ------------- UTILTY -------------
 
@@ -76,7 +57,7 @@ function colourText(text, colour) {
 function setupLogFile() {
 	if (!configLoaded) return;
 	if (logFilePath) return;
-	logFilePath = resolvePathRelativeToModloader(config.logging.logFilePath);
+	logFilePath = resolvePathRelativeToFluxloader(config.logging.logFilePath);
 	try {
 		fs.appendFileSync(logFilePath, new Date().toISOString() + "\n");
 	} catch (e) {
@@ -126,23 +107,23 @@ globalThis.logInfo = (...args) => log("info", "", args.join(" "));
 globalThis.logWarn = (...args) => log("warn", "", args.join(" "));
 globalThis.logError = (...args) => log("error", "", args.join(" "));
 
-function resolvePathRelativeToModloader(name) {
+function resolvePathRelativeToFluxloader(name) {
 	// If absolute then return the path as is
 	if (path.isAbsolute(name)) return name;
 
-	// Otherwise relative to fluxmodloader.exe
+	// Otherwise relative to fluxloader.exe
 	const __filename = url.fileURLToPath(import.meta.url);
 	const __dirname = path.dirname(__filename);
 	return path.join(__dirname, name);
 }
 
-function resolvePathInsideModloader(name) {
+function resolvePathInsideFluxloader(name) {
 	// If absolute then return the path as is
 	if (path.isAbsolute(name)) return name;
 
 	// TODO: In the future this needs to accommodate for electron exe packaging
 
-	// Otherwise relative to fluxmodloader.exe
+	// Otherwise relative to fluxloader.exe
 	const __filename = url.fileURLToPath(import.meta.url);
 	const __dirname = path.dirname(__filename);
 	return path.join(__dirname, name);
@@ -222,41 +203,41 @@ function updateObjectWithDefaults(defaultValues, target) {
 
 // ------------- MAIN -------------
 
-class ElectronModloaderAPI {
-	static allEvents = ["ml:onModLoaded", "ml:onModUnloaded", "ml:onAllModsLoaded", "ml:onAllModsUnloaded", "ml:onGameStarted", "ml:onGameClosed", "ml:onModloaderClosed", "ml:onPageRedirect"];
+class ElectronFluxloaderAPI {
+	static allEvents = ["fl:mod-loaded", "fl:mod-unloaded", "fl:all-mods-loaded", "fl:all-mods-unloaded", "fl:game-started", "fl:game-closed", "fl:fluxloader-closing", "fl:page-redirect"];
 	events = undefined;
 	config = undefined;
-	fileManager = gameFileManager;
+	fileManager = gameFilesManager;
 
 	constructor() {
 		this.events = new EventBus();
 		this.config = new ElectronModConfigAPI();
 
-		for (const event of ElectronModloaderAPI.allEvents) {
+		for (const event of ElectronFluxloaderAPI.allEvents) {
 			this.events.registerEvent(event);
 		}
 	}
 
 	addPatch(file, patch) {
 		const tag = randomUUID();
-		gameFileManager.setPatch(file, tag, patch);
+		gameFilesManager.setPatch(file, tag, patch);
 		return tag;
 	}
 
 	setPatch(file, tag, patch) {
-		gameFileManager.setPatch(file, tag, patch);
+		gameFilesManager.setPatch(file, tag, patch);
 	}
 
 	removePatch(file, tag) {
-		gameFileManager.removePatch(file, tag);
+		gameFilesManager.removePatch(file, tag);
 	}
 
 	repatchAllFiles() {
-		gameFileManager.repatchAllFiles();
+		gameFilesManager.repatchAllFiles();
 	}
 
 	handleBrowserIPC(channel, handler) {
-		const fullChannel = `ml-mod:${channel}`;
+		const fullChannel = `fl-mod:${channel}`;
 		this._modIPCHandlers.push({ channel: fullChannel, handler });
 		ipcMain.handle(fullChannel, handler);
 	}
@@ -288,11 +269,11 @@ class ElectronModloaderAPI {
 
 class ElectronModConfigAPI {
 	constructor() {
-		ipcMain.handle("ml-config:get-config", (event, modID) => {
+		ipcMain.handle("fl-config:get-config", (event, modID) => {
 			logDebug(`Getting mod config remotely for ${modID}`);
 			return this.get(modID);
 		});
-		ipcMain.handle("ml-config:set-config", (event, modID, config) => {
+		ipcMain.handle("fl-config:set-config", (event, modID, config) => {
 			logDebug(`Setting mod config remotely for ${modID}`);
 			return this.set(modID, config);
 		});
@@ -300,7 +281,7 @@ class ElectronModConfigAPI {
 
 	get(modID) {
 		const modIDPath = this.sanitizeModIDPath(modID);
-		const baseModsPath = resolvePathRelativeToModloader(config.modsPath);
+		const baseModsPath = resolvePathRelativeToFluxloader(config.modsPath);
 		const modsConfigPath = path.join(baseModsPath, "config");
 		ensureDirectoryExists(modsConfigPath);
 		const modConfigPath = path.join(modsConfigPath, `${modIDPath}.json`);
@@ -317,7 +298,7 @@ class ElectronModConfigAPI {
 
 	set(modID, _config) {
 		const modIDPath = this.sanitizeModIDPath(modID);
-		const baseModsPath = resolvePathRelativeToModloader(config.modsPath);
+		const baseModsPath = resolvePathRelativeToFluxloader(config.modsPath);
 		const modsConfigPath = path.join(baseModsPath, "config");
 		ensureDirectoryExists(modsConfigPath);
 		const modConfigPath = path.join(modsConfigPath, `${modIDPath}.json`);
@@ -338,7 +319,7 @@ class ElectronModConfigAPI {
 	}
 }
 
-class GameFileManager {
+class GameFilesManager {
 	gameBasePath = undefined;
 	gameAsarPath = undefined;
 	tempBasePath = undefined;
@@ -439,48 +420,48 @@ class GameFileManager {
 		// The main point is we want to ensure we open the game the same way the game does
 
 		const replaceAllMain = (tag, from, to) => {
-			gameFileManager.setPatch("main.js", tag, { type: "replace", from, to, expectedMatches: -1 });
+			gameFilesManager.setPatch("main.js", tag, { type: "replace", from, to, expectedMatches: -1 });
 		};
 		const replaceAllPreload = (tag, from, to) => {
-			gameFileManager.setPatch("preload.js", tag, { type: "replace", from, to, expectedMatches: -1 });
+			gameFilesManager.setPatch("preload.js", tag, { type: "replace", from, to, expectedMatches: -1 });
 		};
 
 		// Rename and expose the games main electron functions
-		replaceAllMain("modloader:electron-globalize-main", "function createWindow ()", "globalThis.gameElectronFuncs.createWindow = function()");
-		replaceAllMain("modloader:electron-globalize-ipc", "function setupIpcHandlers()", "globalThis.gameElectronFuncs.setupIpcHandlers = function()");
-		replaceAllMain("modloader:electron-globalize-settings", "function loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync = function()");
-		replaceAllMain("modloader:electron-globalize-settings-calls", "loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync()");
+		replaceAllMain("fluxloader:electron-globalize-main", "function createWindow ()", "globalThis.gameElectronFuncs.createWindow = function()");
+		replaceAllMain("fluxloader:electron-globalize-ipc", "function setupIpcHandlers()", "globalThis.gameElectronFuncs.setupIpcHandlers = function()");
+		replaceAllMain("fluxloader:electron-globalize-settings", "function loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync = function()");
+		replaceAllMain("fluxloader:electron-globalize-settings-calls", "loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync()");
 
 		// Block the automatic app listeners so we control when things happen
-		replaceAllMain("modloader:electron-block-execution-1", "app.whenReady().then(() => {", "var _ = (() => {");
-		replaceAllMain("modloader:electron-block-execution-2", "app.on('window-all-closed', function () {", "var _ = (() => {");
+		replaceAllMain("fluxloader:electron-block-execution-1", "app.whenReady().then(() => {", "var _ = (() => {");
+		replaceAllMain("fluxloader:electron-block-execution-2", "app.on('window-all-closed', function () {", "var _ = (() => {");
 
 		// Ensure that the app thinks it is still running inside the app.asar
-		// - Fix the userData path to be 'sandustrydemo' instead of 'flux-modloader'
+		// - Fix the userData path to be 'sandustrydemo' instead of 'sandustry-fluxloader'
 		// - Override relative "preload.js" to absolute
 		// - Override relative "index.html" to absolute
-		replaceAllMain("modloader:electron-fix-paths-1", 'getPath("userData")', 'getPath("userData").replace("flux-modloader", "sandustrydemo")');
-		replaceAllMain("modloader:electron-fix-paths-2", "path.join(__dirname, 'preload.js')", `'${path.join(this.tempExtractedPath, "preload.js").replaceAll("\\", "/")}'`);
-		replaceAllMain("modloader:electron-fix-paths-3", "loadFile('index.html')", `loadFile('${path.join(this.tempExtractedPath, "index.html").replaceAll("\\", "/")}')`);
+		replaceAllMain("fluxloader:electron-fix-paths-1", 'getPath("userData")', 'getPath("userData").replace("sandustry-fluxloader", "sandustrydemo")');
+		replaceAllMain("fluxloader:electron-fix-paths-2", "path.join(__dirname, 'preload.js')", `'${path.join(this.tempExtractedPath, "preload.js").replaceAll("\\", "/")}'`);
+		replaceAllMain("fluxloader:electron-fix-paths-3", "loadFile('index.html')", `loadFile('${path.join(this.tempExtractedPath, "index.html").replaceAll("\\", "/")}')`);
 
 		// Expose the games main window to be global
-		replaceAllMain("modloader:electron-globalize-window", "const mainWindow", "globalThis.gameWindow");
-		replaceAllMain("modloader:electron-globalize-window-calls", "mainWindow", "globalThis.gameWindow");
+		replaceAllMain("fluxloader:electron-globalize-window", "const mainWindow", "globalThis.gameWindow");
+		replaceAllMain("fluxloader:electron-globalize-window-calls", "mainWindow", "globalThis.gameWindow");
 
 		// Make the menu bar visible
 		// replaceAllMain("autoHideMenuBar: true,", "autoHideMenuBar: false,");
 
 		// We're also gonna expose the ipcMain in preload.js
 		replaceAllPreload(
-			"modloader:exposeIPC",
+			"fluxloader:exposeIPC",
 			"save: (id, name, data)",
 			`invoke: (msg, ...args) => ipcRenderer.invoke(msg, ...args),
 			handle: (msg, func) => ipcRenderer.handle(msg, func),
 			save: (id, name, data)`
 		);
 
-		gameFileManager._repatchFile("main.js");
-		gameFileManager._repatchFile("preload.js");
+		gameFilesManager._repatchFile("main.js");
+		gameFilesManager._repatchFile("preload.js");
 
 		// We want to run the patches main.js to register the functions to the global gameElectronFuncs object
 		// Currently this does not work well due to dynamic import() query string cache invalidation not working on files that have require() inside of them
@@ -534,7 +515,7 @@ class GameFileManager {
 	}
 
 	logContents() {
-		let outputString = "GameFileManager Content\n\n";
+		let outputString = "GameFilesManager Content\n\n";
 		outputString += `  |  Variables\n`;
 		outputString += `  |  |  Game Base Path: ${this.gameBasePath}\n`;
 		outputString += `  |  |  Game Asar Path: ${this.gameAsarPath}\n`;
@@ -568,7 +549,7 @@ class GameFileManager {
 		}
 		for (const file of files) {
 			try {
-				if (file.startsWith("sandustry-flux-modloader-")) {
+				if (file.startsWith("sandustry-fluxloader-")) {
 					const fullPath = path.join(basePath, file);
 					logDebug(`Deleting old temp directory: ${fullPath}`);
 					fs.rmSync(fullPath, { recursive: true });
@@ -584,7 +565,7 @@ class GameFileManager {
 	_createTempDirectory() {
 		if (this.isTempInitialized) throw new Error("Temp directory already initialized");
 
-		const newTempBasePath = path.join(os.tmpdir(), `sandustry-flux-modloader-${Date.now()}`);
+		const newTempBasePath = path.join(os.tmpdir(), `sandustry-fluxloader-${Date.now()}`);
 		logDebug(`Creating game files temp directory: ${newTempBasePath}`);
 		ensureDirectoryExists(newTempBasePath);
 		this.tempBasePath = newTempBasePath;
@@ -786,9 +767,10 @@ class ModsManager {
 		this.loadOrder = [];
 		this.loadedModCount = 0;
 
-		this.baseModsPath = resolvePathRelativeToModloader(config.modsPath);
+		this.baseModsPath = resolvePathRelativeToFluxloader(config.modsPath);
 		ensureDirectoryExists(this.baseModsPath);
 		let modPaths = fs.readdirSync(this.baseModsPath);
+		logDebug(this.baseModsPath);
 		modPaths = modPaths.filter((p) => p !== "config");
 		modPaths = modPaths.map((p) => path.join(this.baseModsPath, p));
 		modPaths = modPaths.filter((p) => fs.statSync(p).isDirectory());
@@ -825,7 +807,7 @@ class ModsManager {
 			}
 		}
 
-		// TODO: Here we should check dependencies and modloader versions probably
+		// TODO: Here we should check dependencies and fluxloader versions probably
 
 		// Final report of installed mods
 		const modCount = Object.keys(this.installedMods).length;
@@ -851,7 +833,7 @@ class ModsManager {
 		this.modContext = vm.createContext({
 			log,
 			console,
-			modloaderAPI,
+			fluxloaderAPI: fluxloaderAPI,
 		});
 
 		for (const modID of this.loadOrder) {
@@ -862,7 +844,7 @@ class ModsManager {
 
 		this.areModsLoaded = true;
 
-		modloaderAPI.events.trigger("ml:onAllModsLoaded");
+		fluxloaderAPI.events.trigger("fl:all-mods-loaded");
 		logDebug(`All mods loaded successfully`);
 	}
 
@@ -887,11 +869,11 @@ class ModsManager {
 		this.modElectronModules = {};
 
 		// Mods also have side effects on game files, IPC handlers, and events
-		gameFileManager.clearPatches();
-		modloaderAPI._clearModIPCHandlers();
-		modloaderAPI.events.reset();
+		gameFilesManager.clearPatches();
+		fluxloaderAPI._clearModIPCHandlers();
+		fluxloaderAPI.events.reset();
 
-		modloaderAPI.events.trigger("ml:onAllModsUnloaded");
+		fluxloaderAPI.events.trigger("fl:all-mods-unloaded");
 		logDebug("All mods unloaded successfully");
 	}
 
@@ -984,7 +966,7 @@ class ModsManager {
 
 		// Save this to the config file
 		config.modsEnabled[modID] = enabled;
-		updateModloaderConfig();
+		updateFluxloaderConfig();
 
 		return true;
 	}
@@ -1011,7 +993,7 @@ class ModsManager {
 		// Load the modInfo schema on the first call
 		if (!this.modInfoSchema) {
 			try {
-				const resolvedPath = resolvePathInsideModloader(modInfoSchemaPath);
+				const resolvedPath = resolvePathInsideFluxloader(modInfoSchemaPath);
 				this.modInfoSchema = JSON.parse(fs.readFileSync(resolvedPath, "utf8"));
 			} catch (e) {
 				throw new Error(`Failed to read modinfo schema: ${e.stack}`);
@@ -1037,7 +1019,7 @@ class ModsManager {
 			}
 		};
 		validateEntrypoint("electron");
-		validateEntrypoint("browser");
+		validateEntrypoint("game");
 		validateEntrypoint("worker");
 
 		// Load the mod scripts if they exist
@@ -1073,9 +1055,9 @@ class ModsManager {
 			}
 
 			logDebug(`Validating schema for mod: ${mod.info.modID}`);
-			let config = modloaderAPI.config.get(mod.info.modID);
+			let config = fluxloaderAPI.config.get(mod.info.modID);
 			SchemaValidation.validate(config, mod.info.configSchema);
-			modloaderAPI.config.set(mod.info.modID, config);
+			fluxloaderAPI.config.set(mod.info.modID, config);
 		}
 
 		if (mod.info.electronEntrypoint) {
@@ -1103,7 +1085,7 @@ class ModsManager {
 		mod.isLoaded = true;
 		this.loadedModCount++;
 
-		modloaderAPI.events.trigger("ml:onModLoaded", mod);
+		fluxloaderAPI.events.trigger("fl:mod-loaded", mod);
 	}
 
 	_unloadMod(mod) {
@@ -1114,20 +1096,20 @@ class ModsManager {
 		delete this.modScriptsImport[mod.info.modID];
 		delete this.modElectronModules[mod.info.modID];
 
-		modloaderAPI.events.trigger("ml:onModUnloaded", mod);
+		fluxloaderAPI.events.trigger("fl:mod-unloaded", mod);
 
 		mod.isLoaded = false;
 		this.loadedModCount--;
 	}
 }
 
-function loadModloaderConfig() {
+function loadFluxloaderConfig() {
 	let configSchema = {};
 	logDebug(`Reading config from: ${configPath}`);
 
 	// We must be able to read the config schema
 	try {
-		configSchemaPath = resolvePathInsideModloader(configSchemaPath);
+		configSchemaPath = resolvePathInsideFluxloader(configSchemaPath);
 		configSchema = JSON.parse(fs.readFileSync(configSchemaPath, "utf8"));
 	} catch (e) {
 		throw new Error(`Failed to read config schema: ${e.stack}`);
@@ -1135,7 +1117,7 @@ function loadModloaderConfig() {
 
 	// If we fail to read config just use {}
 	try {
-		configPath = resolvePathRelativeToModloader(configPath);
+		configPath = resolvePathRelativeToFluxloader(configPath);
 		config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 	} catch (e) {
 		logDebug(`Failed to read config file: ${e.stack}`);
@@ -1152,19 +1134,19 @@ function loadModloaderConfig() {
 		if (!valid) throw new Error(`Failed to validate empty config file: ${configPath}`);
 	}
 
-	updateModloaderConfig();
+	updateFluxloaderConfig();
 	configLoaded = true;
 	logDebug(`Config loaded successfully: ${configPath}`);
 }
 
-function updateModloaderConfig() {
+function updateFluxloaderConfig() {
 	fs.writeFileSync(configPath, JSON.stringify(config, null, 4), "utf8");
 	logDebug(`Modloader config updated successfully: ${configPath}`);
 }
 
 function findValidGamePath() {
 	// First cleanup any old temp directories
-	GameFileManager.deleteOldTempDirectories();
+	GameFilesManager.deleteOldTempDirectories();
 
 	function findGameAsarInDirectory(dir) {
 		if (!fs.existsSync(dir)) return null;
@@ -1174,7 +1156,7 @@ function findValidGamePath() {
 	}
 
 	// Look in the configured directory for the games app.asar
-	let fullGamePath = resolvePathRelativeToModloader(config.gamePath);
+	let fullGamePath = resolvePathRelativeToFluxloader(config.gamePath);
 	let asarPath = findGameAsarInDirectory(fullGamePath);
 	if (!asarPath) {
 		logDebug(`Cannot find app.asar in configured directory: ${fullGamePath}`);
@@ -1210,7 +1192,7 @@ function findValidGamePath() {
 		// Update the config if we found the game in the default steam directory
 		fullGamePath = steamGamePath;
 		config.gamePath = steamGamePath;
-		updateModloaderConfig();
+		updateFluxloaderConfig();
 	}
 
 	logInfo(`Found game app.asar: ${asarPath}`);
@@ -1219,71 +1201,71 @@ function findValidGamePath() {
 }
 
 function addModloaderPatches() {
-	logDebug("Adding modloader patches to game files...");
+	logDebug("Adding fluxloader patches to game files...");
 
 	// Enable the debug flag
-	gameFileManager.setPatch("js/bundle.js", "modloader:debugFlag", {
+	gameFilesManager.setPatch("js/bundle.js", "fluxloader:debugFlag", {
 		type: "replace",
 		from: "debug:{active:!1",
 		to: "debug:{active:1",
 	});
 
-	// Puts __debug into modloaderAPI.gameInstance
-	gameFileManager.setPatch("js/bundle.js", "modloader:loadGameInstance", {
+	// Puts __debug into fluxloaderAPI.gameInstance
+	gameFilesManager.setPatch("js/bundle.js", "fluxloader:loadGameInstance", {
 		type: "replace",
 		from: "}};var r={};",
-		to: "}};modloader_onGameInstanceInitialized(__debug);var r={};",
+		to: "}};fluxloader_onGameInstanceInitialized(__debug);var r={};",
 	});
 
-	// Add browser.js to bundle.js, and dont start game until it is ready
-	const browserScriptPath = resolvePathRelativeToModloader("browser.js").replaceAll("\\", "/");
-	gameFileManager.setPatch("js/bundle.js", "modloader:preloadBundle", {
+	// Add game.js to bundle.js, and dont start game until it is ready
+	const gameScriptPath = resolvePathRelativeToFluxloader("game.js").replaceAll("\\", "/");
+	gameFilesManager.setPatch("js/bundle.js", "fluxloader:preloadBundle", {
 		type: "replace",
 		from: `(()=>{var e,t,n={8916`,
-		to: `import "${browserScriptPath}";modloader_preloadBundle().then$$`,
+		to: `import "${gameScriptPath}";fluxloader_preloadBundle().then$$`,
 		token: "$$",
 	});
-	gameFileManager.setPatch("js/bundle.js", "modloader:preloadBundleFinalize", {
+	gameFilesManager.setPatch("js/bundle.js", "fluxloader:preloadBundleFinalize", {
 		type: "replace",
 		from: `)()})();`,
 		to: `)()});`,
 	});
 
 	// Expose the games world to bundle.js
-	gameFileManager.setPatch("js/bundle.js", "modloader:gameWorldInitialized", {
+	gameFilesManager.setPatch("js/bundle.js", "fluxloader:gameWorldInitialized", {
 		type: "replace",
 		from: `console.log("initializing workers"),`,
-		to: `$$modloader_onGameWorldInitialized(s),`,
+		to: `$$fluxloader_onGameWorldInitialized(s),`,
 		token: "$$",
 	});
 
-	// Listen for modloader worker messages in bundle.js
-	gameFileManager.setPatch("js/bundle.js", "modloader:onWorkerMessage", {
+	// Listen for fluxloader worker messages in bundle.js
+	gameFilesManager.setPatch("js/bundle.js", "fluxloader:onWorkerMessage", {
 		type: "replace",
 		from: "case f.InitFinished:",
-		to: "case 'modloaderMessage':modloader_onWorkerMessage(r);break;$$",
+		to: "case 'fluxloaderMessage':fluxloader_onWorkerMessage(r);break;$$",
 		token: "$$",
 	});
 
 	const workers = ["546", "336"];
 	for (const worker of workers) {
-		// Listen for modloader worker messages in each worker
-		gameFileManager.setPatch(`js/${worker}.bundle.js`, "modloader:onWorkerMessage", {
+		// Listen for fluxloader worker messages in each worker
+		gameFilesManager.setPatch(`js/${worker}.bundle.js`, "fluxloader:onWorkerMessage", {
 			type: "replace",
 			from: `case i.dD.Init:`,
-			to: `case 'modloaderMessage':modloader_onWorkerMessage(e);break;$$`,
+			to: `case 'fluxloaderMessage':fluxloader_onWorkerMessage(e);break;$$`,
 			token: "$$",
 		});
 
 		// Add worker.js to each worker, and dont start until it is ready
-		const workerScriptPath = resolvePathRelativeToModloader(`worker.js`).replaceAll("\\", "/");
-		gameFileManager.setPatch(`js/${worker}.bundle.js`, "modloader:preloadBundle", {
+		const workerScriptPath = resolvePathRelativeToFluxloader(`worker.js`).replaceAll("\\", "/");
+		gameFilesManager.setPatch(`js/${worker}.bundle.js`, "fluxloader:preloadBundle", {
 			type: "replace",
 			from: `(()=>{"use strict"`,
-			to: `importScripts("${workerScriptPath}");modloader_preloadBundle().then$$`,
+			to: `importScripts("${workerScriptPath}");fluxloader_preloadBundle().then$$`,
 			token: "$$",
 		});
-		gameFileManager.setPatch(`js/${worker}.bundle.js`, "modloader:preloadBundleFinalize", {
+		gameFilesManager.setPatch(`js/${worker}.bundle.js`, "fluxloader:preloadBundleFinalize", {
 			type: "replace",
 			from: `()})();`,
 			to: `()});`,
@@ -1292,20 +1274,20 @@ function addModloaderPatches() {
 
 	// Notify worker.js when the workers are ready
 	// These are different for each worker
-	gameFileManager.setPatch(`js/336.bundle.js`, "modloader:workerInitialized", {
+	gameFilesManager.setPatch(`js/336.bundle.js`, "fluxloader:workerInitialized", {
 		type: "replace",
 		from: `W.environment.postMessage([i.dD.InitFinished]);`,
-		to: `modloader_onWorkerInitialized(W);$$`,
+		to: `fluxloader_onWorkerInitialized(W);$$`,
 		token: "$$",
 	});
-	gameFileManager.setPatch(`js/546.bundle.js`, "modloader:workerInitialized2", {
+	gameFilesManager.setPatch(`js/546.bundle.js`, "fluxloader:workerInitialized2", {
 		type: "replace",
 		from: `t(performance.now());break;`,
-		to: `t(performance.now());modloader_onWorkerInitialized(a);break;`,
+		to: `t(performance.now());fluxloader_onWorkerInitialized(a);break;`,
 	});
 
 	// Add React to globalThis
-	gameFileManager.setPatch("js/bundle.js", "modloader:exposeReact", {
+	gameFilesManager.setPatch("js/bundle.js", "fluxloader:exposeReact", {
 		type: "replace",
 		from: `var Cl,kl=i(6540)`,
 		to: `globalThis.React=i(6540);var Cl,kl=React`,
@@ -1313,7 +1295,7 @@ function addModloaderPatches() {
 
 	if (config.game.enableDebugMenu) {
 		// Adds configrable zoom
-		gameFileManager.setPatch("js/bundle.js", "modloader:debugMenuZoom", {
+		gameFilesManager.setPatch("js/bundle.js", "fluxloader:debugMenuZoom", {
 			type: "replace",
 			from: 'className:"fixed bottom-2 right-2 w-96 pt-12 text-white"',
 			to: `$$,style:{zoom:"${config.game.debugMenuZoom * 100}%"}`,
@@ -1321,7 +1303,7 @@ function addModloaderPatches() {
 		});
 	} else {
 		// Disables the debug menu
-		gameFileManager.setPatch("js/bundle.js", "modloader:disableDebugMenu", {
+		gameFilesManager.setPatch("js/bundle.js", "fluxloader:disableDebugMenu", {
 			type: "replace",
 			from: "function _m(t){",
 			to: "$$return;",
@@ -1329,7 +1311,7 @@ function addModloaderPatches() {
 		});
 
 		// Disables the debug keybinds
-		gameFileManager.setPatch("js/bundle.js", "modloader:disableDebugKeybinds", {
+		gameFilesManager.setPatch("js/bundle.js", "fluxloader:disableDebugKeybinds", {
 			type: "replace",
 			from: "spawnElements:function(n,r){",
 			to: "$$return false;",
@@ -1337,7 +1319,7 @@ function addModloaderPatches() {
 		});
 
 		// Disables the pause camera keybind
-		gameFileManager.setPatch("js/bundle.js", "modloader:disablePauseCamera", {
+		gameFilesManager.setPatch("js/bundle.js", "fluxloader:disablePauseCamera", {
 			type: "replace",
 			from: "e.debug.active&&(t.session.overrideCamera",
 			to: "return;$$",
@@ -1345,7 +1327,7 @@ function addModloaderPatches() {
 		});
 
 		// Disables the pause keybind
-		gameFileManager.setPatch("js/bundle.js", "modloader:disablePause", {
+		gameFilesManager.setPatch("js/bundle.js", "fluxloader:disablePause", {
 			type: "replace",
 			from: "e.debug.active&&(t.session.paused",
 			to: "return;$$",
@@ -1353,18 +1335,18 @@ function addModloaderPatches() {
 		});
 	}
 
-	gameFileManager.setPatch("js/bundle.js", "modloader:onPageRedirect", {
+	gameFilesManager.setPatch("js/bundle.js", "fluxloader:onPageRedirect", {
 		type: "replace",
 		from: 'window.history.replaceState({},"",n),',
-		to: "$$modloader_onPageRedirect(e),",
+		to: "$$fluxloader_onPageRedirect(e),",
 		token: "$$",
 	});
 
 	if (!config.game.disableMenuSubtitle) {
-		// Pass in subtitle image path to browser
-		let image = resolvePathInsideModloader("images/subtitle.png");
+		// Pass in subtitle image path to game
+		let image = resolvePathInsideFluxloader("images/subtitle.png");
 		image = image.replaceAll("\\", "/");
-		gameFileManager.setPatch("js/bundle.js", "modloader:menuSubtitle", {
+		gameFilesManager.setPatch("js/bundle.js", "fluxloader:menuSubtitle", {
 			type: "regex",
 			pattern: "if\\(t\\.store\\.scene\\.active===x\\.MainMenu\\)(.+?)else",
 			// this relies on minified name "Od" which places blocks
@@ -1381,32 +1363,32 @@ function setupElectronIPC() {
 
 	ipcMain.removeAllListeners();
 
-	ipcMain.handle("ml-modloader:get-loaded-mods", (event, args) => {
-		logDebug("Received ml-modloader:get-loaded-mods");
+	ipcMain.handle("fl:get-loaded-mods", (event, args) => {
+		logDebug("Received fl:get-loaded-mods");
 		return modsManager.getLoadedMods();
 	});
 
-	ipcMain.handle("ml-modloader:get-installed-mods", (event, args) => {
-		logDebug("Received ml-modloader:get-installed-mods");
+	ipcMain.handle("fl:get-installed-mods", (event, args) => {
+		logDebug("Received fl:get-installed-mods");
 		return modsManager.getInstalledMods();
 	});
 
-	ipcMain.handle("ml-modloader:trigger-page-redirect", (event, args) => {
-		modloaderAPI.events.trigger("ml:onPageRedirect", args);
+	ipcMain.handle("fl:trigger-page-redirect", (event, args) => {
+		fluxloaderAPI.events.trigger("fl:page-redirect", args);
 	});
 
-	ipcMain.handle("ml-modloader:fetch-remote-mods", async (event, args) => {
-		logDebug(`Received ml-modloader:fetch-remote-mods: ${JSON.stringify(args)}`);
+	ipcMain.handle("fl:fetch-remote-mods", async (event, args) => {
+		logDebug(`Received fl:fetch-remote-mods: ${JSON.stringify(args)}`);
 		return await modsManager.fetchRemoteMods(args);
 	});
 
-	ipcMain.handle("ml-modloader:find-installed-mods", async (event, args) => {
-		logDebug("Received ml-modloader:find-installed-mods");
+	ipcMain.handle("fl:find-installed-mods", async (event, args) => {
+		logDebug("Received fl:find-installed-mods");
 		await modsManager.findInstalledMods();
 	});
 
-	ipcMain.handle("ml-modloader:set-mod-enabled", async (event, args) => {
-		logDebug(`Received ml-modloader:set-mod-enabled: ${JSON.stringify(args)}`);
+	ipcMain.handle("fl:set-mod-enabled", async (event, args) => {
+		logDebug(`Received fl:set-mod-enabled: ${JSON.stringify(args)}`);
 		try {
 			return modsManager.setModEnabled(args.modID, args.enabled);
 		} catch (e) {
@@ -1415,80 +1397,79 @@ function setupElectronIPC() {
 		}
 	});
 
-	ipcMain.handle("ml-modloader:start-game", (event, args) => {
-		logDebug("Received ml-modloader:start-game");
+	ipcMain.handle("fl:start-game", (event, args) => {
+		logDebug("Received fl:start-game");
 		startGameWindow();
 	});
 
-	ipcMain.handle("ml-modloader:stop-game", (event, args) => {
-		logDebug("Received ml-modloader:stop-game");
+	ipcMain.handle("fl:stop-game", (event, args) => {
+		logDebug("Received fl:stop-game");
 		closeGameWindow();
 	});
 
-	ipcMain.handle("ml-modloader:wait-for-game-closed", async (event, args) => {
-		logDebug("Received ml-modloader:wait-for-game");
+	ipcMain.handle("fl:wait-for-game-closed", async (event, args) => {
+		logDebug("Received fl:wait-for-game");
 		return new Promise((resolve) => {
 			const handler = () => {
-				modloaderAPI.events.off("ml:onGameClosed", handler);
+				fluxloaderAPI.events.off("fl:game-closed", handler);
 				resolve();
 			};
-			modloaderAPI.events.on("ml:onGameClosed", handler);
+			fluxloaderAPI.events.on("fl:game-closed", handler);
 		});
 	});
 
-	ipcMain.handle("ml-modloader:install-mod", (event, args) => {
-		logDebug("Received ml-modloader:install-mod");
+	ipcMain.handle("fl:install-mod", (event, args) => {
+		logDebug("Received fl:install-mod");
 		modsManager.installMod(args.modID, args.version);
 	});
 
-	ipcMain.handle("ml-modloader:uninstall-mod", (event, args) => {
-		logDebug("Received ml-modloader:uninstall-mod");
+	ipcMain.handle("fl:uninstall-mod", (event, args) => {
+		logDebug("Received fl:uninstall-mod");
 		modsManager.uninstallMod(args);
 	});
 
-	ipcMain.handle("ml-modloader:render-markdown", (event, args) => {
-		logDebug("Received ml-modloader:render-markdown");
+	ipcMain.handle("fl:render-markdown", (event, args) => {
+		logDebug("Received fl:render-markdown");
 		return marked(args);
 	});
 }
 
-function startModloaderWindow() {
-	logDebug("Starting modloader window");
+function startManagerWindow() {
+	logDebug("Starting manager window");
 
 	try {
 		const primaryDisplay = screen.getPrimaryDisplay();
 		const { width, height } = primaryDisplay.workAreaSize;
-		let modloaderWindowWidth = 1200;
-		modloaderWindowWidth = Math.floor(width * 0.8);
-		let modloaderWindowHeight = modloaderWindowWidth * (height / width);
+		let managerWindowWidth = 1200;
+		managerWindowWidth = Math.floor(width * 0.8);
+		let managerWindowHeight = managerWindowWidth * (height / width);
 
-		modloaderWindow = new BrowserWindow({
-			width: modloaderWindowWidth,
-			height: modloaderWindowHeight,
+		managerWindow = new BrowserWindow({
+			width: managerWindowWidth,
+			height: managerWindowHeight,
 			autoHideMenuBar: true,
 			webPreferences: {
-				preload: resolvePathInsideModloader("modloader/modloader-preload.js"),
+				preload: resolvePathInsideFluxloader("manager/manager-preload.js"),
 			},
 		});
-		modloaderWindow.on("closed", cleanupModloaderWindow);
-		modloaderWindow.loadFile("src/modloader/modloader.html");
-		if (config.gui.openDevTools) modloaderWindow.openDevTools();
+		managerWindow.on("closed", cleanupManagerWIndow);
+		managerWindow.loadFile("src/manager/manager.html");
+		if (config.manager.openDevTools) managerWindow.openDevTools();
 	} catch (e) {
-		cleanupModloaderWindow();
-		throw new Error(`Error starting modloader window: ${e.stack}`);
+		cleanupManagerWIndow();
+		throw new Error(`Error starting manager window: ${e.stack}`);
 	}
 }
 
-function closeModloaderWindow() {
-	modloaderWindow.close();
-	cleanupModloaderWindow();
+function closeManagerWindow() {
+	managerWindow.close();
+	cleanupManagerWIndow();
 }
 
-function cleanupModloaderWindow() {
-	modloaderWindow = null;
-
-	if (config.closeGameWithModloader && gameWindow) {
-		logDebug("Closing game window with modloader window");
+function cleanupManagerWIndow() {
+	managerWindow = null;
+	if (config.closeGameWithManager && gameWindow) {
+		logDebug("Closing game window with fluxloader window");
 		closeGameWindow();
 	}
 }
@@ -1498,12 +1479,12 @@ async function startGameWindow() {
 
 	logInfo("Starting game window");
 
-	gameFileManager.resetToBaseFiles();
-	await gameFileManager.patchAndRunGameElectron();
+	gameFilesManager.resetToBaseFiles();
+	await gameFilesManager.patchAndRunGameElectron();
 	addModloaderPatches();
 	await modsManager.loadAllMods();
-	gameFileManager.repatchAllFiles();
-	modloaderAPI.events.trigger("ml:onGameStarted");
+	gameFilesManager.repatchAllFiles();
+	fluxloaderAPI.events.trigger("fl:game-started");
 
 	try {
 		gameElectronFuncs.createWindow();
@@ -1524,7 +1505,7 @@ function closeGameWindow() {
 function cleanupGameWindow() {
 	// We need to counter-act everything from startGameWindow() here
 	gameWindow = null;
-	modloaderAPI.events.trigger("ml:onGameClosed");
+	fluxloaderAPI.events.trigger("fl:game-closed");
 	modsManager.unloadAllMods();
 }
 
@@ -1535,10 +1516,10 @@ function closeApp() {
 
 function cleanupApp() {
 	try {
-		modloaderAPI.events.trigger("ml:onModloaderClosed");
-		if (modloaderWindow) closeModloaderWindow();
+		fluxloaderAPI.events.trigger("fl:fluxloader-closing");
+		if (managerWindow) closeManagerWindow();
 		if (gameWindow) closeGameWindow();
-		gameFileManager.deleteFiles();
+		gameFilesManager.deleteFiles();
 	} catch (e) {
 		logError(`Error during cleanup: ${e.stack}`);
 	}
@@ -1546,7 +1527,7 @@ function cleanupApp() {
 }
 
 async function startApp() {
-	logInfo(`Starting Sandustry Flux Modloader ${modloaderVersion}`);
+	logInfo(`Starting Electron Sandustry Fluxloader ${fluxloaderVersion}`);
 
 	// These are enabled for running the game
 	process.env["ELECTRON_DISABLE_SECURITY_WARNINGS"] = "true";
@@ -1564,19 +1545,19 @@ async function startApp() {
 		}
 	});
 
-	// One-time modloader setup
+	// One-time fluxloader setup
 	catchUnexpectedExits();
-	loadModloaderConfig();
+	loadFluxloaderConfig();
 	const { fullGamePath, asarPath } = findValidGamePath();
-	gameFileManager = new GameFileManager(fullGamePath, asarPath);
-	modloaderAPI = new ElectronModloaderAPI();
+	gameFilesManager = new GameFilesManager(fullGamePath, asarPath);
+	fluxloaderAPI = new ElectronFluxloaderAPI();
 	modsManager = new ModsManager();
 	await modsManager.findInstalledMods();
 	setupElectronIPC();
 
-	// Start the windows now everything is setup
-	if (config.loadIntoModloader) {
-		startModloaderWindow();
+	// Start manager or game window based on config
+	if (config.loadIntoManager) {
+		startManagerWindow();
 	} else {
 		await startGameWindow();
 	}

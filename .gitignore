@@ -5,8 +5,7 @@ package-lock.json
 .vscode
 
 # Runtime products
-**/modloader-config.json
+**/fluxloader-config.json
 **/*.exe
 **/*.log
 **/mods/
-example-mods/config

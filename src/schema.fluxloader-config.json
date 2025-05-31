@@ -15,11 +15,11 @@
 		"type": "object",
 		"default": []
 	},
-	"loadIntoModloader": {
+	"loadIntoManager": {
 		"type": "boolean",
 		"default": true
 	},
-	"closeGameWithModloader": {
+	"closeGameWithManager": {
 		"type": "boolean",
 		"default": true
 	},
@@ -48,7 +48,7 @@
 		},
 		"logFilePath": {
 			"type": "string",
-			"default": "modloader.log"
+			"default": "fluxloader.log"
 		}
 	},
 	"game": {
@@ -72,7 +72,7 @@
 			"default": false
 		}
 	},
-	"gui": {
+	"manager": {
 		"openDevTools": {
 			"type": "boolean",
 			"default": false

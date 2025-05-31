@@ -1,39 +1,46 @@
-modloaderAPI.addPatch("js/336.bundle.js", {
+fluxloaderAPI.addPatch("js/336.bundle.js", {
 	type: "replace",
 	from: "Will launch elements upward",
 	to: "Will throw some blocks around",
 });
 
-const config = modloaderAPI.config.get("testmod");
+const config = fluxloaderAPI.config.get("testmod");
 
 if (config.someSetting) {
-	modloaderAPI.addPatch("js/bundle.js", {
+	fluxloaderAPI.addPatch("js/bundle.js", {
 		type: "replace",
 		from: "t.store.resources.artifacts++,",
 		to: `$$console.log('You got an artifact, config: ${config.someValue}'),`,
-		token: "$$"
+		token: "$$",
 	});
 }
 
-modloaderAPI.events.on("ml:onModLoaded", () => {
+// fluxloaderAPI.addPatch("js/bundle", {
+// 	type: "replace",
+// 	from: "dsflkserfoiuewsroiu",
+// 	to: `$$`,
+// 	token: "$$",
+// });
+
+fluxloaderAPI.events.on("fl:mod-loaded", () => {
 	log("info", "testmod", "I have been loaded");
 });
 
-modloaderAPI.events.on("ml:onAllModsLoaded", () => {
+fluxloaderAPI.events.on("fl:all-mods-loaded", () => {
 	log("info", "testmod", "All mods have been loaded");
 });
 
-modloaderAPI.events.on("ml:onGameStarted", () => {
+fluxloaderAPI.events.on("fl:game-started", () => {
 	log("info", "testmod", "Game is starting");
 });
 
-modloaderAPI.events.on("ml:onModUnloaded", () => {
+fluxloaderAPI.events.on("fl:mod-unloaded", () => {
 	log("info", "testmod", "I have been loaded");
 });
 
-log("info", "testmod", "Listening to other environments");
+log("info", "testmod", "Listening to other envionments");
 
-modloaderAPI.handleBrowserIPC("testmod:electronfunc", (event, args) => {
+fluxloaderAPI.handleBrowserIPC("testmod:electronfunc", (event, args) => {
 	log("info", "testmod", `electronfunc arguments ${JSON.stringify(args)}`);
 	return "This is a response";
 });
