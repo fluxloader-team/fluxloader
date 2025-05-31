@@ -212,10 +212,6 @@ class ElectronFluxloaderAPI {
 	constructor() {
 		this.events = new EventBus();
 		this.config = new ElectronModConfigAPI();
-
-		for (const event of ElectronFluxloaderAPI.allEvents) {
-			this.events.registerEvent(event);
-		}
 	}
 
 	addPatch(file, patch) {
@@ -228,8 +224,32 @@ class ElectronFluxloaderAPI {
 		gameFilesManager.setPatch(file, tag, patch);
 	}
 
+	patchExists(file, tag) {
+		gameFileManager.patchExists(file, tag);
+	}
+
+	patchExists(file, tag) {
+		gameFileManager.patchExists(file, tag);
+	}
+
+	patchExists(file, tag) {
+		gameFileManager.patchExists(file, tag);
+	}
+
 	removePatch(file, tag) {
 		gameFilesManager.removePatch(file, tag);
+	}
+
+	tryRemovePatch(file, tag) {
+		gameFileManager.tryRemovePatch(file, tag);
+	}
+
+	tryRemovePatch(file, tag) {
+		gameFileManager.tryRemovePatch(file, tag);
+	}
+
+	tryRemovePatch(file, tag) {
+		gameFileManager.tryRemovePatch(file, tag);
 	}
 
 	repatchAllFiles() {
@@ -264,6 +284,12 @@ class ElectronFluxloaderAPI {
 			ipcMain.removeHandler(handler.channel);
 		}
 		this._modIPCHandlers = [];
+	}
+
+	_initializeEvents() {
+		for (const event of ElectronModloaderAPI.allEvents) {
+			this.events.registerEvent(event);
+		}
 	}
 }
 
@@ -371,19 +397,34 @@ class GameFilesManager {
 	}
 
 	setPatch(file, tag, patch) {
-		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot add patch");
+		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot set patch");
 
 		if (!this.fileData[file]) {
 			try {
 				this._initializeFileData(file);
 			} catch (e) {
-				logError(`Failed to initialize file data for '${file}' when adding patch '${tag}'`);
+				logError(`Failed to initialize file data for '${file}' when setting patch '${tag}'`);
 				throw e;
 			}
 		}
 
 		logDebug(`Setting patch '${tag}' in file: ${file}`);
 		this.fileData[file].patches.set(tag, patch);
+	}
+
+	patchExists(file, tag) {
+		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot check if patch exists");
+
+		if (!this.fileData[file]) {
+			try {
+				this._initializeFileData(file);
+			} catch (e) {
+				logError(`Failed to initialize file data for '${file}' when checking if patch '${tag}' exists`);
+				throw e;
+			}
+		}
+
+		return this.fileData[file].patches.has(tag);
 	}
 
 	removePatch(file, tag) {
@@ -402,6 +443,15 @@ class GameFilesManager {
 
 		logDebug(`Removing patch '${tag}' from file: ${file}`);
 		this.fileData[file].patches.delete(tag);
+	}
+
+	// Silently failing version of removePatch (yes it is just a try catch wrapper)
+	tryRemovePatch(file, tag) {
+		try {
+			this.removePatch(file, tag);
+		} catch {
+			logDebug(`Silently failed to remove patch '${tag}' from file: ${file}`);
+		}
 	}
 
 	repatchAllFiles() {
@@ -770,8 +820,7 @@ class ModsManager {
 		this.baseModsPath = resolvePathRelativeToFluxloader(config.modsPath);
 		ensureDirectoryExists(this.baseModsPath);
 		let modPaths = fs.readdirSync(this.baseModsPath);
-		logDebug(this.baseModsPath);
-		modPaths = modPaths.filter((p) => p !== "config");
+		modPaths = modPaths.filter((p) = p !== "config");
 		modPaths = modPaths.map((p) => path.join(this.baseModsPath, p));
 		modPaths = modPaths.filter((p) => fs.statSync(p).isDirectory());
 		logDebug(`Found ${modPaths.length} mod${modPaths.length === 1 ? "" : "s"} to initialize inside: ${this.baseModsPath}`);
@@ -833,7 +882,12 @@ class ModsManager {
 		this.modContext = vm.createContext({
 			log,
 			console,
-			fluxloaderAPI: fluxloaderAPI,
+			fluxloaderAPI,
+			fs,
+			path,
+			randomUUID,
+			url,
+			process,
 		});
 
 		for (const modID of this.loadOrder) {
@@ -869,11 +923,12 @@ class ModsManager {
 		this.modElectronModules = {};
 
 		// Mods also have side effects on game files, IPC handlers, and events
-		gameFilesManager.clearPatches();
+		gameFileManager.clearPatches();
 		fluxloaderAPI._clearModIPCHandlers();
-		fluxloaderAPI.events.reset();
 
+		// Literally useless event but sure
 		fluxloaderAPI.events.trigger("fl:all-mods-unloaded");
+		fluxloaderAPI.events.reset();
 		logDebug("All mods unloaded successfully");
 	}
 
@@ -1069,10 +1124,10 @@ class ModsManager {
 				logDebug(`Loading electron entrypoint: ${identifier}`);
 				const module = new vm.SourceTextModule(entrypointCode, { context: this.modContext, identifier });
 
-				// This mod linking is for import calls inside the module, ignore for now
-				await module.link((specifier) => {
-					logWarn(`Mod ${mod.info.modID} is trying to import '${specifier}'`);
-					return null;
+				// This mod linking is for import calls inside the module
+				// (May or may not work for relative imports)
+				await module.link(async (specifier) => {
+					return await import(specifier);
 				});
 
 				module.evaluate();
@@ -1479,8 +1534,9 @@ async function startGameWindow() {
 
 	logInfo("Starting game window");
 
-	gameFilesManager.resetToBaseFiles();
-	await gameFilesManager.patchAndRunGameElectron();
+	fluxloaderAPI._initializeEvents();
+	gameFileManager.resetToBaseFiles();
+	await gameFileManager.patchAndRunGameElectron();
 	addModloaderPatches();
 	await modsManager.loadAllMods();
 	gameFilesManager.repatchAllFiles();
