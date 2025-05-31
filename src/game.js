@@ -31,14 +31,14 @@ const logError = (...args) => log("error", "", args.join(" "));
 class GameFluxloaderAPI {
 	static allEvents = ["fl:menu-loaded", "fl:game-loaded", "fl:page-redirect"];
 	events = undefined;
-	config = undefined;
+	modConfig = undefined;
 	gameWorld = undefined;
 	gameInstance = undefined;
 	messageListeners = {};
 
 	constructor() {
 		this.events = new EventBus();
-		this.config = new GameModConfigAPI();
+		this.modConfig = new GameModConfigAPI();
 
 		for (const event of GameFluxloaderAPI.allEvents) {
 			this.events.registerEvent(event);
@@ -71,11 +71,11 @@ class GameFluxloaderAPI {
 
 class GameModConfigAPI {
 	async get(modName) {
-		return await window.electron.invoke("fl-config:get-config", modName);
+		return await window.electron.invoke("fl-mod-config:get", modName);
 	}
 
 	async set(modName, config) {
-		return await window.electron.invoke("fl-config:set-config", modName, config);
+		return await window.electron.invoke("fl-mod-config:set", modName, config);
 	}
 }
 

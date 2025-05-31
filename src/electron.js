@@ -18,12 +18,13 @@ globalThis.gameElectronFuncs = undefined;
 globalThis.gameWindow = undefined;
 
 let logLevels = ["debug", "info", "warn", "error"];
-let preConfigLogLevel = "info";
+let preConfigLogLevel = "debug";
 let configPath = "fluxloader-config.json";
 let configSchemaPath = "schema.fluxloader-config.json";
 let modInfoSchemaPath = "schema.mod-info.json";
 let logFilePath = undefined;
 let config = undefined;
+let configSchema = undefined;
 let configLoaded = false;
 let modsManager = undefined;
 let gameFilesManager = undefined;
@@ -206,12 +207,12 @@ function updateObjectWithDefaults(defaultValues, target) {
 class ElectronFluxloaderAPI {
 	static allEvents = ["fl:mod-loaded", "fl:mod-unloaded", "fl:all-mods-loaded", "fl:all-mods-unloaded", "fl:game-started", "fl:game-closed", "fl:page-redirect"];
 	events = undefined;
-	config = undefined;
+	modConfig = undefined;
 	fileManager = gameFilesManager;
 
 	constructor() {
 		this.events = new EventBus();
-		this.config = new ElectronModConfigAPI();
+		this.modConfig = new ElectronModConfigAPI();
 	}
 
 	addPatch(file, patch) {
@@ -295,11 +296,12 @@ class ElectronFluxloaderAPI {
 
 class ElectronModConfigAPI {
 	constructor() {
-		ipcMain.handle("fl-config:get-config", (event, modID) => {
+		ipcMain.handle("fl-mod-config:get", (_, modID) => {
 			logDebug(`Getting mod config remotely for ${modID}`);
 			return this.get(modID);
 		});
-		ipcMain.handle("fl-config:set-config", (event, modID, config) => {
+
+		ipcMain.handle("fl-mod-config:set", (_, modID, config) => {
 			logDebug(`Setting mod config remotely for ${modID}`);
 			return this.set(modID, config);
 		});
@@ -1110,9 +1112,9 @@ class ModsManager {
 			}
 
 			logDebug(`Validating schema for mod: ${mod.info.modID}`);
-			let config = fluxloaderAPI.config.get(mod.info.modID);
+			let config = fluxloaderAPI.modConfig.get(mod.info.modID);
 			SchemaValidation.validate(config, mod.info.configSchema);
-			fluxloaderAPI.config.set(mod.info.modID, config);
+			fluxloaderAPI.modConfig.set(mod.info.modID, config);
 		}
 
 		if (mod.info.electronEntrypoint) {
@@ -1159,7 +1161,7 @@ class ModsManager {
 }
 
 function loadFluxloaderConfig() {
-	let configSchema = {};
+	configSchema = {};
 	logDebug(`Reading config from: ${configPath}`);
 
 	// We must be able to read the config schema
@@ -1183,6 +1185,7 @@ function loadFluxloaderConfig() {
 	let valid = SchemaValidation.validate(config, configSchema, { unknownKeyMethod: "delete" });
 
 	if (!valid) {
+		// Applying the schema to an empty {} will set the default values
 		logDebug(`Config file is invalid, resetting to default values: ${configPath}`);
 		config = {};
 		valid = SchemaValidation.validate(config, configSchema);
@@ -1418,51 +1421,36 @@ function setupElectronIPC() {
 
 	ipcMain.removeAllListeners();
 
-	ipcMain.handle("fl:get-loaded-mods", (event, args) => {
-		logDebug("Received fl:get-loaded-mods");
-		return modsManager.getLoadedMods();
-	});
+	const simpleEndpoints = {
+		"fl:get-loaded-mods": (_) => modsManager.getLoadedMods(),
+		"fl:get-installed-mods": (_) => modsManager.getInstalledMods(),
+		"fl:trigger-page-redirect": (args) => fluxloaderAPI.events.trigger("fl:page-redirect", args),
+		"fl:fetch-remote-mods": async (args) => await modsManager.fetchRemoteMods(args),
+		"fl:find-installed-mods": async (_) => await modsManager.findInstalledMods(),
+		"fl:set-mod-enabled": async (args) => modsManager.setModEnabled(args.modID, args.enabled),
+		"fl:start-game": (_) => startGameWindow(),
+		"fl:stop-game": (_) => closeGameWindow(),
+		"fl:install-mod": (args) => modsManager.installMod(args.modID, args.version),
+		"fl:uninstall-mod": (args) => modsManager.uninstallMod(args.modID),
+		"fl:render-markdown": (args) => marked(args),
+		"fl:get-fluxloader-config": (_) => config,
+		"fl:get-fluxloader-config-schema": (_) => configSchema,
+		"fl:get-fluxloader-version": (_) => fluxloaderVersion,
+	};
 
-	ipcMain.handle("fl:get-installed-mods", (event, args) => {
-		logDebug("Received fl:get-installed-mods");
-		return modsManager.getInstalledMods();
-	});
+	for (const [endpoint, handler] of Object.entries(simpleEndpoints)) {
+		ipcMain.handle(endpoint, (_, args) => {
+			logDebug(`Received ${endpoint}`);
+			try {
+				return handler(args);
+			} catch (e) {
+				logError(`Error in IPC handler for ${endpoint}: ${e.stack}`);
+				return null;
+			}
+		});
+	}
 
-	ipcMain.handle("fl:trigger-page-redirect", (event, args) => {
-		fluxloaderAPI.events.trigger("fl:page-redirect", args);
-	});
-
-	ipcMain.handle("fl:fetch-remote-mods", async (event, args) => {
-		logDebug(`Received fl:fetch-remote-mods: ${JSON.stringify(args)}`);
-		return await modsManager.fetchRemoteMods(args);
-	});
-
-	ipcMain.handle("fl:find-installed-mods", async (event, args) => {
-		logDebug("Received fl:find-installed-mods");
-		await modsManager.findInstalledMods();
-	});
-
-	ipcMain.handle("fl:set-mod-enabled", async (event, args) => {
-		logDebug(`Received fl:set-mod-enabled: ${JSON.stringify(args)}`);
-		try {
-			return modsManager.setModEnabled(args.modID, args.enabled);
-		} catch (e) {
-			logError(`Error setting mod enabled state: ${e.stack}`);
-			return false;
-		}
-	});
-
-	ipcMain.handle("fl:start-game", (event, args) => {
-		logDebug("Received fl:start-game");
-		startGameWindow();
-	});
-
-	ipcMain.handle("fl:stop-game", (event, args) => {
-		logDebug("Received fl:stop-game");
-		closeGameWindow();
-	});
-
-	ipcMain.handle("fl:wait-for-game-closed", async (event, args) => {
+	ipcMain.handle("fl:wait-for-game-closed", async (_) => {
 		logDebug("Received fl:wait-for-game");
 		return new Promise((resolve) => {
 			const handler = () => {
@@ -1471,21 +1459,6 @@ function setupElectronIPC() {
 			};
 			fluxloaderAPI.events.on("fl:game-closed", handler);
 		});
-	});
-
-	ipcMain.handle("fl:install-mod", (event, args) => {
-		logDebug("Received fl:install-mod");
-		modsManager.installMod(args.modID, args.version);
-	});
-
-	ipcMain.handle("fl:uninstall-mod", (event, args) => {
-		logDebug("Received fl:uninstall-mod");
-		modsManager.uninstallMod(args);
-	});
-
-	ipcMain.handle("fl:render-markdown", (event, args) => {
-		logDebug("Received fl:render-markdown");
-		return marked(args);
 	});
 }
 

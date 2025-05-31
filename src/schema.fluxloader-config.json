@@ -12,7 +12,7 @@
 		"default": {}
 	},
 	"loadOrder": {
-		"type": "object",
+		"type": "array",
 		"default": []
 	},
 	"loadIntoManager": {

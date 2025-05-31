@@ -4,7 +4,7 @@ fluxloaderAPI.addPatch("js/336.bundle.js", {
 	to: "Will throw some blocks around",
 });
 
-const config = fluxloaderAPI.config.get("testmod");
+const config = fluxloaderAPI.modConfig.get("testmod");
 
 if (config.someSetting) {
 	fluxloaderAPI.addPatch("js/bundle.js", {

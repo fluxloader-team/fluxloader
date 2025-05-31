@@ -13,7 +13,7 @@ fluxloaderAPI.listenWorkerMessage("testmod:browsermsg", (index, message) => {
 });
 
 (async () => {
-	const config = await fluxloaderAPI.config.get("testmod");
+	const config = await fluxloaderAPI.modConfig.get("testmod");
 	log("info", "testmod", "Config loaded: " + JSON.stringify(config));
 
 	const res = await fluxloaderAPI.invokeElectronIPC("testmod:electronfunc", { a: "hello", b: 10 });

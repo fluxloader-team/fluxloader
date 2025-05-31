@@ -10,6 +10,7 @@
 -   GUI mod list load more mods button not horizontally scaling - may not be possible
 -   GUI do not reload mod list on change tab
 -   Full sweep of info / debug logs make sure needed ones are available
+-   Manager window remember which display and window size
 
 ## Primary Requirements
 

@@ -51,6 +51,8 @@ export class SchemaValidation {
 	// Errors if the schema is invalid
 	// Return true / false if the target is valid
 
+	static FLOAT_EPSILON = 1e-8;
+
 	static validate(target, schema, config = {}) {
 		// Recursively validates the target object against the schema object
 		if (typeof schema !== "object") throw new Error("Schema must be an object");
@@ -116,7 +118,10 @@ export class SchemaValidation {
 				if (Object.hasOwn(schemaLeafValue, "min") && targetValue < schemaLeafValue.min) return false;
 				if (Object.hasOwn(schemaLeafValue, "max") && targetValue > schemaLeafValue.max) return false;
 				// If step is given, checks if the value is close enough to the step value
-				if (Object.hasOwn(schemaLeafValue, "step") && targetValue !== Math.round(targetValue / schemaLeafValue.step) * schemaLeafValue.step) return false;
+				if (Object.hasOwn(schemaLeafValue, "step")) {
+					if (Math.abs(targetValue / schemaLeafValue.step - Math.round(targetValue / schemaLeafValue.step)) > SchemaValidation.FLOAT_EPSILON) return false;
+				}
+
 				return true;
 
 			case "dropdown":
@@ -124,7 +129,7 @@ export class SchemaValidation {
 				return schemaLeafValue.options.includes(targetValue);
 
 			case "object":
-				return typeof targetValue === "object";
+				return typeof targetValue === "object" && targetValue !== null && !Array.isArray(targetValue);
 
 			case "array":
 				return Array.isArray(targetValue);

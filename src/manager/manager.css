@@ -380,14 +380,24 @@ body {
 	background: var(--color-bg-medium);
 	overflow: hidden;
 	display: flex;
+	flex-direction: column;
 }
 
 #mods-tab-content .main-rightbar .main-rightbar-scroll {
-	flex: 1;
 	overflow: hidden;
 	overflow-y: auto;
 	scrollbar-gutter: stable;
-	padding-bottom: 4.5rem;
+	width: 100%;
+	flex: 1;
+}
+
+#mods-tab-content .rightbar-bottom {
+	width: 100%;
+	height: 4.5rem;
+	background: var(--color-bg-medium);
+	display: flex;
+	align-items: center;
+	justify-content: center;
 }
 
 #mods-tab-content .mod-info-empty {
@@ -438,25 +448,22 @@ body {
 	margin: auto;
 }
 
-/* Stand-in for text while loading with shimmer
-#mods-tab-content .mod-info .description .loading-text-filler {
-	width: 100%;
-	height: 1.5em;
-	margin-bottom: 0.8rem;
-	border-radius: 0.5rem;
-	background: linear-gradient(90deg, var(--color-bg-light) 15%, var(--color-bg-lightest) 50%, var(--color-bg-light) 85%);
-	background-size: 200% 100%;
-	animation: shimmer 3s infinite linear;
+#mods-tab-content .mod-info .description h1,
+#mods-tab-content .mod-info .description h2,
+#mods-tab-content .mod-info .description h3,
+#mods-tab-content .mod-info .description h4,
+#mods-tab-content .mod-info .description h5,
+#mods-tab-content .mod-info .description h6 {
+	margin: 1.2rem 0 0.4rem 0;
 }
-@keyframes shimmer {
-	0% {
-		background-position: 0% 0;
-	}
-	100% {
-		background-position: 200% 0;
-	}
+
+#mods-tab-content .mod-info .description p {
+	margin: 0.4em 0;
 }
-*/
+
+#mods-tab-content .mod-info .description h1 {
+	margin-top: 0;
+}
 
 #mods-tab-content .tag {
 	border-radius: 0.5rem;
@@ -465,17 +472,6 @@ body {
 	padding: 0.2rem 0.5rem;
 	margin: 0.2rem;
 	font-size: 0.8rem;
-}
-
-#mods-tab-content .rightbar-bottom {
-	position: absolute;
-	bottom: 0;
-	width: 100%;
-	height: 4.5rem;
-	background: var(--color-bg-medium);
-	display: flex;
-	align-items: center;
-	justify-content: center;
 }
 
 #mods-tab-content .mod-buttons {
@@ -500,6 +496,87 @@ body {
 
 #mods-tab-content .mod-button:hover {
 	background: var(--color-bg-load-button-hover);
+}
+
+/* -------------------- TAB/CONFIG -------------------- */
+
+#config-tab-content {
+	background: var(--color-bg-medium);
+	padding: 0 5rem;
+}
+
+#config-tab-content .main {
+	background: var(--color-bg-light);
+	max-width: 50rem;
+	min-width: 20rem;
+	height: 100%;
+	margin: auto;
+	overflow: hidden;
+	overflow-y: auto;
+	scrollbar-gutter: stable;
+}
+
+/* -------------------- CONFIG -------------------- */
+
+.config-schema-root {
+	width: 100%;
+	height: 100%;
+	padding: 1rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.6rem;
+}
+
+.config-schema-root .config-section {
+	background-color: var(--color-bg-medium);
+	border-radius: 0.5rem;
+	padding: 0.8rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.6rem;
+}
+
+.config-schema-root .config-section-title {
+	color: var(--color-text-secondary);
+	font-size: 1.3rem;
+	text-decoration: none;
+	border-bottom: none;
+}
+
+.config-schema-root .config-input-wrapper {
+	display: flex;
+	flex-direction: column;
+}
+
+.config-schema-root .config-input-label {
+	color: var(--color-text-muted);
+	font-size: 1rem;
+}
+
+.config-schema-root .config-input {
+	padding: 0.4rem 0.5rem;
+	font-size: 1rem;
+	color: var(--color-text-primary);
+	background-color: var(--color-bg-lightest);
+	border-radius: 4px;
+}
+
+.config-schema-root .config-input:hover {
+	border-color: var(--color-control-hover);
+}
+
+.config-schema-root .config-input:focus {
+	outline: none;
+	border-color: var(--color-control-active-hover);
+}
+
+.config-schema-root .config-input[type="checkbox"] {
+	width: auto;
+	align-self: flex-start;
+}
+
+.config-schema-root .config-input.invalid {
+	border-color: red !important;
 }
 
 /* ---------------------------- FOOTER ---------------------------- */

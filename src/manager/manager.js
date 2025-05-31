@@ -1,3 +1,5 @@
+import { SchemaValidation } from "../common.js";
+
 // Some arbitrary delays that make it all feel a bit smoother
 const DELAY_DESCRIPTION_LOAD_MS = 800;
 const DELAY_PLAY_MS = 150;
@@ -59,6 +61,132 @@ function handleResizer(resizer) {
 	function onMouseUp() {
 		document.removeEventListener("mousemove", onMouseMove);
 		document.removeEventListener("mouseup", onMouseUp);
+	}
+}
+
+// ---------------- CONFIG ----------------
+
+class ConfigSchemaElement {
+	constructor(root, config, schema, onChange) {
+		this.root = root;
+		this.config = config;
+		this.schema = schema;
+		this.onChange = onChange;
+		this.inputs = new Map();
+		this.root.innerHTML = "";
+		this.root.classList.add("config-schema-root");
+		this.createSchemaSection(this.config, this.schema, this.root, []);
+	}
+
+	createSchemaSection(configSection, schemaSection, container, path) {
+		// Mirrors the recursive search in the SchemaValidation.validate()
+		// Search over all the properties of the current schema section level
+		for (const [key, schemaValue] of Object.entries(schemaSection)) {
+			const currentPath = [...path, key];
+
+			// If it is not a leaf node then recurse into a new section
+			if (!SchemaValidation.isSchemaLeafNode(schemaValue)) {
+				const sectionContainer = document.createElement("div");
+				sectionContainer.classList.add("config-section");
+				const sectionTitle = document.createElement("h3");
+				sectionTitle.classList.add("config-section-title");
+				sectionTitle.textContent = key;
+				sectionContainer.appendChild(sectionTitle);
+				container.appendChild(sectionContainer);
+
+				// Recurse into the next level
+				logDebug(`Creating section for ${currentPath.join(".")}:`, schemaValue);
+				this.createSchemaSection(configSection?.[key] ?? {}, schemaValue, sectionContainer, currentPath);
+			}
+
+			// Otherwise we want to render this leaf as an input
+			else {
+				const value = configSection?.[key] ?? schemaValue.default;
+				const wrapper = document.createElement("div");
+				const label = document.createElement("label");
+				wrapper.classList.add("config-input-wrapper");
+				label.classList.add("config-input-label");
+				label.textContent = key;
+				wrapper.appendChild(label);
+				logDebug(`Rendering input for ${currentPath.join(".")}:`, schemaValue);
+
+				// Create the input element based on the schema type
+				let input;
+				switch (schemaValue.type) {
+					case "string":
+						input = document.createElement("input");
+						input.type = "text";
+						input.value = value;
+						break;
+					case "number":
+						input = document.createElement("input");
+						input.type = "number";
+						input.value = value;
+						if ("min" in schemaValue) input.min = schemaValue.min;
+						if ("max" in schemaValue) input.max = schemaValue.max;
+						if ("step" in schemaValue) input.step = schemaValue.step;
+						break;
+					case "boolean":
+						input = document.createElement("input");
+						input.type = "checkbox";
+						input.checked = value;
+						break;
+					case "dropdown":
+						input = document.createElement("select");
+						for (const option of schemaValue.options) {
+							const opt = document.createElement("option");
+							opt.value = option;
+							opt.textContent = option;
+							if (option === value) opt.selected = true;
+							input.appendChild(opt);
+						}
+						break;
+					case "object":
+					case "array":
+						// Not directly editable in this version
+						continue;
+					default:
+						throw new Error(`Unsupported input type: ${schemaValue.type}`);
+				}
+
+				// Listen to the input then store it in the right places
+				input.addEventListener("change", () => this.handleInputChange(currentPath, input, schemaValue));
+				input.classList.add("config-input");
+				this.inputs.set(currentPath.join("."), input);
+				wrapper.appendChild(input);
+				container.appendChild(wrapper);
+			}
+		}
+	}
+
+	handleInputChange(path, input, schema) {
+		// First parse the value out of the input
+		let value;
+		if (schema.type === "boolean") value = input.checked;
+		else if (schema.type === "number") value = parseFloat(input.value);
+		else value = input.value;
+
+		// Then validate it using the schema
+		if (!SchemaValidation.validateValue(value, schema)) {
+			input.classList.add("invalid");
+			return;
+		}
+
+		// Finally assuming it is valid officially update the config
+		input.classList.remove("invalid");
+		this.setConfigValue(path, value);
+		this.onChange(this.config);
+	}
+
+	setConfigValue(path, value) {
+		// Set the corresponding value in the config object by navigating the path
+		let obj = this.config;
+		for (let i = 0; i < path.length - 1; i++) {
+			const key = path[i];
+			if (!Object.hasOwn(obj, key)) obj[key] = {};
+			obj = obj[key];
+		}
+		obj[path.at(-1)] = value;
 	}
 }
 
@@ -176,32 +304,33 @@ function togglePlaying() {
 	}
 }
 
-function setupTabs() {
+async function setupTabs() {
 	tabs.mods = new ModsTab();
+	tabs.config = new ConfigTab();
 
 	for (const tab in tabs) {
-		getElement(`tab-${tab}`).addEventListener("click", () => {
-			selectTab(tab);
+		getElement(`tab-${tab}`).addEventListener("click", async () => {
+			await selectTab(tab);
 		});
 
 		if (tabs[tab]) {
-			tabs[tab].setup();
+			await tabs[tab].setup();
 		}
 	}
 }
 
-function selectTab(tab) {
+async function selectTab(tab) {
 	if (selectedTab) {
 		getElement(`tab-${selectedTab}`).classList.remove("selected");
 		getElement(`${selectedTab}-tab-content`).style.display = "none";
-		if (tabs[selectedTab]) tabs[selectedTab].deselectTab();
+		if (tabs[selectedTab]) await tabs[selectedTab].deselectTab();
 	}
 
 	selectedTab = tab;
 
 	getElement(`tab-${tab}`).classList.add("selected");
 	getElement(`${tab}-tab-content`).style.display = "block";
-	if (tabs[tab]) tabs[tab].selectTab();
+	if (tabs[tab]) await tabs[tab].selectTab();
 }
 
 function convertUploadTimeToString(uploadTime) {
@@ -641,10 +770,34 @@ class ModsTab {
 	}
 }
 
+class ConfigTab {
+	config = null;
+	configSchema = null;
+	renderer = null;
+
+	async setup() {
+		logInfo("ConfigTab setup called");
+
+		this.config = await electron.invoke("fl:get-fluxloader-config");
+		this.configSchema = await electron.invoke("fl:get-fluxloader-config-schema");
+		this.renderer = new ConfigSchemaElement(getElement("config-root"), this.config, this.configSchema, () => {
+			logInfo("Config changed");
+		});
+	}
+
+	selectTab() {
+		// TODO
+	}
+
+	deselectTab() {
+		// TODO
+	}
+}
+
 // ---------------- DRIVER ----------------
 
-(() => {
-	setupTabs();
+(async () => {
+	await setupTabs();
 
 	getElement("main-control-button").addEventListener("click", () => handleClickMainControlButton());
 
