@@ -16,3 +16,4 @@
 - Modloader config GUI
 - Forward game console to electron (config to enable)
 - Forward electron and game console to GUI
+- Implement VM for mod scripts
