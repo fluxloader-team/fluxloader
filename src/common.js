@@ -35,8 +35,8 @@ export class EventBus {
 		this.events[event].splice(index, 1);
 	}
 
-	reset() {
-		log("debug", "", "Resetting EventBus");
+	clear() {
+		log("debug", "", "Clearing EventBus");
 		for (const event in this.events) {
 			delete this.events[event];
 		}

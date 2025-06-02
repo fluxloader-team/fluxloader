@@ -20,7 +20,7 @@
 
 			<div class="tab-content" id="mods-tab-content">
 				<div class="main">
-					<div class="main-leftbar" style="width: 16rem">
+					<div class="main-leftbar" style="width: 14rem">
 						<h1>Search</h1>
 						<div class="search-bar">
 							<input type="text" id="mods-tab-search" placeholder="Search..." />
@@ -73,15 +73,17 @@
 							<div class="mods-load-button" id="mods-load-button">Load mods</div>
 						</div>
 					</div>
-					<div class="main-rightbar" style="width: 27rem">
+					<div class="main-rightbar" style="width: 24rem">
 						<div class="resizer left"></div>
+						<div class="rightbar-top">
+							<p class="title" id="mod-info-title">Mod Name</p>
+						</div>
 						<div class="main-rightbar-scroll">
-							<div id="mod-info-root">
+							<div id="mod-info-container">
 								<div class="mod-info-empty" id="mod-info-empty">
 									<p>No mod selected.</p>
 								</div>
 								<div class="mod-info" id="mod-info" style="display: none">
-									<p class="title" id="mod-info-title">Mod Name</p>
 									<div class="rows">
 										<div class="row">
 											<p class="label">Mod ID</p>
@@ -107,7 +109,7 @@
 									<p class="description" id="mod-info-description"></p>
 								</div>
 							</div>
-							<div class="mod-config-root" id="mod-config-root" style="display: none"></div>
+							<div class="mod-config-container" id="mod-config-container" style="display: none"></div>
 						</div>
 						<div class="rightbar-bottom">
 							<div class="mod-buttons" id="mod-buttons" style="display: none"></div>
@@ -117,14 +119,11 @@
 			</div>
 			<div class="tab-content" id="config-tab-content">
 				<div class="main">
-					<div id="config-root"></div>
+					<p class="title">Fluxloader Config</p>
 				</div>
 			</div>
 			<div class="tab-content" id="console-tab-content">
 				<div class="wip-content"><p>Console</p></div>
-			</div>
-			<div class="tab-content" id="options-tab-content">
-				<div class="wip-content"><p>Options</p></div>
 			</div>
 
 			<div class="footer">

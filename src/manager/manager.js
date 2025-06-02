@@ -67,22 +67,23 @@ function handleResizer(resizer) {
 // ---------------- CONFIG ----------------
 
 class ConfigSchemaElement {
-	constructor(root, config, schema, onChange) {
-		this.root = root;
-		this.rootContent = null;
-		this.config = config;
+	constructor(parentElement, config, schema, onChange) {
+		this.parentElement = parentElement;
+		this.containerElement = null;
+		this.contentElement = null;
+		this.config = JSON.parse(JSON.stringify(config)); // Copy to avoid direct mutations
 		this.schema = schema;
 		this.onChange = onChange;
 		this.inputs = new Map();
 		this.statusElements = { wrapper: null, text: null, image: null };
 
-		// Setup root
-		this.root.innerHTML = "";
-		this.root.classList.add("config-schema-root");
+		// Setup elements
+		this.containerElement = document.createElement("div");
+		this.containerElement.classList.add("config-schema-container");
+		this.parentElement.appendChild(this.containerElement);
 
-		this.rootContent = document.createElement("div");
-		this.rootContent.classList.add("config-schema-root-content");
-		this.root.appendChild(this.rootContent);
+		this.contentElement = document.createElement("div");
+		this.contentElement.classList.add("config-schema-content");
 
 		this.statusElements.wrapper = document.createElement("div");
 		this.statusElements.wrapper.classList.add("config-schema-validated");
@@ -95,15 +96,15 @@ class ConfigSchemaElement {
 		this.statusElements.image.src = "assets/refresh.png";
 		this.statusElements.text.textContent = "Schema validation not yet performed.";
 
-		this.root.appendChild(this.statusElements.wrapper);
+		this.containerElement.appendChild(this.contentElement);
+		this.containerElement.appendChild(this.statusElements.wrapper);
 
 		// Perform first validation
-		console.log(this.config, this.schema);
 		const isValid = SchemaValidation.validate(this.config, this.schema);
 		this.setStatus(isValid ? "valid" : "invalid");
 
-		// Populate with the root of the schema
-		this.createSchemaSection(this.config, this.schema, this.rootContent, []);
+		// Populate with config / schema
+		this.createSchemaSection(this.config, this.schema, this.contentElement, []);
 	}
 
 	createSchemaSection(configSection, schemaSection, container, path) {
@@ -123,14 +124,12 @@ class ConfigSchemaElement {
 				container.appendChild(sectionContainer);
 
 				// Recurse into the next level
-				logDebug(`Creating section for ${currentPath.join(".")}:`, schemaValue);
 				this.createSchemaSection(configSection?.[key] ?? {}, schemaValue, sectionContainer, currentPath);
 			}
 
 			// Otherwise we want to render this leaf as an input
 			else {
 				if (schemaValue.hidden && schemaValue.hidden === true) {
-					logDebug(`Skipping hidden config key: ${currentPath.join(".")}`);
 					continue;
 				}
 
@@ -295,7 +294,6 @@ let tabs = {
 	mods: null,
 	config: null,
 	console: null,
-	options: null,
 };
 
 function setProgressText(text) {
@@ -366,6 +364,17 @@ function togglePlaying() {
 
 	if (!isPlaying) {
 		setTimeout(() => {
+			// Wait for the game to finish
+			electron.invoke(`fl:wait-for-game-closed`).then(() => {
+				setProgressText("Game closed.");
+				setProgress(0);
+
+				isPlaying = false;
+				updateMainControlButtonText();
+				getElement("main-control-button").classList.toggle("active", false);
+			});
+
+			// Start the game after the cleanup listener is added
 			electron.invoke(`fl:start-game`).then(() => {
 				setProgressText("Game started.");
 				setProgress(100);
@@ -374,16 +383,6 @@ function togglePlaying() {
 				isPlaying = true;
 				updateMainControlButtonText();
 				getElement("main-control-button").classList.toggle("active", true);
-
-				// Wait for the game to finish
-				electron.invoke(`fl:wait-for-game-closed`).then(() => {
-					setProgressText("Game closed.");
-					setProgress(0);
-
-					isPlaying = false;
-					updateMainControlButtonText();
-					getElement("main-control-button").classList.toggle("active", false);
-				});
 			});
 		}, DELAY_PLAY_MS);
 	} else {
@@ -471,7 +470,7 @@ class ModsTab {
 	selectedMod = null;
 	filterInfo = { search: null, tags: [] };
 	queuedActions = [];
-	isViewingModConfig = false;
+	isModConfigOpen = false;
 	hasLoadedOnce = false;
 	isLoadingInstalledMods = false;
 	isLoadingRemoteMods = false;
@@ -716,13 +715,15 @@ class ModsTab {
 	// --- Main ---
 
 	selectMod(modID) {
+		this.setModConfigOpen(false);
+
 		// Deselect a mod and remove all mod info
 		if (this.selectedMod !== null) {
 			this.modRows[this.selectedMod].element.classList.remove("selected");
 			if (this.selectedMod === modID) {
+				getElement("mod-info-title").innerText = "Mod Name";
 				getElement("mod-info").style.display = "none";
 				getElement("mod-info-empty").style.display = "block";
-				this.toggleSelectedModConfig(false);
 				this.setModButtons([]);
 				this.selectedMod = null;
 				return;
@@ -732,14 +733,17 @@ class ModsTab {
 		// Select a mod and show its info
 		if (modID != null) {
 			if (this.modRows[modID] == null) return;
+
 			this.selectedMod = modID;
 			this.modRows[modID].element.classList.add("selected");
 			const modData = this.modRows[modID].modData;
 
+			// Update title
+			getElement("mod-info-title").innerText = modData.meta.info.name;
+
 			// Update the mod info section
 			getElement("mod-info").style.display = "block";
 			getElement("mod-info-empty").style.display = "none";
-			getElement("mod-info-title").innerText = modData.meta.info.name;
 			if (modData.meta.info.description && modData.meta.info.description.length > 0) {
 				getElement("mod-info-description").classList.remove("empty");
 				getElement("mod-info-description").innerHTML = modData.renderedDescription;
@@ -768,11 +772,11 @@ class ModsTab {
 			let buttons = [];
 			if (modData.isInstalled) {
 				buttons.push({ text: "Uninstall", onClick: () => this.queueUninstall(modData.modID) });
+				if (modData.meta.info.configSchema) {
+					buttons.push({ icon: "assets/config.png", onClick: () => this.setModConfigOpen(!this.isModConfigOpen), toggle: true });
+				}
 			} else {
 				buttons.push({ text: "Install", onClick: () => this.queueInstall(modData.modID, modData.meta.info.version) });
-			}
-			if (modData.meta.info.configSchema) {
-				buttons.push({ icon: "assets/config.png", onClick: () => this.toggleSelectedModConfig(!this.isViewingModConfig), toggle: true });
 			}
 			this.setModButtons(buttons);
 		}
@@ -810,18 +814,18 @@ class ModsTab {
 		getElement("mods-load-button").innerText = text;
 	}
 
-	toggleSelectedModConfig(enabled) {
-		console.log("Toggling mod config for", this.selectedMod, "to", enabled);
+	setModConfigOpen(enabled) {
+		if (this.isModConfigOpen === enabled) return;
 
-		this.isViewingModConfig = enabled;
-		const configRoot = getElement("mod-config-root");
-		const infoRoot = getElement("mod-info-root");
+		this.isModConfigOpen = enabled;
+		const configContainer = getElement("mod-config-container");
+		const modInfoContainer = getElement("mod-info-container");
 
 		if (!enabled || this.selectedMod == null || this.modRows[this.selectedMod] == null) {
 			this.configRenderer = null;
-			configRoot.innerHTML = "";
-			configRoot.style.display = "none";
-			infoRoot.style.display = "block";
+			configContainer.innerHTML = "";
+			configContainer.style.display = "none";
+			modInfoContainer.style.display = "block";
 			return;
 		}
 
@@ -830,14 +834,27 @@ class ModsTab {
 			logWarn(`Mod ${this.selectedMod} does not have a config schema, cannot show config.`);
 			return;
 		}
-		configRoot.style.display = "block";
-		infoRoot.style.display = "none";
-		configRoot.innerHTML = "";
+		configContainer.style.display = "block";
+		modInfoContainer.style.display = "none";
+		configContainer.innerHTML = "";
 		const config = electron.invoke("fl-mod-config:get", this.selectedMod);
 		const schema = modData.meta.info.configSchema;
-		this.configRenderer = new ConfigSchemaElement(configRoot, config, schema, async (newConfig) => {``
+		this.configRenderer = new ConfigSchemaElement(configContainer, config, schema, async (newConfig) => {
 			logInfo(`Mod ${this.selectedMod} config changed, notifying electron...`);
-			this.modRows[this.selectedMod].modData.meta.info.config = newConfig;
+			const success = await electron.invoke("fl-mod-config:set", {
+				modID: this.selectedMod,
+				config: newConfig,
+			});
+			if (!success) {
+				logError(`Failed to set config for mod ${this.selectedMod}`);
+				setProgressText("Failed to set mod config.");
+				setProgress(0);
+			} else {
+				logInfo(`Config for mod ${this.selectedMod} set successfully.`);
+				this.modRows[this.selectedMod].modData.meta.info.config = newConfig;
+				setProgressText("Mod config updated successfully.");
+				setProgress(0);
+			}
 		});
 	}
 
@@ -884,18 +901,26 @@ class ModsTab {
 }
 
 class ConfigTab {
-	config = null;
-	configSchema = null;
 	renderer = null;
 
 	async setup() {
 		logInfo("ConfigTab setup called");
 
-		this.config = await electron.invoke("fl:get-fluxloader-config");
-		this.configSchema = await electron.invoke("fl:get-fluxloader-config-schema");
-		this.renderer = new ConfigSchemaElement(getElement("config-root"), this.config, this.configSchema, async () => {
+		const config = await electron.invoke("fl:get-fluxloader-config");
+		const configSchema = await electron.invoke("fl:get-fluxloader-config-schema");
+		const mainElement = getElement("config-tab-content").querySelector(".main");
+		this.renderer = new ConfigSchemaElement(mainElement, config, configSchema, async (newConfig) => {
 			logInfo("Config changed, notifying electron...");
-			await electron.invoke("fl:set-fluxloader-config", this.config);
+			const success = await electron.invoke("fl:set-fluxloader-config", newConfig);
+			if (!success) {
+				logError("Failed to set config");
+				setProgressText("Failed to set config.");
+				setProgress(0);
+			} else {
+				logInfo("Config set successfully.");
+				setProgressText("Config updated successfully.");
+				setProgress(0);
+			}
 		});
 	}
 

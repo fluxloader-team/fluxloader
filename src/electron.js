@@ -29,6 +29,9 @@ let configLoaded = false;
 let modsManager = undefined;
 let gameFilesManager = undefined;
 let managerWindow = undefined;
+let fluxloaderEvents = undefined;
+let isGameStarted = false;
+let isManagerStarted = false;
 
 // ------------- UTILTY -------------
 
@@ -62,7 +65,7 @@ function setupLogFile() {
 	try {
 		fs.appendFileSync(logFilePath, new Date().toISOString() + "\n");
 	} catch (e) {
-		throw new Error(`Error writing to log file: ${e.stack}`);
+		throw new Error(`Error writing to log file: ${e.stack}`); // Config loading error is catastrophic for now
 	}
 	const stat = fs.statSync(logFilePath);
 	const fileSize = stat.size / 1024 / 1024;
@@ -75,7 +78,7 @@ function setupLogFile() {
 globalThis.log = function (level, tag, message) {
 	// Back out early if given wrong log level
 	if (!logLevels.includes(level)) {
-		throw new Error(`Invalid log level: ${level}`);
+		throw new Error(`Invalid log level: ${level}`); // Config loading error is catastrophic for now
 	}
 
 	const levelIndex = logLevels.indexOf(level);
@@ -205,7 +208,7 @@ function updateObjectWithDefaults(defaultValues, target) {
 // ------------- MAIN -------------
 
 class ElectronFluxloaderAPI {
-	static allEvents = ["fl:mod-loaded", "fl:mod-unloaded", "fl:all-mods-loaded", "fl:all-mods-unloaded", "fl:game-started", "fl:game-closed", "fl:page-redirect", "fl:config-changed"];
+	static allEvents = ["fl:mod-loaded", "fl:mod-unloaded", "fl:all-mods-loaded", "fl:game-started", "fl:game-closed", "fl:page-redirect", "fl:config-changed"];
 	events = undefined;
 	modConfig = undefined;
 	fileManager = gameFilesManager;
@@ -301,7 +304,7 @@ class ElectronModConfigAPI {
 			return this.get(modID);
 		});
 
-		ipcMain.handle("fl-mod-config:set", (_, modID, config) => {
+		ipcMain.handle("fl-mod-config:set", (_, { modID, config }) => {
 			logDebug(`Setting mod config remotely for ${modID}`);
 			return this.set(modID, config);
 		});
@@ -927,10 +930,7 @@ class ModsManager {
 		// Mods also have side effects on game files, IPC handlers, and events
 		gameFilesManager.clearPatches();
 		fluxloaderAPI._clearModIPCHandlers();
-
-		// Literally useless event but sure
-		fluxloaderAPI.events.trigger("fl:all-mods-unloaded");
-		fluxloaderAPI.events.reset();
+		fluxloaderAPI.events.clear();
 		logDebug("All mods unloaded successfully");
 	}
 
@@ -1124,6 +1124,7 @@ class ModsManager {
 				const identifier = url.pathToFileURL(entrypointPath).href;
 				logDebug(`Loading electron entrypoint: ${identifier}`);
 				const module = new vm.SourceTextModule(entrypointCode, { context: this.modContext, identifier });
+				this.modElectronModules[mod.info.modID] = module;
 
 				// This mod linking is for import calls inside the module
 				// (May or may not work for relative imports)
@@ -1131,8 +1132,14 @@ class ModsManager {
 					return await import(specifier);
 				});
 
-				module.evaluate();
-				this.modElectronModules[mod.info.modID] = module;
+				// We want to listen for any errors inside the module
+				(async () => {
+					try {
+						await module.evaluate();
+					} catch (e) {
+						throwModError(`Error evaluating mod electron entrypoint`, mod.info.modID, e);
+					}
+				})();
 			} catch (e) {
 				throw new Error(`Error loading electron entrypoint for mod ${mod.info.modID}: ${e.stack}`);
 			}
@@ -1416,6 +1423,12 @@ function addModloaderPatches() {
 
 // ------------ ELECTRON  ------------
 
+function setupFluxloaderEvents() {
+	logDebug("Setting up fluxloader events");
+	fluxloaderEvents = new EventBus();
+	fluxloaderEvents.registerEvent("game-cleanup");
+}
+
 function setupElectronIPC() {
 	logDebug("Setting up electron IPC handlers");
 
@@ -1428,24 +1441,14 @@ function setupElectronIPC() {
 		"fl:fetch-remote-mods": async (args) => await modsManager.fetchRemoteMods(args),
 		"fl:find-installed-mods": async (_) => await modsManager.findInstalledMods(),
 		"fl:set-mod-enabled": async (args) => modsManager.setModEnabled(args.modID, args.enabled),
-		"fl:start-game": (_) => startGameWindow(),
-		"fl:stop-game": (_) => closeGameWindow(),
+		"fl:start-game": (_) => startGame(),
+		"fl:stop-game": (_) => closeGame(),
 		"fl:install-mod": (args) => modsManager.installMod(args.modID, args.version),
 		"fl:uninstall-mod": (args) => modsManager.uninstallMod(args.modID),
 		"fl:render-markdown": (args) => marked(args),
 		"fl:get-fluxloader-config": (_) => config,
 		"fl:get-fluxloader-config-schema": (_) => configSchema,
 		"fl:get-fluxloader-version": (_) => fluxloaderVersion,
-		"fl:set-fluxloader-config": (args) => {
-			logDebug(`Setting fluxloader config: ${JSON.stringify(args)}`);
-			if (!configLoaded) throw new Error("Config not loaded yet");
-			if (!SchemaValidation.validate(args, configSchema)) {
-				throw new Error("Invalid config data provided");
-			}
-			config = args;
-			updateFluxloaderConfig();
-			return true;
-		},
 	};
 
 	for (const [endpoint, handler] of Object.entries(simpleEndpoints)) {
@@ -1461,27 +1464,55 @@ function setupElectronIPC() {
 	}
 
 	ipcMain.handle("fl:wait-for-game-closed", async (_) => {
-		logDebug("Received fl:wait-for-game");
+		logDebug("Received fl:wait-for-game-closed");
 		return new Promise((resolve) => {
 			const handler = () => {
-				fluxloaderAPI.events.off("fl:game-closed", handler);
+				fluxloaderEvents.off("game-cleanup", handler);
 				resolve();
 			};
-			fluxloaderAPI.events.on("fl:game-closed", handler);
+			fluxloaderEvents.on("game-cleanup", handler);
 		});
+	});
+
+	ipcMain.handle("fl:set-fluxloader-config", async (event, args) => {
+		logDebug(`Received fl:set-fluxloader-config with args: ${JSON.stringify(args)}`);
+		if (!configLoaded) throw new Error("Config not loaded yet");
+		if (!SchemaValidation.validate(args, configSchema)) {
+			logWarn("Invalid config data provided");
+			return false;
+		}
+		config = args;
+		updateFluxloaderConfig();
+		return true;
 	});
 }
 
-function startManagerWindow() {
-	logDebug("Starting manager window");
+function throwModError(msg, modID, err) {
+	let out = `Mod Error: ${msg}`;
+	if (modID) out += ` (Mod ID: ${modID})`;
+	if (err) {
+		if (err.stack) {
+			out += `\n${err.stack}`;
+		} else {
+			out += `\n${err}`;
+		}
+	}
+	logError(out);
+	closeGame();
+}
 
+function startManager() {
+	if (isManagerStarted) throw new Error("Cannot start manager, already running");
+	logDebug("Starting manager");
+	isManagerStarted = true;
+
+	// Create the manager window
 	try {
 		const primaryDisplay = screen.getPrimaryDisplay();
 		const { width, height } = primaryDisplay.workAreaSize;
 		let managerWindowWidth = 1200;
 		managerWindowWidth = Math.floor(width * 0.8);
 		let managerWindowHeight = managerWindowWidth * (height / width);
-
 		managerWindow = new BrowserWindow({
 			width: managerWindowWidth,
 			height: managerWindowHeight,
@@ -1490,64 +1521,67 @@ function startManagerWindow() {
 				preload: resolvePathInsideFluxloader("manager/manager-preload.js"),
 			},
 		});
-		managerWindow.on("closed", cleanupManagerWindow);
+		managerWindow.on("closed", closeManager);
 		managerWindow.loadFile("src/manager/manager.html");
 		if (config.manager.openDevTools) managerWindow.openDevTools();
 	} catch (e) {
-		cleanupManagerWindow();
-		throw new Error(`Error starting manager window: ${e.stack}`);
+		closeManager();
+		throw new Error(`Error starting manager window`, e);
 	}
 }
 
-function closeManagerWindow() {
-	if (!managerWindow) return;
-	managerWindow.close();
-	cleanupManagerWindow();
-}
-
-function cleanupManagerWindow() {
-	if (!managerWindow) return;
-	managerWindow = null;
+function closeManager() {
+	if (!isManagerStarted) throw new Error("Cannot close manager, it is not started");
+	logDebug("Cleaning up manager window");
+	if (managerWindow) {
+		managerWindow.off("closed", closeManager);
+		managerWindow.close();
+		managerWindow = null;
+	}
 	if (config.closeGameWithManager && gameWindow) {
 		logDebug("Closing game window with fluxloader window");
-		closeGameWindow();
+		closeGame();
 	}
+	isManagerStarted = false;
 }
 
-async function startGameWindow() {
-	if (gameWindow != null) throw new Error("Cannot start game, already running");
+async function startGame() {
+	if (isGameStarted) throw new Error("Cannot start game, already running");
+	logInfo("Starting game");
+	isGameStarted = true;
 
-	logInfo("Starting game window");
-
+	// Startup the events, files, and mods
 	fluxloaderAPI._initializeEvents();
 	gameFilesManager.resetToBaseFiles();
 	await gameFilesManager.patchAndRunGameElectron();
 	addModloaderPatches();
 	await modsManager.loadAllMods();
 	gameFilesManager.repatchAllFiles();
-	fluxloaderAPI.events.trigger("fl:game-started");
 
+	// Create the game window
 	try {
 		gameElectronFuncs.createWindow();
-		gameWindow.on("closed", cleanupGameWindow);
+		gameWindow.on("closed", closeGame);
 		if (config.game.openDevTools) gameWindow.openDevTools();
+		fluxloaderAPI.events.trigger("fl:game-started");
 	} catch (e) {
-		cleanupGameWindow();
-		throw e;
+		closeGame();
+		throw new Error(`Error starting game window`, e);
 	}
 }
 
-function closeGameWindow() {
-	if (!gameWindow) return;
-	gameWindow.close();
-	cleanupGameWindow();
-}
-
-function cleanupGameWindow() {
-	if (!gameWindow) return;
-	gameWindow = null;
+function closeGame() {
+	if (!isGameStarted) throw new Error("Cannot close game, it is not started");
+	logDebug("Closing game window");
+	if (gameWindow) {
+		gameWindow.off("closed", closeGame);
+		gameWindow.close();
+		gameWindow = null;
+	}
 	fluxloaderAPI.events.trigger("fl:game-closed");
 	modsManager.unloadAllMods();
+	fluxloaderEvents.trigger("game-cleanup");
+	isGameStarted = false;
 }
 
 function closeApp() {
@@ -1557,8 +1591,8 @@ function closeApp() {
 
 function cleanupApp() {
 	try {
-		if (managerWindow) closeManagerWindow();
-		if (gameWindow) closeGameWindow();
+		if (managerWindow) closeManager();
+		if (gameWindow) closeGame();
 		gameFilesManager.deleteFiles();
 	} catch (e) {
 		logError(`Error during cleanup: ${e.stack}`);
@@ -1588,6 +1622,7 @@ async function startApp() {
 	// One-time fluxloader setup
 	catchUnexpectedExits();
 	loadFluxloaderConfig();
+	setupFluxloaderEvents();
 	const { fullGamePath, asarPath } = findValidGamePath();
 	gameFilesManager = new GameFilesManager(fullGamePath, asarPath);
 	fluxloaderAPI = new ElectronFluxloaderAPI();
@@ -1597,9 +1632,9 @@ async function startApp() {
 
 	// Start manager or game window based on config
 	if (config.loadIntoManager) {
-		startManagerWindow();
+		startManager();
 	} else {
-		await startGameWindow();
+		await startGame();
 	}
 }
 
