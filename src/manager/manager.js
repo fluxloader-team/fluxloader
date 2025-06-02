@@ -69,13 +69,41 @@ function handleResizer(resizer) {
 class ConfigSchemaElement {
 	constructor(root, config, schema, onChange) {
 		this.root = root;
+		this.rootContent = null;
 		this.config = config;
 		this.schema = schema;
 		this.onChange = onChange;
 		this.inputs = new Map();
+		this.statusElements = { wrapper: null, text: null, image: null };
+
+		// Setup root
 		this.root.innerHTML = "";
 		this.root.classList.add("config-schema-root");
-		this.createSchemaSection(this.config, this.schema, this.root, []);
+
+		this.rootContent = document.createElement("div");
+		this.rootContent.classList.add("config-schema-root-content");
+		this.root.appendChild(this.rootContent);
+
+		this.statusElements.wrapper = document.createElement("div");
+		this.statusElements.wrapper.classList.add("config-schema-validated");
+		this.statusElements.text = document.createElement("span");
+		this.statusElements.text.classList.add("config-schema-validated-text");
+		this.statusElements.image = document.createElement("img");
+		this.statusElements.image.classList.add("config-schema-validated-image");
+		this.statusElements.wrapper.appendChild(this.statusElements.image);
+		this.statusElements.wrapper.appendChild(this.statusElements.text);
+		this.statusElements.image.src = "assets/refresh.png";
+		this.statusElements.text.textContent = "Schema validation not yet performed.";
+
+		this.root.appendChild(this.statusElements.wrapper);
+
+		// Perform first validation
+		console.log(this.config, this.schema);
+		const isValid = SchemaValidation.validate(this.config, this.schema);
+		this.setStatus(isValid ? "valid" : "invalid");
+
+		// Populate with the root of the schema
+		this.createSchemaSection(this.config, this.schema, this.rootContent, []);
 	}
 
 	createSchemaSection(configSection, schemaSection, container, path) {
@@ -196,13 +224,25 @@ class ConfigSchemaElement {
 		// Then validate it using the schema
 		if (!SchemaValidation.validateValue(value, schema)) {
 			input.classList.add("invalid");
+			this.setStatus("invalid");
 			return;
 		}
 
 		// Finally assuming it is valid officially update the config
 		input.classList.remove("invalid");
 		this.setConfigValue(path, value);
+		this.setStatus("valid");
 		this.onChange(this.config);
+	}
+
+	getConfigValue(path) {
+		// Get the corresponding value in the config object by navigating the path
+		let obj = this.config;
+		for (const key of path) {
+			if (!Object.hasOwn(obj, key)) return undefined;
+			obj = obj[key];
+		}
+		return obj;
 	}
 
 	setConfigValue(path, value) {
@@ -214,6 +254,34 @@ class ConfigSchemaElement {
 			obj = obj[key];
 		}
 		obj[path.at(-1)] = value;
+	}
+
+	updateValues() {
+		// Update all the input values based on the current config
+		for (const [path, input] of this.inputs.entries()) {
+			const value = this.getConfigValue(path.split("."));
+			if (value === undefined) continue;
+			if (input.type === "checkbox") {
+				input.checked = value;
+			} else {
+				input.value = value;
+			}
+		}
+	}
+
+	setStatus(status) {
+		if (status === "valid") {
+			this.statusElements.wrapper.classList.add("valid");
+			this.statusElements.wrapper.classList.remove("invalid");
+			const now = new Date();
+			this.statusElements.text.textContent = "Config is valid (" + now.toLocaleTimeString() + ")";
+			this.statusElements.image.src = "assets/check.png";
+		} else if (status === "invalid") {
+			this.statusElements.wrapper.classList.add("invalid");
+			this.statusElements.wrapper.classList.remove("valid");
+			this.statusElements.text.textContent = "Config is invalid.";
+			this.statusElements.image.src = "assets/cross.png";
+		}
 	}
 }
 
@@ -350,14 +418,14 @@ async function selectTab(tab) {
 	if (selectedTab) {
 		getElement(`tab-${selectedTab}`).classList.remove("selected");
 		getElement(`${selectedTab}-tab-content`).style.display = "none";
-		if (tabs[selectedTab]) await tabs[selectedTab].deselectTab();
+		if (tabs[selectedTab] && tabs[selectedTab].deselectTab) await tabs[selectedTab].deselectTab();
 	}
 
 	selectedTab = tab;
 
 	getElement(`tab-${tab}`).classList.add("selected");
 	getElement(`${tab}-tab-content`).style.display = "block";
-	if (tabs[tab]) await tabs[tab].selectTab();
+	if (tabs[tab] && tabs[tab].selectTab) await tabs[tab].selectTab();
 }
 
 function convertUploadTimeToString(uploadTime) {
@@ -403,6 +471,8 @@ class ModsTab {
 	selectedMod = null;
 	filterInfo = { search: null, tags: [] };
 	queuedActions = [];
+	isViewingModConfig = false;
+	hasLoadedOnce = false;
 	isLoadingInstalledMods = false;
 	isLoadingRemoteMods = false;
 	isPerformingActions = false;
@@ -433,12 +503,10 @@ class ModsTab {
 	}
 
 	selectTab() {
-		this.reloadModsView();
-	}
-
-	deselectTab() {
-		this.setModButtons([]);
-		this.setModInfo(null);
+		if (!this.hasLoadedOnce) {
+			this.hasLoadedOnce = true;
+			this.reloadModsView();
+		}
 	}
 
 	async reloadModsView() {
@@ -622,6 +690,7 @@ class ModsTab {
 		element.classList.toggle("disabled", modData.isInstalled && !modData.isEnabled);
 		element.addEventListener("click", (e) => this.selectMod(modData.modID));
 
+		// Listen to the checkbox for enabling / disabling mods
 		if (modData.isInstalled) {
 			const checkbox = element.querySelector("input[type='checkbox']");
 			checkbox.addEventListener("click", (e) => e.stopPropagation());
@@ -631,12 +700,10 @@ class ModsTab {
 				checkbox.disabled = true;
 				electron.invoke("fl:set-mod-enabled", { modID: modData.modID, enabled: isChecked }).then((success) => {
 					checkbox.disabled = false;
-
 					if (!success) {
 						checkbox.checked = !isChecked;
 						setProgressText("Failed to set mod enabled state.");
 					}
-
 					modData.isEnabled = checkbox.checked;
 					element.classList.toggle("disabled", modData.isInstalled && !modData.isEnabled);
 				});
@@ -649,83 +716,65 @@ class ModsTab {
 	// --- Main ---
 
 	selectMod(modID) {
-		if (this.selectedMod !== null && this.selectedMod === modID) {
-			this.modRows[this.selectedMod].element.classList.remove("selected");
-			this.setModInfo(null);
-			this.selectedMod = null;
-			return;
-		}
+		// Deselect a mod and remove all mod info
 		if (this.selectedMod !== null) {
 			this.modRows[this.selectedMod].element.classList.remove("selected");
+			if (this.selectedMod === modID) {
+				getElement("mod-info").style.display = "none";
+				getElement("mod-info-empty").style.display = "block";
+				this.toggleSelectedModConfig(false);
+				this.setModButtons([]);
+				this.selectedMod = null;
+				return;
+			}
 		}
 
+		// Select a mod and show its info
 		if (modID != null) {
 			if (this.modRows[modID] == null) return;
 			this.selectedMod = modID;
 			this.modRows[modID].element.classList.add("selected");
-			this.setModInfo(modID);
-		}
-	}
+			const modData = this.modRows[modID].modData;
 
-	setModInfo(modID) {
-		if (modID == null) {
-			getElement("mod-info").style.display = "none";
-			getElement("mod-info-empty").style.display = "block";
-			this.setModButtons([]);
-			return;
-		}
-
-		const modData = this.modRows[modID].modData;
-
-		getElement("mod-info").style.display = "block";
-		getElement("mod-info-empty").style.display = "none";
-
-		getElement("mod-info-title").innerText = modData.meta.info.name;
-
-		if (modData.meta.info.description && modData.meta.info.description.length > 0) {
-			getElement("mod-info-description").classList.remove("empty");
-			getElement("mod-info-description").innerHTML = modData.renderedDescription;
-		} else {
-			getElement("mod-info-description").classList.add("empty");
-			getElement("mod-info-description").innerText = "No description provided.";
-		}
-
-		getElement("mod-info-mod-id").innerText = modData.modID;
-		getElement("mod-info-author").innerText = modData.meta.info.author;
-		getElement("mod-info-version").innerText = modData.meta.info.version;
-		getElement("mod-info-last-updated").innerText = modData.meta.lastUpdated;
-
-		if (modData.meta.info.tags) {
-			getElement("mod-info-tags").classList.toggle("empty", modData.meta.info.tags.length === 0);
-			if (modData.meta.info.tags.length === 0) {
-				getElement("mod-info-tags").innerText = "No tags provided.";
+			// Update the mod info section
+			getElement("mod-info").style.display = "block";
+			getElement("mod-info-empty").style.display = "none";
+			getElement("mod-info-title").innerText = modData.meta.info.name;
+			if (modData.meta.info.description && modData.meta.info.description.length > 0) {
+				getElement("mod-info-description").classList.remove("empty");
+				getElement("mod-info-description").innerHTML = modData.renderedDescription;
 			} else {
-				getElement("mod-info-tags").innerHTML = "";
-				for (const tag of modData.meta.info.tags) {
-					const tagElement = createElement(`<span class="tag">${tag}</span>`);
-					getElement("mod-info-tags").appendChild(tagElement);
+				getElement("mod-info-description").classList.add("empty");
+				getElement("mod-info-description").innerText = "No description provided.";
+			}
+			getElement("mod-info-mod-id").innerText = modData.modID;
+			getElement("mod-info-author").innerText = modData.meta.info.author;
+			getElement("mod-info-version").innerText = modData.meta.info.version;
+			getElement("mod-info-last-updated").innerText = modData.meta.lastUpdated;
+			if (modData.meta.info.tags) {
+				getElement("mod-info-tags").classList.toggle("empty", modData.meta.info.tags.length === 0);
+				if (modData.meta.info.tags.length === 0) {
+					getElement("mod-info-tags").innerText = "No tags provided.";
+				} else {
+					getElement("mod-info-tags").innerHTML = "";
+					for (const tag of modData.meta.info.tags) {
+						const tagElement = createElement(`<span class="tag">${tag}</span>`);
+						getElement("mod-info-tags").appendChild(tagElement);
+					}
 				}
 			}
-		}
 
-		if (modData.isInstalled) {
-			this.setModButtons([
-				{
-					text: "Uninstall",
-					onClick: () => {
-						this.queueUninstall(modData.modID);
-					},
-				},
-			]);
-		} else {
-			this.setModButtons([
-				{
-					text: "Install",
-					onClick: () => {
-						this.queueInstall(modData.modID, modData.meta.info.version);
-					},
-				},
-			]);
+			// Update the mod info buttons
+			let buttons = [];
+			if (modData.isInstalled) {
+				buttons.push({ text: "Uninstall", onClick: () => this.queueUninstall(modData.modID) });
+			} else {
+				buttons.push({ text: "Install", onClick: () => this.queueInstall(modData.modID, modData.meta.info.version) });
+			}
+			if (modData.meta.info.configSchema) {
+				buttons.push({ icon: "assets/config.png", onClick: () => this.toggleSelectedModConfig(!this.isViewingModConfig), toggle: true });
+			}
+			this.setModButtons(buttons);
 		}
 	}
 
@@ -736,23 +785,60 @@ class ModsTab {
 		}
 
 		getElement("mod-buttons").style.display = "flex";
-
-		for (let i = 1; i <= 2; i++) {
-			const button = getElement(`mod-button-${i}`);
-
-			if (buttons.length < i) {
-				button.style.display = "none";
-				continue;
+		getElement("mod-buttons").innerHTML = "";
+		for (let i = 0; i < buttons.length; i++) {
+			const button = createElement(`<div class="mod-button"></div>`);
+			button.onclick = () => {
+				if (buttons[i].toggle) {
+					button.classList.toggle("active");
+				}
+				buttons[i].onClick();
+			};
+			if (buttons[i].text) {
+				const text = createElement(`<span class="mod-button-text">${buttons[i].text}</span>`);
+				button.appendChild(text);
 			}
-
-			button.innerText = buttons[i - 1].text;
-			button.onclick = buttons[i - 1].onClick;
-			button.style.display = "block";
+			if (buttons[i].icon) {
+				const icon = createElement(`<img src="${buttons[i].icon}" class="mod-button-icon">`);
+				button.appendChild(icon);
+			}
+			getElement("mod-buttons").appendChild(button);
 		}
 	}
 
 	setLoadButtonText(text) {
 		getElement("mods-load-button").innerText = text;
+	}
+
+	toggleSelectedModConfig(enabled) {
+		console.log("Toggling mod config for", this.selectedMod, "to", enabled);
+
+		this.isViewingModConfig = enabled;
+		const configRoot = getElement("mod-config-root");
+		const infoRoot = getElement("mod-info-root");
+
+		if (!enabled || this.selectedMod == null || this.modRows[this.selectedMod] == null) {
+			this.configRenderer = null;
+			configRoot.innerHTML = "";
+			configRoot.style.display = "none";
+			infoRoot.style.display = "block";
+			return;
+		}
+
+		const modData = this.modRows[this.selectedMod].modData;
+		if (!modData.meta.info.configSchema) {
+			logWarn(`Mod ${this.selectedMod} does not have a config schema, cannot show config.`);
+			return;
+		}
+		configRoot.style.display = "block";
+		infoRoot.style.display = "none";
+		configRoot.innerHTML = "";
+		const config = electron.invoke("fl-mod-config:get", this.selectedMod);
+		const schema = modData.meta.info.configSchema;
+		this.configRenderer = new ConfigSchemaElement(configRoot, config, schema, async (newConfig) => {``
+			logInfo(`Mod ${this.selectedMod} config changed, notifying electron...`);
+			this.modRows[this.selectedMod].modData.meta.info.config = newConfig;
+		});
 	}
 
 	// --- Queueing and Actions ---
@@ -807,17 +893,14 @@ class ConfigTab {
 
 		this.config = await electron.invoke("fl:get-fluxloader-config");
 		this.configSchema = await electron.invoke("fl:get-fluxloader-config-schema");
-		this.renderer = new ConfigSchemaElement(getElement("config-root"), this.config, this.configSchema, () => {
-			logInfo("Config changed");
+		this.renderer = new ConfigSchemaElement(getElement("config-root"), this.config, this.configSchema, async () => {
+			logInfo("Config changed, notifying electron...");
+			await electron.invoke("fl:set-fluxloader-config", this.config);
 		});
 	}
 
 	selectTab() {
-		// TODO
-	}
-
-	deselectTab() {
-		// TODO
+		this.renderer.updateValues();
 	}
 }
 

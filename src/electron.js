@@ -205,7 +205,7 @@ function updateObjectWithDefaults(defaultValues, target) {
 // ------------- MAIN -------------
 
 class ElectronFluxloaderAPI {
-	static allEvents = ["fl:mod-loaded", "fl:mod-unloaded", "fl:all-mods-loaded", "fl:all-mods-unloaded", "fl:game-started", "fl:game-closed", "fl:page-redirect"];
+	static allEvents = ["fl:mod-loaded", "fl:mod-unloaded", "fl:all-mods-loaded", "fl:all-mods-unloaded", "fl:game-started", "fl:game-closed", "fl:page-redirect", "fl:config-changed"];
 	events = undefined;
 	modConfig = undefined;
 	fileManager = gameFilesManager;
@@ -1024,7 +1024,6 @@ class ModsManager {
 		// Save this to the config file
 		config.modsEnabled[modID] = enabled;
 		updateFluxloaderConfig();
-
 		return true;
 	}
 
@@ -1200,6 +1199,7 @@ function loadFluxloaderConfig() {
 function updateFluxloaderConfig() {
 	fs.writeFileSync(configPath, JSON.stringify(config, null, 4), "utf8");
 	logDebug(`Modloader config updated successfully: ${configPath}`);
+	if (fluxloaderAPI) fluxloaderAPI.events.tryTrigger("fl:config-updated", config);
 }
 
 function findValidGamePath() {
@@ -1436,6 +1436,16 @@ function setupElectronIPC() {
 		"fl:get-fluxloader-config": (_) => config,
 		"fl:get-fluxloader-config-schema": (_) => configSchema,
 		"fl:get-fluxloader-version": (_) => fluxloaderVersion,
+		"fl:set-fluxloader-config": (args) => {
+			logDebug(`Setting fluxloader config: ${JSON.stringify(args)}`);
+			if (!configLoaded) throw new Error("Config not loaded yet");
+			if (!SchemaValidation.validate(args, configSchema)) {
+				throw new Error("Invalid config data provided");
+			}
+			config = args;
+			updateFluxloaderConfig();
+			return true;
+		},
 	};
 
 	for (const [endpoint, handler] of Object.entries(simpleEndpoints)) {

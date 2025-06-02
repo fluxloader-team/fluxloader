@@ -14,6 +14,13 @@ export class EventBus {
 		for (const func of this.events[event]) func(data);
 	}
 
+	tryTrigger(event, data) {
+		// This is here in cases for when we cant be sure if the event is registered or not
+		log("debug", "", `Trying to trigger event '${event}'`);
+		if (!this.events[event]) return;
+		for (const func of this.events[event]) func(data);
+	}
+
 	on(event, func) {
 		log("debug", "", `Adding event listener for '${event}'`);
 		if (!this.events[event]) throw new Error(`Cannot add listener to non-existent event: ${event}`);
