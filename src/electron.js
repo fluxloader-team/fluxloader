@@ -219,14 +219,6 @@ class ElectronFluxloaderAPI {
 		gameFilesManager.patchExists(file, tag);
 	}
 
-	patchExists(file, tag) {
-		gameFilesManager.patchExists(file, tag);
-	}
-
-	patchExists(file, tag) {
-		gameFilesManager.patchExists(file, tag);
-	}
-
 	removePatch(file, tag) {
 		gameFilesManager.removePatch(file, tag);
 	}
@@ -235,16 +227,28 @@ class ElectronFluxloaderAPI {
 		gameFilesManager.tryRemovePatch(file, tag);
 	}
 
-	tryRemovePatch(file, tag) {
-		gameFilesManager.tryRemovePatch(file, tag);
-	}
-
-	tryRemovePatch(file, tag) {
-		gameFilesManager.tryRemovePatch(file, tag);
-	}
-
 	repatchAllFiles() {
 		gameFilesManager.repatchAllFiles();
+	}
+
+	repatchFile(file) {
+		gameFilesManager._repatchFile(file);
+	}
+
+	getGameBasePatch() {
+		return gameFilesManager.gameBasePath;
+	}
+
+	getGameAsarPath() {
+		return gameFilesManager.gameAsarPath;
+	}
+
+	getTempBasePath() {
+		return gameFilesManager.tempBasePath;
+	}
+
+	getTempExtractedPath() {
+		return gameFilesManager.tempExtractedPath;
 	}
 
 	handleBrowserIPC(channel, handler) {
