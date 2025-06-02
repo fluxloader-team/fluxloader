@@ -160,3 +160,38 @@ export class SchemaValidation {
 		return false;
 	}
 }
+
+export class Logging {
+	static logHead(level, tag, coloured = false) {
+		const timestamp = new Date().toISOString().split("T")[1].split("Z")[0];
+		const levelText = level.toUpperCase();
+		if (!coloured) {
+			return `[${tag ? tag + " " : ""}${levelText} ${timestamp}]`;
+		} else {
+			return Logging.colourText("[", "grey") + Logging.colourText(tag ? `${tag} ` : "", "blue") + Logging.colourText(`${levelText} ${timestamp}]`, "grey");
+		}
+	}
+
+	static colourText(text, colour) {
+		const COLOUR_MAP = {
+			red: "\x1b[31m",
+			green: "\x1b[32m",
+			yellow: "\x1b[33m",
+			blue: "\x1b[34m",
+			magenta: "\x1b[35m",
+			cyan: "\x1b[36m",
+			white: "\x1b[37m",
+			grey: "\x1b[90m",
+			black: "\x1b[30m",
+			brightRed: "\x1b[91m",
+			brightGreen: "\x1b[92m",
+			brightYellow: "\x1b[93m",
+			brightBlue: "\x1b[94m",
+			brightMagenta: "\x1b[95m",
+			brightCyan: "\x1b[96m",
+			brightWhite: "\x1b[97m",
+			reset: "\x1b[0m",
+		};
+		return `${COLOUR_MAP[colour]}${text}\x1b[0m`;
+	}
+}

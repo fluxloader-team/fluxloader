@@ -9,6 +9,7 @@
 
 ## Primary Requirements
 
+-   Listen to file changes for mod config / fluxloader config
 -   Install / uninstall mods
 -   Mod info config GUI
 -   Forward game console to electron (config to enable)

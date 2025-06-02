@@ -1,4 +1,4 @@
-import { EventBus } from "./common.js";
+import { EventBus, Logging } from "./common.js";
 
 // ------------- VARIABLES -------------
 
@@ -7,24 +7,21 @@ globalThis.fluxloaderAPI = undefined;
 
 let loadedMods = [];
 
-// ------------- UTILTY -------------
+// ------------- LOGGING -------------
 
 globalThis.log = function (level, tag, message) {
-	const timestamp = new Date().toISOString().split("T")[1].split("Z")[0];
-	const levelText = level.toUpperCase();
-	let header = `[${tag ? tag + " " : ""}${levelText} ${timestamp}]`;
-	console.log(`${header} ${message}`);
-};
-
-globalThis.closeFatal = function (tag, message) {
-	log("fatal", tag, message);
-	window.close();
+	console.log(`${Logging.logHead(level, tag)} ${message}`);
+	forwardManagerLog({ source: "game", level, tag, message });
 };
 
 const logDebug = (...args) => log("debug", "", args.join(" "));
 const logInfo = (...args) => log("info", "", args.join(" "));
 const logWarn = (...args) => log("warn", "", args.join(" "));
 const logError = (...args) => log("error", "", args.join(" "));
+
+function forwardManagerLog(log) {
+	window.electron.invoke("fl:forward-manager-log", log);
+}
 
 // ------------- MAIN -------------
 

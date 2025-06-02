@@ -1,17 +1,15 @@
-import { SchemaValidation } from "../common.js";
+import { SchemaValidation, Logging } from "../common.js";
 
 // Some arbitrary delays that make it all feel a bit smoother
 const DELAY_DESCRIPTION_LOAD_MS = 800;
 const DELAY_PLAY_MS = 150;
 const DELAY_LOAD_REMOTE_MS = 150;
 
-// ---------------- UTILITY ----------------
+// ---------------- LOGGING ----------------
 
 globalThis.log = function (level, tag, message) {
-	const timestamp = new Date().toISOString().split("T")[1].split("Z")[0];
-	const levelText = level.toUpperCase();
-	let header = `[${tag ? tag + " " : ""}${levelText} ${timestamp}]`;
-	console.log(`${header} ${message}`);
+	console.log(`${Logging.logHead(level, tag)} ${message}`);
+	forwardManagerLog({ source: "manager", level, tag, message });
 };
 
 globalThis.logDebug = (...args) => log("debug", "", args.join(" "));
@@ -19,12 +17,18 @@ globalThis.logInfo = (...args) => log("info", "", args.join(" "));
 globalThis.logWarn = (...args) => log("warn", "", args.join(" "));
 globalThis.logError = (...args) => log("error", "", args.join(" "));
 
+function forwardManagerLog(log) {
+	if (tabs && tabs.logs) tabs.logs.receiveLog(log);
+}
+
+// ---------------- UTILITY ----------------
+
 let _elements = {};
 function getElement(id) {
 	if (!_elements[id]) {
 		_elements[id] = document.getElementById(id);
 		if (!_elements[id]) {
-			console.error(`Element with id ${id} not found`);
+			logError(`Element with id ${id} not found`);
 			return null;
 		}
 	}
@@ -290,10 +294,11 @@ let isPlaying = false;
 let isMainControlButtonLoading = false;
 let connectionIndicatorState = "offline";
 let selectedTab = null;
-let tabs = {
+
+globalThis.tabs = {
 	mods: null,
 	config: null,
-	console: null,
+	logs: null,
 };
 
 function setProgressText(text) {
@@ -401,13 +406,14 @@ function togglePlaying() {
 async function setupTabs() {
 	tabs.mods = new ModsTab();
 	tabs.config = new ConfigTab();
+	tabs.logs = new LogsTab();
 
 	for (const tab in tabs) {
 		getElement(`tab-${tab}`).addEventListener("click", async () => {
 			await selectTab(tab);
 		});
 
-		if (tabs[tab]) {
+		if (tabs[tab] && tabs[tab].setup) {
 			await tabs[tab].setup();
 		}
 	}
@@ -904,8 +910,7 @@ class ConfigTab {
 	renderer = null;
 
 	async setup() {
-		logInfo("ConfigTab setup called");
-
+		// Load config and schema and create the ConfigSchemaElement
 		const config = await electron.invoke("fl:get-fluxloader-config");
 		const configSchema = await electron.invoke("fl:get-fluxloader-config-schema");
 		const mainElement = getElement("config-tab-content").querySelector(".main");
@@ -929,10 +934,118 @@ class ConfigTab {
 	}
 }
 
+class LogsTab {
+	sources = { manager: {}, electron: {}, game: {} };
+	selectedLogSource = null;
+
+	setup() {
+		// Clear and setup the elements
+		const tabContainer = getElement("logs-tab-content").querySelector(".logs-tab-list");
+		const mainContainer = getElement("logs-tab-content").querySelector(".logs-main");
+		tabContainer.innerHTML = "";
+		mainContainer.innerHTML = "";
+
+		for (const source in this.sources) {
+			// Create a selectable tab
+			const tab = createElement(`
+				<div class="option" data-source="${source}">
+					<span class="logs-tab-text">${source.charAt(0).toUpperCase() + source.slice(1)}</span>
+				</div>`);
+			tab.addEventListener("click", () => this.selectLogSource(source));
+			tabContainer.appendChild(tab);
+
+			// Create a content container
+			const content = createElement(`
+				<div class="logs-content" style="display: none;" data-source="${source}">
+					<div class="logs-header">
+						<span class="log-level">Level</span>
+						<span class="log-tag">Tag</span>
+						<span class="log-message">Message</span>
+					</div>
+				</div>
+			`);
+			mainContainer.appendChild(content);
+
+			// Initialize the source data
+			this.sources[source].logs = [];
+			this.sources[source].renderedIndex = -1;
+			this.sources[source].tabElement = tab;
+			this.sources[source].contentElement = content;
+		}
+
+		this.selectLogSource("manager");
+	}
+
+	selectTab() {
+		this.updateLogView();
+	}
+
+	selectLogSource(source) {
+		if (this.selectedLogSource === source) return;
+		if (!this.sources[source]) {
+			logError(`Unknown log source: ${source}`);
+			return;
+		}
+
+		if (this.selectedLogSource) {
+			this.sources[this.selectedLogSource].tabElement.classList.remove("selected");
+			this.sources[this.selectedLogSource].contentElement.style.display = "none";
+		}
+
+		this.selectedLogSource = source;
+
+		if (this.selectedLogSource) {
+			this.sources[this.selectedLogSource].tabElement.classList.add("selected");
+			this.sources[this.selectedLogSource].contentElement.style.display = "block";
+		}
+
+		this.updateLogView();
+	}
+
+	updateLogView() {
+		const source = this.selectedLogSource;
+		const sourceData = this.sources[source];
+		const logs = sourceData.logs;
+		const content = sourceData.contentElement;
+
+		console.log(`Updating log view for source: ${source} with ${logs.length} logs.`);
+
+		let i = sourceData.renderedIndex + 1;
+		for (; i < logs.length; i++) {
+			const log = logs[i];
+			const row = createElement(`
+				<div class="log-row">
+					<span class="log-level">${log.level}</span>
+					<span class="log-tag">${log.tag}</span>
+					<span class="log-message">${log.message}</span>
+				</div>
+			`);
+			content.appendChild(row);
+		}
+
+		sourceData.renderedIndex = logs.length - 1;
+	}
+
+	receiveLog(log) {
+		console.log(`Received log from source: ${log.source}, level: ${log.level}, tag: ${log.tag}`);
+		if (!this.sources[log.source].logs) throw new Error(`Unknown log source: ${log.source}`);
+		this.sources[log.source].logs.push(log);
+		if (this.selectedLogSource === log.source && selectedTab === "logs") {
+			this.updateLogView();
+		}
+	}
+}
+
 // ---------------- DRIVER ----------------
 
 (async () => {
 	await setupTabs();
+
+	electron.on("fl:forward-manager-log", (_, log) => {
+		if (tabs && tabs.logs) tabs.logs.receiveLog(log);
+	});
+
+	electron.invoke("fl:request-manager-log-flush");
 
 	getElement("main-control-button").addEventListener("click", () => handleClickMainControlButton());
 
@@ -945,4 +1058,6 @@ class ConfigTab {
 	setProgressText("");
 	setProgress(0);
 	selectTab("mods");
+
+	logInfo("FluxLoader Manager started.");
 })();

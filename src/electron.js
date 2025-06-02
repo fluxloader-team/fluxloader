@@ -8,7 +8,7 @@ import url from "url";
 import vm from "vm";
 import { randomUUID } from "crypto";
 import { marked } from "marked";
-import { EventBus, SchemaValidation } from "./common.js";
+import { EventBus, SchemaValidation, Logging } from "./common.js";
 
 // ------------- VARIABLES -------------
 
@@ -30,33 +30,11 @@ let modsManager = undefined;
 let gameFilesManager = undefined;
 let managerWindow = undefined;
 let fluxloaderEvents = undefined;
+let managerLogQueue = [];
 let isGameStarted = false;
 let isManagerStarted = false;
 
-// ------------- UTILTY -------------
-
-function colourText(text, colour) {
-	const COLOUR_MAP = {
-		red: "\x1b[31m",
-		green: "\x1b[32m",
-		yellow: "\x1b[33m",
-		blue: "\x1b[34m",
-		magenta: "\x1b[35m",
-		cyan: "\x1b[36m",
-		white: "\x1b[37m",
-		grey: "\x1b[90m",
-		black: "\x1b[30m",
-		brightRed: "\x1b[91m",
-		brightGreen: "\x1b[92m",
-		brightYellow: "\x1b[93m",
-		brightBlue: "\x1b[94m",
-		brightMagenta: "\x1b[95m",
-		brightCyan: "\x1b[96m",
-		brightWhite: "\x1b[97m",
-		reset: "\x1b[0m",
-	};
-	return `${COLOUR_MAP[colour]}${text}\x1b[0m`;
-}
+// ------------- LOGGING -------------
 
 function setupLogFile() {
 	if (!configLoaded) return;
@@ -76,16 +54,10 @@ function setupLogFile() {
 }
 
 globalThis.log = function (level, tag, message) {
-	// Back out early if given wrong log level
-	if (!logLevels.includes(level)) {
-		throw new Error(`Invalid log level: ${level}`); // Config loading error is catastrophic for now
-	}
-
+	if (!logLevels.includes(level)) throw new Error(`Invalid log level: ${level}`);
+	const header = Logging.logHead(level, tag);
+	const headerColoured = Logging.logHead(level, tag, true);
 	const levelIndex = logLevels.indexOf(level);
-	const timestamp = new Date().toISOString().split("T")[1].split("Z")[0];
-	const levelText = level.toUpperCase(); //.padEnd(5, " ");
-	let header = `[${tag ? tag + " " : ""}${levelText} ${timestamp}]`;
-	let headerColoured = colourText("[", "grey") + colourText(tag ? `${tag} ` : "", "blue") + colourText(`${levelText} ${timestamp}]`, "grey");
 
 	// Only log to file if defined by the config and level is allowed
 	if (configLoaded && config.logging.logToFile) {
@@ -102,6 +74,7 @@ globalThis.log = function (level, tag, message) {
 	if (!configLoaded || config.logging.logToConsole) {
 		if (levelIndex >= logLevels.indexOf(consoleLevelLimit)) {
 			console.log(`${headerColoured} ${message}`);
+			forwardManagerLog({ source: "electron", level, tag, message });
 		}
 	}
 };
@@ -110,6 +83,20 @@ globalThis.logDebug = (...args) => log("debug", "", args.join(" "));
 globalThis.logInfo = (...args) => log("info", "", args.join(" "));
 globalThis.logWarn = (...args) => log("warn", "", args.join(" "));
 globalThis.logError = (...args) => log("error", "", args.join(" "));
+
+function forwardManagerLog(log) {
+	managerLogQueue.push(log);
+	flushManagerLogQueue();
+}
+
+function flushManagerLogQueue() {
+	if (!managerWindow || !managerWindow.webContents || managerWindow.webContents.isDestroyed()) return false;
+	for (const log of managerLogQueue) managerWindow.webContents.send("fl:forward-manager-log", log);
+	managerLogQueue = [];
+	return true;
+}
+
+// ------------- UTILTY -------------
 
 function resolvePathRelativeToFluxloader(name) {
 	// If absolute then return the path as is
@@ -885,9 +872,8 @@ class ModsManager {
 
 		// Setup the context for the mods and expose whatever they need to access
 		this.modContext = vm.createContext({
-			log,
-			console,
 			fluxloaderAPI,
+			log,
 			fs,
 			path,
 			randomUUID,
@@ -1166,6 +1152,26 @@ class ModsManager {
 	}
 }
 
+function setupFluxloaderEvents() {
+	logDebug("Setting up fluxloader events");
+	fluxloaderEvents = new EventBus();
+	fluxloaderEvents.registerEvent("game-cleanup");
+}
+
+function throwModError(msg, modID, err) {
+	let out = `Mod Error: ${msg}`;
+	if (modID) out += ` (Mod ID: ${modID})`;
+	if (err) {
+		if (err.stack) {
+			out += `\n${err.stack}`;
+		} else {
+			out += `\n${err}`;
+		}
+	}
+	logError(out);
+	closeGame();
+}
+
 function loadFluxloaderConfig() {
 	configSchema = {};
 	logDebug(`Reading config from: ${configPath}`);
@@ -1423,12 +1429,6 @@ function addModloaderPatches() {
 
 // ------------ ELECTRON  ------------
 
-function setupFluxloaderEvents() {
-	logDebug("Setting up fluxloader events");
-	fluxloaderEvents = new EventBus();
-	fluxloaderEvents.registerEvent("game-cleanup");
-}
-
 function setupElectronIPC() {
 	logDebug("Setting up electron IPC handlers");
 
@@ -1449,6 +1449,8 @@ function setupElectronIPC() {
 		"fl:get-fluxloader-config": (_) => config,
 		"fl:get-fluxloader-config-schema": (_) => configSchema,
 		"fl:get-fluxloader-version": (_) => fluxloaderVersion,
+		"fl:forward-manager-log": (args) => forwardManagerLog(args),
+		"fl:request-manager-log-flush": (_) => flushManagerLogQueue(),
 	};
 
 	for (const [endpoint, handler] of Object.entries(simpleEndpoints)) {
@@ -1485,20 +1487,6 @@ function setupElectronIPC() {
 		updateFluxloaderConfig();
 		return true;
 	});
-}
-
-function throwModError(msg, modID, err) {
-	let out = `Mod Error: ${msg}`;
-	if (modID) out += ` (Mod ID: ${modID})`;
-	if (err) {
-		if (err.stack) {
-			out += `\n${err.stack}`;
-		} else {
-			out += `\n${err}`;
-		}
-	}
-	logError(out);
-	closeGame();
 }
 
 function startManager() {

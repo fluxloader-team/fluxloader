@@ -12,6 +12,7 @@
 	--footer-height: 4rem;
 
 	/* Generic */
+	--color-bg-darkest: #15171f;
 	--color-bg-dark: #1f222b;
 	--color-bg-medium: #2c2f39;
 	--color-bg-light: #3a3d49;
@@ -35,8 +36,10 @@
 	--color-bg-mods-table-row-hover: #5c5f70;
 	--color-bg-refresh-hover: #4b4e5d;
 	--color-bg-tags: #4c505d;
-	--color-tab-hover: #2c2f39;
-	--color-tab-selected: #3a3d49;
+	--color-tab-hover: #424755;
+	--color-tab-selected: rgb(79, 83, 96);
+	--color-logs-tab-hover: #393d49;
+	--color-logs-tab-selected: #484c58;
 	--color-progress-bar: #53b356;
 	--color-control-default: #888;
 	--color-control-hover: #a3a3a3;
@@ -67,7 +70,6 @@ body {
 .header {
 	height: var(--header-height);
 	display: flex;
-	background: var(--color-bg-dark);
 	display: flex;
 }
 
@@ -75,6 +77,7 @@ body {
 	height: 100%;
 	display: flex;
 	flex: 1;
+	background: var(--color-bg-dark);
 }
 
 .tab-list .option {
@@ -580,6 +583,63 @@ body {
 	color: var(--color-text-primary);
 }
 
+/* -------------------- TAB/LOGS -------------------- */
+
+#logs-tab-content {
+	background: var(--color-bg-medium);
+	color: var(--color-text-primary);
+}
+
+#logs-tab-content .logs-tab-list {
+	display: flex;
+	height: 2.5rem;
+}
+
+#logs-tab-content .option {
+	cursor: pointer;
+	width: 7rem;
+	color: var(--color-text-secondary);
+	display: flex;
+	justify-content: center;
+	align-items: center;
+}
+
+#logs-tab-content .option:hover {
+	background: var(--color-logs-tab-hover);
+}
+
+#logs-tab-content .option.selected {
+	background: var(--color-logs-tab-selected);
+}
+
+#logs-tab-content .logs-content {
+	display: none;
+	flex-direction: column;
+	flex: 1;
+	overflow-y: auto;
+}
+
+#logs-tab-content .logs-content.active {
+	display: flex;
+}
+
+#logs-tab-content .logs-header {
+	display: flex;
+	padding: 0.5rem 1rem;
+	background: var(--color-bg-dark);
+	color: var(--color-text-secondary);
+}
+
+#logs-tab-content .log-row {
+	display: flex;
+	padding: 0.3rem 1rem;
+	white-space: nowrap;
+}
+
+#logs-tab-content .log-row:hover {
+	background: var(--color-bg-lightest);
+}
+
 /* ---------------------------- FOOTER ---------------------------- */
 
 .footer {
@@ -637,11 +697,11 @@ body {
 	display: flex;
 	align-items: center;
 	justify-content: center;
+	border-radius: var(--br-small);
 }
 
 .footer-control-input.button {
 	width: 7rem;
-	border-radius: var(--br-small);
 }
 
 .footer-control-input.dropdown {
