@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen } from "electron";
+import { app, BrowserWindow, ipcMain, screen, shell } from "electron";
 import path from "path";
 import fs from "fs";
 import process from "process";
@@ -863,7 +863,7 @@ class ModsManager {
 		if (this.areModsLoaded) throw new Error("Cannot load mods, some mods are already loaded");
 
 		this.applyModsScriptModifySchema();
-		
+
 		const enabledCount = this.loadOrder.filter((modID) => this.installedMods[modID].isEnabled).length;
 		if (enabledCount == this.loadOrder.length) {
 			logDebug(`Loading ${this.loadOrder.length} mods...`);
@@ -961,23 +961,61 @@ class ModsManager {
 	}
 
 	async fetchRemoteMods(config) {
-		// config: { page, pageSize, search }
-
+		// Construct request for search, page, and size
 		const query = { "modData.name": { $regex: "", $options: "i" } };
 		const encodedQuery = encodeURIComponent(JSON.stringify(query));
 		const url = `https://fluxloader.app/api/mods?search=${encodedQuery}&verified=null&page=${config.page}&size=${config.pageSize}`;
 
+		// Perform request for a page of mods
 		logDebug(`Fetching mods from API: ${url}`);
 		let data;
 		try {
+			const listStart = Date.now();
 			const response = await fetch(url);
 			data = await response.json();
+			const listEnd = Date.now();
+			logDebug(`Fetched mods from API in ${listEnd - listStart}ms`);
 		} catch (e) {
 			// This will be caught in the next check
 		}
-
 		if (!data || !Object.hasOwn(data, "resultsCount")) {
 			logDebug(`Failed to fetch mods from the API: ${JSON.stringify(data)}`);
+			return null;
+		}
+
+		// Render the description of each mod if requested
+		if (config.rendered) {
+			logDebug(`Rendering descriptions for ${data.mods.length} remote mods...`);
+			for (const modEntry of data.mods) {
+				if (modEntry.modData && modEntry.modData.description) {
+					modEntry.modData.renderedDescription = marked(modEntry.modData.description);
+				} else {
+					modEntry.modData.renderedDescription = "";
+				}
+			}
+		}
+
+		// For each mod request the list of available versions
+		logInfo(`Fetching versions for ${data.mods.length} mods...`);
+		try {
+			const versionStart = Date.now();
+			await Promise.all(
+				data.mods.map(async (modEntry) => {
+					const url = `https://fluxloader.app/api/mods?option=versions&modid=${encodeURIComponent(modEntry.modID)}`;
+					try {
+						const response = await fetch(url);
+						const versionsData = await response.json();
+						if (!versionsData || !versionsData.versions) logError(`No versions found for mod ${modEntry.modID}`);
+						modEntry.versions = versionsData.versions;
+					} catch (e) {
+						logError(`Error fetching versions for mod ${modEntry.modID}: ${e.stack}`);
+					}
+				})
+			);
+			const versionEnd = Date.now();
+			logDebug(`Fetched versions for mods in ${versionEnd - versionStart}ms`);
+		} catch (e) {
+			logError(`Error fetching versions for mods: ${e.stack}`);
 			return null;
 		}
 
@@ -994,7 +1032,6 @@ class ModsManager {
 		outputString += `  |  Variables\n`;
 		outputString += `  |  |  Base Mods Path: ${this.baseModsPath}\n`;
 		outputString += `  |  |  Load Order: [ ${this.loadOrder.join(", ")} ]\n`;
-
 		outputString += `  |  \n`;
 		outputString += `  |  Mods (${Object.keys(this.installedMods).length})\n`;
 		for (const modID of this.loadOrder) {
@@ -1005,8 +1042,21 @@ class ModsManager {
 		logDebug(outputString);
 	}
 
-	getInstalledMods() {
-		return this.loadOrder.map((modID) => this.installedMods[modID]);
+	getInstalledMods(config = {}) {
+		const mods = this.loadOrder.map((modID) => this.installedMods[modID]);
+
+		if (config.rendered) {
+			logDebug(`Rendering descriptions for ${mods.length} installed mods...`);
+			for (const mod of mods) {
+				if (mod.info.description) {
+					mod.renderedDescription = marked(mod.info.description);
+				} else {
+					mod.renderedDescription = "";
+				}
+			}
+		}
+
+		return mods;
 	}
 
 	getLoadedMods() {
@@ -1095,6 +1145,13 @@ class ModsManager {
 			const scriptPath = path.join(modPath, modInfo.scriptPath);
 			logDebug(`Loading mod script: ${scriptPath}`);
 			scripts = await import(`file://${scriptPath}`);
+		}
+
+		// Load README.md into description if it exists
+		const readmePath = path.join(modPath, "README.md");
+		if (fs.existsSync(readmePath)) {
+			logDebug(`Loading README.md for mod: ${modInfo.modID}`);
+			modInfo.description = fs.readFileSync(readmePath, "utf8");
 		}
 
 		return {
@@ -1469,16 +1526,15 @@ function setupElectronIPC() {
 
 	const simpleEndpoints = {
 		"fl:get-loaded-mods": (_) => modsManager.getLoadedMods(),
-		"fl:get-installed-mods": (_) => modsManager.getInstalledMods(),
-		"fl:trigger-page-redirect": (args) => fluxloaderAPI.events.trigger("fl:page-redirect", args),
+		"fl:get-installed-mods": (args) => modsManager.getInstalledMods(args),
 		"fl:fetch-remote-mods": async (args) => await modsManager.fetchRemoteMods(args),
 		"fl:find-installed-mods": async (_) => await modsManager.findInstalledMods(),
+		"fl:trigger-page-redirect": (args) => fluxloaderAPI.events.trigger("fl:page-redirect", args),
 		"fl:set-mod-enabled": async (args) => modsManager.setModEnabled(args.modID, args.enabled),
 		"fl:start-game": (_) => startGame(),
 		"fl:stop-game": (_) => closeGame(),
 		"fl:install-mod": (args) => modsManager.installMod(args.modID, args.version),
 		"fl:uninstall-mod": (args) => modsManager.uninstallMod(args.modID),
-		"fl:render-markdown": (args) => marked(args),
 		"fl:get-fluxloader-config": (_) => config,
 		"fl:get-fluxloader-config-schema": (_) => configSchema,
 		"fl:get-fluxloader-version": (_) => fluxloaderVersion,
@@ -1530,6 +1586,10 @@ function startManager() {
 			webPreferences: {
 				preload: resolvePathInsideFluxloader("manager/manager-preload.js"),
 			},
+		});
+		managerWindow.webContents.setWindowOpenHandler(({ url }) => {
+			shell.openExternal(url);
+			return { action: "deny" };
 		});
 		managerWindow.on("closed", closeManager);
 		managerWindow.loadFile("src/manager/manager.html");

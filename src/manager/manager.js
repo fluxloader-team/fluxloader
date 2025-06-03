@@ -333,6 +333,7 @@ class ModsTab {
 	hasLoadedOnce = false;
 	isLoadingInstalledMods = false;
 	isLoadingRemoteMods = false;
+	isActionQueueOpen = false;
 	isPerformingActions = false;
 
 	// ------------ SETUP ------------
@@ -358,6 +359,12 @@ class ModsTab {
 		getElement("mods-load-button").addEventListener("click", () => {
 			this.loadMoreIntoModsView();
 		});
+
+		getElement("mods-tab-action-queue")
+			.querySelector(".selection")
+			.addEventListener("click", () => {
+				this.toggleActionQueue();
+			});
 	}
 
 	selectTab() {
@@ -381,50 +388,7 @@ class ModsTab {
 		this.currentModPage = 0;
 
 		// The mod list should always have installed mods first
-		// Look for 'find-installed-mods' for where they are actually reloaded on the backend
-		const mods = await electron.invoke("fl:get-installed-mods");
-
-		let newModIDs = [];
-		for (const mod of mods) {
-			// We need to manually filter the installed mods here
-			if (this.filterInfo.search) {
-				const check = this.filterInfo.search.toLowerCase();
-				let matched = false;
-				matched |= mod.info.modID.toLowerCase().includes(check);
-				matched |= mod.info.name.toLowerCase().includes(check);
-				matched |= mod.info.version.toLowerCase().includes(check);
-				matched |= mod.info.author.toLowerCase().includes(check);
-				if (mod.info.shortDescription) matched |= mod.info.shortDescription.toLowerCase().includes(check);
-				if (mod.info.description) matched |= mod.info.description.toLowerCase().includes(check);
-				if (!matched) continue;
-			}
-
-			// And now convert them to the modData format and put into the table
-			let modData = {
-				modID: mod.info.modID,
-				meta: {
-					info: mod.info,
-					votes: null,
-					lastUpdated: "",
-				},
-				isLocal: true,
-				isInstalled: true,
-				isLoaded: mod.isLoaded,
-				isEnabled: mod.isEnabled,
-			};
-
-			if (modData.meta.info.description && modData.meta.info.description.length > 0) {
-				const html = await electron.invoke("fl:render-markdown", modData.meta.info.description);
-				modData.renderedDescription = html;
-			}
-
-			this.modRows[modData.modID] = this.createModRow(modData);
-			newModIDs.push(modData.modID);
-		}
-
-		for (const modID of newModIDs) {
-			tbody.appendChild(this.modRows[modID].element);
-		}
+		await this.loadInstalledModsIntoModsView();
 
 		// Load remote mods on reload if we are allowed to connect
 		if (connectionIndicatorState === "online") {
@@ -443,6 +407,51 @@ class ModsTab {
 		}
 	}
 
+	async loadInstalledModsIntoModsView() {
+		const tbody = getElement("mods-tab-table").querySelector("tbody");
+
+		// Request the installed mods from the backend
+		// They will already be populated by 'find-installed-mods'
+		const mods = await api.invoke("fl:get-installed-mods", { rendered: true });
+		let newModIDs = [];
+		for (const mod of mods) {
+			// Manually filter installed mods based on the search and tags
+			if (this.filterInfo.search) {
+				const check = this.filterInfo.search.toLowerCase();
+				let matched = false;
+				matched |= mod.info.modID.toLowerCase().includes(check);
+				matched |= mod.info.name.toLowerCase().includes(check);
+				matched |= mod.info.version.toLowerCase().includes(check);
+				matched |= mod.info.author.toLowerCase().includes(check);
+				if (mod.info.shortDescription) matched |= mod.info.shortDescription.toLowerCase().includes(check);
+				if (mod.info.description) matched |= mod.info.description.toLowerCase().includes(check);
+				if (!matched) continue;
+			}
+
+			// Convert them to our modData format
+			let modData = {
+				modID: mod.info.modID,
+				meta: {
+					info: mod.info,
+					votes: null,
+					lastUpdated: "",
+				},
+				renderedDescription: mod.renderedDescription || "",
+				isLocal: true,
+				isInstalled: true,
+				isLoaded: mod.isLoaded,
+				isEnabled: mod.isEnabled,
+			};
+
+			this.modRows[modData.modID] = this.createModRow(modData);
+			newModIDs.push(modData.modID);
+		}
+
+		for (const modID of newModIDs) {
+			tbody.appendChild(this.modRows[modID].element);
+		}
+	}
+
 	async loadMoreIntoModsView() {
 		if (this.isLoadingRemoteMods) return;
 		this.isLoadingRemoteMods = true;
@@ -457,10 +466,11 @@ class ModsTab {
 			tags: this.filterInfo.tags,
 			pageSize: ModsTab.PAGE_SIZE,
 			page: this.currentModPage + 1,
+			rendered: true,
 		};
 
 		const startTime = Date.now();
-		const mods = await electron.invoke("fl:fetch-remote-mods", getInfo);
+		const mods = await api.invoke("fl:fetch-remote-mods", getInfo);
 		const endTime = Date.now();
 
 		if (endTime - startTime < DELAY_LOAD_REMOTE_MS) {
@@ -491,16 +501,12 @@ class ModsTab {
 					votes: mod.votes,
 					lastUpdated: convertUploadTimeToString(mod.uploadTime),
 				},
+				renderedDescription: mod.renderedDescription || "",
 				isLocal: false,
 				isInstalled: false,
 				isLoaded: false,
 				isEnabled: false,
 			};
-
-			if (modData.meta.info.description && modData.meta.info.description.length > 0) {
-				const html = await electron.invoke("fl:render-markdown", modData.meta.info.description);
-				modData.renderedDescription = html;
-			}
 
 			this.modRows[modData.modID] = this.createModRow(modData);
 			newModIDs.push(modData.modID);
@@ -556,7 +562,7 @@ class ModsTab {
 				const checkbox = e.target;
 				const isChecked = checkbox.checked;
 				checkbox.disabled = true;
-				electron.invoke("fl:set-mod-enabled", { modID: modData.modID, enabled: isChecked }).then((success) => {
+				api.invoke("fl:set-mod-enabled", { modID: modData.modID, enabled: isChecked }).then((success) => {
 					checkbox.disabled = false;
 					if (!success) {
 						checkbox.checked = !isChecked;
@@ -605,6 +611,7 @@ class ModsTab {
 			getElement("mod-info-empty").style.display = "none";
 			if (modData.meta.info.description && modData.meta.info.description.length > 0) {
 				getElement("mod-info-description").classList.remove("empty");
+				modData.renderedDescription = modData.renderedDescription.replace(/<a /g, '<a target="_blank" ');
 				getElement("mod-info-description").innerHTML = modData.renderedDescription;
 			} else {
 				getElement("mod-info-description").classList.add("empty");
@@ -698,12 +705,12 @@ class ModsTab {
 		modInfoContainer.style.display = "none";
 		configContainer.innerHTML = "";
 
-		const config = await electron.invoke("fl-mod-config:get", this.selectedMod);
+		const config = await api.invoke("fl-mod-config:get", this.selectedMod);
 		const schema = modData.meta.info.configSchema;
 
 		this.configRenderer = new ConfigSchemaElement(configContainer, config, schema, async (newConfig) => {
 			logInfo(`Mod ${this.selectedMod} config changed, notifying electron...`);
-			const success = await electron.invoke("fl-mod-config:set", {
+			const success = await api.invoke("fl-mod-config:set", {
 				modID: this.selectedMod,
 				config: newConfig,
 			});
@@ -734,6 +741,14 @@ class ModsTab {
 	}
 
 	// ------------ ACTIONS ------------
+
+	toggleActionQueue() {
+		this.isActionQueueOpen = !this.isActionQueueOpen;
+		const actionQueue = getElement("mods-tab-action-queue");
+		const hider = actionQueue.querySelector(".hider");
+		hider.style.display = this.isActionQueueOpen ? "block" : "none";
+		actionQueue.classList.toggle("open", this.isActionQueueOpen);
+	}
 
 	queueInstall(modID, version) {
 		if (this.isPerformingActions) return;
@@ -780,14 +795,14 @@ class ConfigTab {
 
 	async setup() {
 		// Load config and schema
-		const config = await electron.invoke("fl:get-fluxloader-config");
-		const configSchema = await electron.invoke("fl:get-fluxloader-config-schema");
+		const config = await api.invoke("fl:get-fluxloader-config");
+		const configSchema = await api.invoke("fl:get-fluxloader-config-schema");
 
 		// Setup the config schema element
 		const mainElement = getElement("config-tab-content").querySelector(".main");
 		this.renderer = new ConfigSchemaElement(mainElement, config, configSchema, async (newConfig) => {
 			logInfo("Config changed, notifying electron...");
-			const success = await electron.invoke("fl:set-fluxloader-config", newConfig);
+			const success = await api.invoke("fl:set-fluxloader-config", newConfig);
 			if (!success) {
 				logError("Failed to set config");
 				setProgressText("Failed to set config.");
@@ -801,7 +816,7 @@ class ConfigTab {
 	}
 
 	async selectTab() {
-		const config = await electron.invoke("fl:get-fluxloader-config");
+		const config = await api.invoke("fl:get-fluxloader-config");
 		this.renderer.forceSetConfig(config);
 	}
 
@@ -863,7 +878,7 @@ class LogsTab {
 		this.isSetup = true;
 
 		// Request the logs that have made up to this point
-		const managerLogs = await electron.invoke("fl:request-manager-logs");
+		const managerLogs = await api.invoke("fl:request-manager-logs");
 		tabs.logs.receiveLogs(managerLogs);
 	}
 
@@ -926,7 +941,7 @@ class LogsTab {
 				sourceData.renderedIndex--;
 			}
 		}
-		
+
 		// Scroll to the bottom of the log view
 		console.log(this.mainContainer);
 		this.mainContainer.scrollTop = content.scrollHeight - 0.1;
@@ -969,11 +984,11 @@ class LogsTab {
 }
 
 function setupElectronEvents() {
-	electron.on("fl:forward-log", (_, log) => {
+	api.on("fl:forward-log", (_, log) => {
 		tabs.logs.receiveLog(log);
 	});
 
-	electron.on(`fl:game-closed`, () => {
+	api.on(`fl:game-closed`, () => {
 		console.log("Game closed event received " + new Date().toISOString());
 		if (!isPlaying) return;
 		setProgressText("Game closed.");
@@ -983,12 +998,12 @@ function setupElectronEvents() {
 		getElement("main-control-button").classList.toggle("active", false);
 	});
 
-	electron.on("fl:mod-schema-updated", (_, { modID, schema }) => {
+	api.on("fl:mod-schema-updated", (_, { modID, schema }) => {
 		logInfo(`Received schema update for mod ${modID}`);
 		tabs.mods.forceSetModSchema(modID, schema);
 	});
 
-	electron.on("fl:fluxloader-config-updated", (_, config) => {
+	api.on("fl:fluxloader-config-updated", (_, config) => {
 		logInfo("Received config update for FluxLoader");
 		tabs.config.forceSetConfig(config);
 	});
@@ -1027,7 +1042,7 @@ async function togglePlaying() {
 
 	if (!isPlaying) {
 		console.log("Starting game... " + new Date().toISOString());
-		await electron.invoke(`fl:start-game`);
+		await api.invoke(`fl:start-game`);
 		console.log("Game started successfully " + new Date().toISOString());
 		setProgressText("Game started.");
 		setProgress(100);
@@ -1036,7 +1051,7 @@ async function togglePlaying() {
 		updateMainControlButtonText();
 		getElement("main-control-button").classList.toggle("active", true);
 	} else {
-		await electron.invoke(`fl:stop-game`);
+		await api.invoke(`fl:stop-game`);
 		setProgressText("Game stopped.");
 		setProgress(0);
 		isMainControlButtonLoading = false;
@@ -1153,7 +1168,7 @@ function convertUploadTimeToString(uploadTime) {
 	document.querySelectorAll(".resizer").forEach(handleResizer);
 
 	getElement("refresh-mods").addEventListener("click", () => {
-		electron.invoke("fl:find-installed-mods").then(() => tabs.mods.reloadModsView());
+		api.invoke("fl:find-installed-mods").then(() => tabs.mods.reloadModsView());
 	});
 
 	setProgressText("");
