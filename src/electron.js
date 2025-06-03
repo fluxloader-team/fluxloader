@@ -30,7 +30,7 @@ let modsManager = undefined;
 let gameFilesManager = undefined;
 let managerWindow = undefined;
 let fluxloaderEvents = undefined;
-let managerLogQueue = [];
+let logsForManager = [];
 let isGameStarted = false;
 let isManagerStarted = false;
 
@@ -50,13 +50,14 @@ function setupLogFile() {
 	if (fileSize > 2) {
 		logWarn(`Log file is over 2MB: ${logFilePath} (${fileSize.toFixed(2)}MB)`);
 	}
-	logDebug(`Modloader log path: ${logFilePath}`);
+	logDebug(`Fluxloader log path: ${logFilePath}`);
 }
 
 globalThis.log = function (level, tag, message) {
 	if (!logLevels.includes(level)) throw new Error(`Invalid log level: ${level}`);
-	const header = Logging.logHead(level, tag);
-	const headerColoured = Logging.logHead(level, tag, true);
+	const timestamp = new Date();
+	const header = Logging.logHead(timestamp, level, tag);
+	const headerColoured = Logging.logHead(timestamp, level, tag, true);
 	const levelIndex = logLevels.indexOf(level);
 
 	// Only log to file if defined by the config and level is allowed
@@ -74,7 +75,7 @@ globalThis.log = function (level, tag, message) {
 	if (!configLoaded || config.logging.logToConsole) {
 		if (levelIndex >= logLevels.indexOf(consoleLevelLimit)) {
 			console.log(`${headerColoured} ${message}`);
-			forwardManagerLog({ source: "electron", level, tag, message });
+			forwardLogToManager({ source: "electron", timestamp, level, tag, message });
 		}
 	}
 };
@@ -84,16 +85,14 @@ globalThis.logInfo = (...args) => log("info", "", args.join(" "));
 globalThis.logWarn = (...args) => log("warn", "", args.join(" "));
 globalThis.logError = (...args) => log("error", "", args.join(" "));
 
-function forwardManagerLog(log) {
-	managerLogQueue.push(log);
-	flushManagerLogQueue();
+function forwardLogToManager(log) {
+	logsForManager.push(log);
+	sendLogsToManager();
 }
 
-function flushManagerLogQueue() {
-	if (!managerWindow || !managerWindow.webContents || managerWindow.webContents.isDestroyed()) return false;
-	for (const log of managerLogQueue) managerWindow.webContents.send("fl:forward-manager-log", log);
-	managerLogQueue = [];
-	return true;
+function sendLogsToManager() {
+	if (!managerWindow || !managerWindow.webContents || managerWindow.webContents.isDestroyed()) return;
+	managerWindow.webContents.send("fl:forward-logs", logsForManager);
 }
 
 // ------------- UTILTY -------------
@@ -1211,7 +1210,7 @@ function loadFluxloaderConfig() {
 
 function updateFluxloaderConfig() {
 	fs.writeFileSync(configPath, JSON.stringify(config, null, 4), "utf8");
-	logDebug(`Modloader config updated successfully: ${configPath}`);
+	logDebug(`Fluxloader config updated successfully: ${configPath}`);
 	if (fluxloaderAPI) fluxloaderAPI.events.tryTrigger("fl:config-updated", config);
 }
 
@@ -1271,7 +1270,7 @@ function findValidGamePath() {
 	return { fullGamePath, asarPath };
 }
 
-function addModloaderPatches() {
+function addFluxloaderPatches() {
 	logDebug("Adding fluxloader patches to game files...");
 
 	// Enable the debug flag
@@ -1449,8 +1448,8 @@ function setupElectronIPC() {
 		"fl:get-fluxloader-config": (_) => config,
 		"fl:get-fluxloader-config-schema": (_) => configSchema,
 		"fl:get-fluxloader-version": (_) => fluxloaderVersion,
-		"fl:forward-manager-log": (args) => forwardManagerLog(args),
-		"fl:request-manager-log-flush": (_) => flushManagerLogQueue(),
+		"fl:forward-log-to-manager": (args) => forwardLogToManager(args),
+		"fl:request-manager-logs": (_) => logsForManager
 	};
 
 	for (const [endpoint, handler] of Object.entries(simpleEndpoints)) {
@@ -1521,11 +1520,11 @@ function startManager() {
 function closeManager() {
 	if (!isManagerStarted) throw new Error("Cannot close manager, it is not started");
 	logDebug("Cleaning up manager window");
-	if (managerWindow) {
+	if (managerWindow && !managerWindow.isDestroyed()) {
 		managerWindow.off("closed", closeManager);
 		managerWindow.close();
-		managerWindow = null;
 	}
+	managerWindow = null;
 	if (config.closeGameWithManager && gameWindow) {
 		logDebug("Closing game window with fluxloader window");
 		closeGame();
@@ -1542,7 +1541,7 @@ async function startGame() {
 	fluxloaderAPI._initializeEvents();
 	gameFilesManager.resetToBaseFiles();
 	await gameFilesManager.patchAndRunGameElectron();
-	addModloaderPatches();
+	addFluxloaderPatches();
 	await modsManager.loadAllMods();
 	gameFilesManager.repatchAllFiles();
 
@@ -1561,11 +1560,11 @@ async function startGame() {
 function closeGame() {
 	if (!isGameStarted) throw new Error("Cannot close game, it is not started");
 	logDebug("Closing game window");
-	if (gameWindow) {
+	if (gameWindow && !gameWindow.isDestroyed()) {
 		gameWindow.off("closed", closeGame);
 		gameWindow.close();
-		gameWindow = null;
 	}
+	gameWindow = null;
 	fluxloaderAPI.events.trigger("fl:game-closed");
 	modsManager.unloadAllMods();
 	fluxloaderEvents.trigger("game-cleanup");

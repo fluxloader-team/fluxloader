@@ -162,13 +162,21 @@ export class SchemaValidation {
 }
 
 export class Logging {
-	static logHead(level, tag, coloured = false) {
-		const timestamp = new Date().toISOString().split("T")[1].split("Z")[0];
+	static levelColours = {
+		debug: "brightBlue",
+		info: "grey",
+		warn: "yellow",
+		error: "red",
+	};
+
+	static logHead(timestamp, level, tag, coloured = false) {
+		let timestampText = timestamp.toISOString().split("T")[1].split("Z")[0];
 		const levelText = level.toUpperCase();
 		if (!coloured) {
-			return `[${tag ? tag + " " : ""}${levelText} ${timestamp}]`;
+			return `[${tag ? tag + " " : ""}${levelText} ${timestampText}]`;
 		} else {
-			return Logging.colourText("[", "grey") + Logging.colourText(tag ? `${tag} ` : "", "blue") + Logging.colourText(`${levelText} ${timestamp}]`, "grey");
+			const levelColour = Logging.levelColours[level] || "white";
+			return Logging.colourText(tag ? `${tag} ` : "", "blue") + Logging.colourText(`${levelText} ${timestampText}`, levelColour);
 		}
 	}
 

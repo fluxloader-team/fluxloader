@@ -12,8 +12,6 @@
 -   Listen to file changes for mod config / fluxloader config
 -   Install / uninstall mods
 -   Mod info config GUI
--   Forward game console to electron (config to enable)
--   Forward electron and game console to GUI
 -   Custom right click menu (uninstall, enable / disable?)
 -   Read markdown file for locally installed mods
 -   swapping between versions

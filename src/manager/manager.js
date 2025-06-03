@@ -8,8 +8,9 @@ const DELAY_LOAD_REMOTE_MS = 150;
 // ---------------- LOGGING ----------------
 
 globalThis.log = function (level, tag, message) {
-	console.log(`${Logging.logHead(level, tag)} ${message}`);
-	forwardManagerLog({ source: "manager", level, tag, message });
+	const timestamp = new Date();
+	console.log(`${Logging.logHead(timestamp, level, tag)} ${message}`);
+	forwardManagerLog({ source: "manager", timestamp, level, tag, message });
 };
 
 globalThis.logDebug = (...args) => log("debug", "", args.join(" "));
@@ -18,7 +19,7 @@ globalThis.logWarn = (...args) => log("warn", "", args.join(" "));
 globalThis.logError = (...args) => log("error", "", args.join(" "));
 
 function forwardManagerLog(log) {
-	if (tabs && tabs.logs) tabs.logs.receiveLog(log);
+	if (tabs && tabs.logs) tabs.logs.addLog(log);
 }
 
 // ---------------- UTILITY ----------------
@@ -937,11 +938,12 @@ class ConfigTab {
 class LogsTab {
 	sources = { manager: {}, electron: {}, game: {} };
 	selectedLogSource = null;
+	remoteLogIndex = 0;
 
 	setup() {
 		// Clear and setup the elements
 		const tabContainer = getElement("logs-tab-content").querySelector(".logs-tab-list");
-		const mainContainer = getElement("logs-tab-content").querySelector(".logs-main");
+		const mainContainer = getElement("logs-tab-content").querySelector(".logs-content-scroll");
 		tabContainer.innerHTML = "";
 		mainContainer.innerHTML = "";
 
@@ -955,15 +957,7 @@ class LogsTab {
 			tabContainer.appendChild(tab);
 
 			// Create a content container
-			const content = createElement(`
-				<div class="logs-content" style="display: none;" data-source="${source}">
-					<div class="logs-header">
-						<span class="log-level">Level</span>
-						<span class="log-tag">Tag</span>
-						<span class="log-message">Message</span>
-					</div>
-				</div>
-			`);
+			const content = createElement(`<div class="logs-content" style="display: none;" data-source="${source}"></div>`);
 			mainContainer.appendChild(content);
 
 			// Initialize the source data
@@ -1007,17 +1001,16 @@ class LogsTab {
 		const sourceData = this.sources[source];
 		const logs = sourceData.logs;
 		const content = sourceData.contentElement;
-
-		console.log(`Updating log view for source: ${source} with ${logs.length} logs.`);
-
 		let i = sourceData.renderedIndex + 1;
 		for (; i < logs.length; i++) {
 			const log = logs[i];
+			let timestampText = log.timestamp.toISOString().split("T")[1].split("Z")[0];
 			const row = createElement(`
-				<div class="log-row">
-					<span class="log-level">${log.level}</span>
-					<span class="log-tag">${log.tag}</span>
-					<span class="log-message">${log.message}</span>
+				<div class="log-row level-${log.level}">
+					<div class="log-timestamp">${timestampText}</div>
+					<div class="log-level">${log.level.toUpperCase()}</div>
+					${log.tag ? '<div class="log-tag">' + log.tag + "</div>" : ""}
+					<div class="log-message">${log.message}</div>
 				</div>
 			`);
 			content.appendChild(row);
@@ -1026,13 +1019,25 @@ class LogsTab {
 		sourceData.renderedIndex = logs.length - 1;
 	}
 
-	receiveLog(log) {
-		console.log(`Received log from source: ${log.source}, level: ${log.level}, tag: ${log.tag}`);
-		if (!this.sources[log.source].logs) throw new Error(`Unknown log source: ${log.source}`);
-		this.sources[log.source].logs.push(log);
-		if (this.selectedLogSource === log.source && selectedTab === "logs") {
-			this.updateLogView();
+	addLog(log) {
+		if (!log || !log.timestamp || !log.level || !log.message) {
+			logWarn(`Invalid log entry: ${JSON.stringify(log)}`);
+			return;
 		}
+
+		if (!this.sources[log.source]) {
+			logError(`Unknown log source: ${log.source}`);
+			return;
+		}
+
+		this.sources[log.source].logs.push(log);
+
+		if (selectedTab == "logs" && this.selectedLogSource === log.source) this.updateLogView();
+	}
+
+	receiveLogs(logs) {
+		for (let i = this.remoteLogIndex; i < logs.length; i++) this.addLog(logs[i]);
+		this.remoteLogIndex = logs.length;
 	}
 }
 
@@ -1041,11 +1046,12 @@ class LogsTab {
 (async () => {
 	await setupTabs();
 
-	electron.on("fl:forward-manager-log", (_, log) => {
-		if (tabs && tabs.logs) tabs.logs.receiveLog(log);
+	electron.on("fl:forward-logs", (_, logs) => {
+		if (tabs && tabs.logs) tabs.logs.receiveLogs(logs);
 	});
 
-	electron.invoke("fl:request-manager-log-flush");
+	const managerLogs = await electron.invoke("fl:request-manager-logs");
+	tabs.logs.receiveLogs(managerLogs);
 
 	getElement("main-control-button").addEventListener("click", () => handleClickMainControlButton());
 

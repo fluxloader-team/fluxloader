@@ -10,8 +10,9 @@ let loadedMods = [];
 // ------------- LOGGING -------------
 
 globalThis.log = function (level, tag, message) {
-	console.log(`${Logging.logHead(level, tag)} ${message}`);
-	forwardManagerLog({ source: "game", level, tag, message });
+	const timestamp = new Date();
+	console.log(`${Logging.logHead(timestamp, level, tag)} ${message}`);
+	forwardLogToManager({ source: "game", timestamp, level, tag, message });
 };
 
 const logDebug = (...args) => log("debug", "", args.join(" "));
@@ -19,8 +20,8 @@ const logInfo = (...args) => log("info", "", args.join(" "));
 const logWarn = (...args) => log("warn", "", args.join(" "));
 const logError = (...args) => log("error", "", args.join(" "));
 
-function forwardManagerLog(log) {
-	window.electron.invoke("fl:forward-manager-log", log);
+function forwardLogToManager(log) {
+	window.electron.invoke("fl:forward-log-to-manager", log);
 }
 
 // ------------- MAIN -------------
