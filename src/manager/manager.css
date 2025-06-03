@@ -745,6 +745,7 @@ body {
 	min-height: 100%;
 	min-width: 100%;
 	width: fit-content;
+	user-select: text;
 }
 
 #logs-tab-content .logs-content.active {
@@ -770,6 +771,7 @@ body {
 	flex-shrink: 0;
 	color: var(--color-text-secondary);
 	padding: 0 1rem;
+	user-select: text;
 }
 
 #logs-tab-content .logs-content .log-row.level-debug div {

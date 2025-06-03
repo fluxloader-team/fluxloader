@@ -289,7 +289,7 @@ class ElectronModConfigAPI {
 			return this.get(modID);
 		});
 
-		ipcMain.handle("fl-mod-config:set", (_, { modID, config }) => {
+		ipcMain.handle("fl-mod-config:set", (_, modID, config) => {
 			logDebug(`Setting mod config remotely for ${modID}`);
 			return this.set(modID, config);
 		});
@@ -824,7 +824,7 @@ class ModsManager {
 
 				// Check if the mod is disabled in the config (as-per a previous user choice)
 				if (Object.hasOwn(config.modsEnabled, mod.info.modID) && !config.modsEnabled[mod.info.modID]) {
-					logDebug(`Mod ${mod.info.modID} is disabled in the config`);
+					logDebug(`Mod '${mod.info.modID}' is disabled in the config`);
 					mod.isEnabled = false;
 				} else {
 					mod.isEnabled = true;
@@ -988,36 +988,14 @@ class ModsManager {
 			logDebug(`Rendering descriptions for ${data.mods.length} remote mods...`);
 			for (const modEntry of data.mods) {
 				if (modEntry.modData && modEntry.modData.description) {
-					modEntry.modData.renderedDescription = marked(modEntry.modData.description);
+					modEntry.renderedDescription = marked(modEntry.modData.description);
 				} else {
-					modEntry.modData.renderedDescription = "";
+					modEntry.renderedDescription = "";
 				}
 			}
 		}
 
-		// For each mod request the list of available versions
-		logInfo(`Fetching versions for ${data.mods.length} mods...`);
-		try {
-			const versionStart = Date.now();
-			await Promise.all(
-				data.mods.map(async (modEntry) => {
-					const url = `https://fluxloader.app/api/mods?option=versions&modid=${encodeURIComponent(modEntry.modID)}`;
-					try {
-						const response = await fetch(url);
-						const versionsData = await response.json();
-						if (!versionsData || !versionsData.versions) logError(`No versions found for mod ${modEntry.modID}`);
-						modEntry.versions = versionsData.versions;
-					} catch (e) {
-						logError(`Error fetching versions for mod ${modEntry.modID}: ${e.stack}`);
-					}
-				})
-			);
-			const versionEnd = Date.now();
-			logDebug(`Fetched versions for mods in ${versionEnd - versionStart}ms`);
-		} catch (e) {
-			logError(`Error fetching versions for mods: ${e.stack}`);
-			return null;
-		}
+		// HERE
 
 		logDebug(`Returning ${data.mods.length} total mods for page ${config.page} of size ${config.pageSize} (${data.resultsCount} total)`);
 		return data.mods;
@@ -1065,6 +1043,35 @@ class ModsManager {
 
 	getEnabledMods() {
 		return this.getInstalledMods().filter((mod) => mod.isEnabled);
+	}
+
+	async getInstalledModsVersions() {
+		const modVersions = this.loadOrder.map((modID) => ({ modID, versions: null }));
+		try {
+			const versionStart = Date.now();
+			await Promise.all(
+				modVersions.map(async (mod) => {
+					const url = `https://fluxloader.app/api/mods?option=versions&modid=${encodeURIComponent(mod.modID)}`;
+					try {
+						const response = await fetch(url);
+						if (!response.ok) {
+							logError(`Failed to fetch versions for mod ${mod.modID}: ${response.status} ${response.statusText}`);
+						} else {
+							const versionsData = await response.json();
+							mod.versions = versionsData.versions;
+						}
+					} catch (e) {
+						logError(`Error fetching versions for mod ${mod.modID}: ${e.stack}`);
+					}
+				})
+			);
+			const versionEnd = Date.now();
+			logDebug(`Fetched versions for mods in ${versionEnd - versionStart}ms`);
+		} catch (e) {
+			logError(`Error fetching versions for mods: ${e.stack}`);
+			return null;
+		}
+		return modVersions;
 	}
 
 	setModEnabled(modID, enabled) {
@@ -1150,7 +1157,6 @@ class ModsManager {
 		// Load README.md into description if it exists
 		const readmePath = path.join(modPath, "README.md");
 		if (fs.existsSync(readmePath)) {
-			logDebug(`Loading README.md for mod: ${modInfo.modID}`);
 			modInfo.description = fs.readFileSync(readmePath, "utf8");
 		}
 
@@ -1527,6 +1533,7 @@ function setupElectronIPC() {
 	const simpleEndpoints = {
 		"fl:get-loaded-mods": (_) => modsManager.getLoadedMods(),
 		"fl:get-installed-mods": (args) => modsManager.getInstalledMods(args),
+		"fl:get-installed-mods-versions": (args) => modsManager.getInstalledModsVersions(args),
 		"fl:fetch-remote-mods": async (args) => await modsManager.fetchRemoteMods(args),
 		"fl:find-installed-mods": async (_) => await modsManager.findInstalledMods(),
 		"fl:trigger-page-redirect": (args) => fluxloaderAPI.events.trigger("fl:page-redirect", args),
