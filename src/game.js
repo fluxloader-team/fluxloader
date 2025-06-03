@@ -95,10 +95,20 @@ async function loadAllMods() {
 	}
 }
 
+function catchUnexpectedExits() {
+	window.onerror = (event) => {
+		logError(`An unexpected error occurred: ${JSON.stringify(event)}`);
+	}
+	window.onunhandledrejection = (event) => {
+		logError(`An unhandled promise rejection occurred: ${JSON.stringify(event)}`);
+	}
+}
+
 globalThis.fluxloader_preloadBundle = async () => {
 	// This is guaranteed to happen before the games bundle.js is loaded
 	logInfo(`Starting Game Sandustry Fluxloader ${fluxloaderVersion}`);
 	fluxloaderAPI = new GameFluxloaderAPI();
+	catchUnexpectedExits();
 	await loadAllMods();
 };
 

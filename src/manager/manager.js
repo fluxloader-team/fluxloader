@@ -1,11 +1,19 @@
 import { SchemaValidation, Logging } from "../common.js";
 
-// Some arbitrary delays that make it all feel a bit smoother
+// =================== VARIABLES ===================
+
 const DELAY_DESCRIPTION_LOAD_MS = 800;
 const DELAY_PLAY_MS = 150;
 const DELAY_LOAD_REMOTE_MS = 150;
 
-// ---------------- LOGGING ----------------
+let isPlaying = false;
+let isMainControlButtonLoading = false;
+let connectionIndicatorState = "offline";
+let selectedTab = null;
+let tabs = { mods: null, config: null, logs: null };
+let getElementMemoization = {};
+
+// =================== LOGGING ===================
 
 globalThis.log = function (level, tag, message) {
 	const timestamp = new Date();
@@ -19,21 +27,20 @@ globalThis.logWarn = (...args) => log("warn", "", args.join(" "));
 globalThis.logError = (...args) => log("error", "", args.join(" "));
 
 function forwardManagerLog(log) {
-	if (tabs && tabs.logs) tabs.logs.addLog(log);
+	tabs.logs.addLog(log);
 }
 
-// ---------------- UTILITY ----------------
+// =================== UTILITY ===================
 
-let _elements = {};
 function getElement(id) {
-	if (!_elements[id]) {
-		_elements[id] = document.getElementById(id);
-		if (!_elements[id]) {
+	if (!getElementMemoization[id]) {
+		getElementMemoization[id] = document.getElementById(id);
+		if (!getElementMemoization[id]) {
 			logError(`Element with id ${id} not found`);
 			return null;
 		}
 	}
-	return _elements[id];
+	return getElementMemoization[id];
 }
 
 function createElement(html) {
@@ -69,14 +76,24 @@ function handleResizer(resizer) {
 	}
 }
 
-// ---------------- CONFIG ----------------
+// =================== MAIN ===================
 
 class ConfigSchemaElement {
+	parentElement = null;
+	containerElement = null;
+	contentElement = null;
+	config = null;
+	schema = null;
+	onChange = null;
+	inputs = new Map();
+	statusElements = { wrapper: null, text: null, image: null };
+
 	constructor(parentElement, config, schema, onChange) {
+		// Initialize variables
 		this.parentElement = parentElement;
 		this.containerElement = null;
 		this.contentElement = null;
-		this.config = JSON.parse(JSON.stringify(config)); // Copy to avoid direct mutations
+		this.config = JSON.parse(JSON.stringify(config));
 		this.schema = schema;
 		this.onChange = onChange;
 		this.inputs = new Map();
@@ -86,10 +103,8 @@ class ConfigSchemaElement {
 		this.containerElement = document.createElement("div");
 		this.containerElement.classList.add("config-schema-container");
 		this.parentElement.appendChild(this.containerElement);
-
 		this.contentElement = document.createElement("div");
 		this.contentElement.classList.add("config-schema-content");
-
 		this.statusElements.wrapper = document.createElement("div");
 		this.statusElements.wrapper.classList.add("config-schema-validated");
 		this.statusElements.text = document.createElement("span");
@@ -100,19 +115,32 @@ class ConfigSchemaElement {
 		this.statusElements.wrapper.appendChild(this.statusElements.text);
 		this.statusElements.image.src = "assets/refresh.png";
 		this.statusElements.text.textContent = "Schema validation not yet performed.";
-
 		this.containerElement.appendChild(this.contentElement);
 		this.containerElement.appendChild(this.statusElements.wrapper);
 
-		// Perform first validation
-		const isValid = SchemaValidation.validate(this.config, this.schema);
-		this.setStatus(isValid ? "valid" : "invalid");
-
-		// Populate with config / schema
-		this.createSchemaSection(this.config, this.schema, this.contentElement, []);
+		this.rerender();
 	}
 
-	createSchemaSection(configSection, schemaSection, container, path) {
+	forceSetConfig(config) {
+		this.config = JSON.parse(JSON.stringify(config));
+		this.rerender();
+	}
+
+	forceSetSchema(schema) {
+		this.schema = schema;
+		this.rerender();
+	}
+
+	rerender() {
+		this.contentElement.innerHTML = "";
+		this.inputs.clear();
+		this._setStatus("valid");
+		this._createSchemaSection(this.config, this.schema, this.contentElement, []);
+	}
+
+	// ------------ INTERNAL ------------
+
+	_createSchemaSection(configSection, schemaSection, container, path) {
 		// Mirrors the recursive search in the SchemaValidation.validate()
 		// Search over all the properties of the current schema section level
 		for (const [key, schemaValue] of Object.entries(schemaSection)) {
@@ -129,7 +157,7 @@ class ConfigSchemaElement {
 				container.appendChild(sectionContainer);
 
 				// Recurse into the next level
-				this.createSchemaSection(configSection?.[key] ?? {}, schemaValue, sectionContainer, currentPath);
+				this._createSchemaSection(configSection?.[key] ?? {}, schemaValue, sectionContainer, currentPath);
 			}
 
 			// Otherwise we want to render this leaf as an input
@@ -141,7 +169,6 @@ class ConfigSchemaElement {
 				// Create the input element based on the schema type
 				const value = configSection?.[key] ?? schemaValue.default;
 				let input;
-
 				switch (schemaValue.type) {
 					case "string":
 						input = document.createElement("input");
@@ -166,11 +193,23 @@ class ConfigSchemaElement {
 
 					case "dropdown":
 						input = document.createElement("select");
+						let selected = false;
 						for (const option of schemaValue.options) {
 							const opt = document.createElement("option");
 							opt.value = option;
 							opt.textContent = option;
-							if (option === value) opt.selected = true;
+							if (option === value) {
+								opt.selected = true;
+								selected = true;
+							}
+							input.appendChild(opt);
+						}
+						if (!selected) {
+							let opt = document.createElement("option");
+							opt.value = value;
+							opt.textContent = value;
+							opt.selected = true;
+							opt.hidden = true;
 							input.appendChild(opt);
 						}
 						break;
@@ -182,11 +221,13 @@ class ConfigSchemaElement {
 					default:
 						throw new Error(`Unsupported input type: ${schemaValue.type}`);
 				}
+				this.inputs.set(currentPath.join("."), input);
+				input.addEventListener("change", () => this._handleInputChange(currentPath, input, schemaValue));
+				input.classList.add("config-input");
 
-				// Create the wrapper, label, description and add the input to the container
+				// Create the elements for the input
 				const wrapper = document.createElement("div");
 				wrapper.classList.add("config-input-wrapper");
-
 				const labelRow = document.createElement("div");
 				labelRow.classList.add("config-input-label-row");
 				const label = document.createElement("label");
@@ -199,11 +240,6 @@ class ConfigSchemaElement {
 					desc.textContent = schemaValue.description;
 					labelRow.appendChild(desc);
 				}
-
-				this.inputs.set(currentPath.join("."), input);
-				input.addEventListener("change", () => this.handleInputChange(currentPath, input, schemaValue));
-				input.classList.add("config-input");
-
 				if (schemaValue.type === "boolean") {
 					wrapper.classList.add("same-row");
 					wrapper.appendChild(input);
@@ -212,34 +248,42 @@ class ConfigSchemaElement {
 					wrapper.appendChild(labelRow);
 					wrapper.appendChild(input);
 				}
-
 				container.appendChild(wrapper);
+
+				// Validate the input value immediately
+				this._validateInput(input, schemaValue);
 			}
 		}
 	}
 
-	handleInputChange(path, input, schema) {
-		// First parse the value out of the input
+	_handleInputChange(path, input, schemaValue) {
+		const ret = this._validateInput(input, schemaValue);
+		if (ret.valid) {
+			input.classList.remove("invalid");
+			this._setConfigValue(path, ret.value);
+			this._setStatus("valid");
+			this.onChange(this.config);
+		}
+	}
+
+	_validateInput(input, schemaValue) {
+		// Parse the value out of the input
 		let value;
-		if (schema.type === "boolean") value = input.checked;
-		else if (schema.type === "number") value = parseFloat(input.value);
+		if (schemaValue.type === "boolean") value = input.checked;
+		else if (schemaValue.type === "number") value = parseFloat(input.value);
 		else value = input.value;
 
 		// Then validate it using the schema
-		if (!SchemaValidation.validateValue(value, schema)) {
+		if (!SchemaValidation.validateValue(value, schemaValue)) {
 			input.classList.add("invalid");
-			this.setStatus("invalid");
-			return;
+			this._setStatus("invalid");
+			return { value, valid: false };
 		}
 
-		// Finally assuming it is valid officially update the config
-		input.classList.remove("invalid");
-		this.setConfigValue(path, value);
-		this.setStatus("valid");
-		this.onChange(this.config);
+		return { value, valid: true };
 	}
 
-	getConfigValue(path) {
+	_getConfigValue(path) {
 		// Get the corresponding value in the config object by navigating the path
 		let obj = this.config;
 		for (const key of path) {
@@ -249,7 +293,7 @@ class ConfigSchemaElement {
 		return obj;
 	}
 
-	setConfigValue(path, value) {
+	_setConfigValue(path, value) {
 		// Set the corresponding value in the config object by navigating the path
 		let obj = this.config;
 		for (let i = 0; i < path.length - 1; i++) {
@@ -260,20 +304,7 @@ class ConfigSchemaElement {
 		obj[path.at(-1)] = value;
 	}
 
-	updateValues() {
-		// Update all the input values based on the current config
-		for (const [path, input] of this.inputs.entries()) {
-			const value = this.getConfigValue(path.split("."));
-			if (value === undefined) continue;
-			if (input.type === "checkbox") {
-				input.checked = value;
-			} else {
-				input.value = value;
-			}
-		}
-	}
-
-	setStatus(status) {
+	_setStatus(status) {
 		if (status === "valid") {
 			this.statusElements.wrapper.classList.add("valid");
 			this.statusElements.wrapper.classList.remove("invalid");
@@ -287,185 +318,6 @@ class ConfigSchemaElement {
 			this.statusElements.image.src = "assets/cross.png";
 		}
 	}
-}
-
-// ---------------- MAIN ----------------
-
-let isPlaying = false;
-let isMainControlButtonLoading = false;
-let connectionIndicatorState = "offline";
-let selectedTab = null;
-
-globalThis.tabs = {
-	mods: null,
-	config: null,
-	logs: null,
-};
-
-function setProgressText(text) {
-	getElement("progress-bar-text").innerText = text;
-}
-
-function setProgress(percent) {
-	getElement("progress-bar").style.width = `${percent}%`;
-}
-
-function setConnectionIndicator(state) {
-	if (state === "offline") {
-		getElement("online-indicator").classList.remove("online");
-		getElement("online-indicator").classList.remove("connecting");
-		getElement("online-indicator").classList.add("offline");
-	} else if (state === "connecting") {
-		getElement("online-indicator").classList.remove("offline");
-		getElement("online-indicator").classList.remove("online");
-		getElement("online-indicator").classList.add("connecting");
-	} else if (state === "online") {
-		getElement("online-indicator").classList.remove("offline");
-		getElement("online-indicator").classList.remove("connecting");
-		getElement("online-indicator").classList.add("online");
-	} else {
-		console.error(`Invalid state: ${state}`);
-		return;
-	}
-	connectionIndicatorState = state;
-}
-
-function updateMainControlButtonText() {
-	if (isMainControlButtonLoading) {
-		getElement("main-control-button").innerText = "Loading...";
-	} else {
-		getElement("main-control-button").innerText = isPlaying ? "Stop" : "Start";
-	}
-}
-
-function handleClickMainControlButton(button) {
-	if (isMainControlButtonLoading) {
-		logWarn("Main control button is already loading, ignoring click.");
-		return;
-	}
-
-	if (tabs.mods.isLoadingInstalledMods || tabs.mods.isLoadingRemoteMods) {
-		logWarn("Mods tab is currently loading, ignoring click.");
-		return;
-	}
-
-	if (tabs.mods.isPerformingActions) {
-		logWarn("Mods tab is currently performing actions, ignoring click.");
-		return;
-	}
-
-	isMainControlButtonLoading = true;
-	updateMainControlButtonText();
-	getElement("main-control-button").classList.toggle("active", true);
-
-	// Here we would normally change the functionality
-	if (true) {
-		togglePlaying();
-	}
-}
-
-function togglePlaying() {
-	setProgressText("Loading...");
-	setProgress(0);
-
-	if (!isPlaying) {
-		setTimeout(() => {
-			// Wait for the game to finish
-			electron.invoke(`fl:wait-for-game-closed`).then(() => {
-				setProgressText("Game closed.");
-				setProgress(0);
-
-				isPlaying = false;
-				updateMainControlButtonText();
-				getElement("main-control-button").classList.toggle("active", false);
-			});
-
-			// Start the game after the cleanup listener is added
-			electron.invoke(`fl:start-game`).then(() => {
-				setProgressText("Game started.");
-				setProgress(100);
-
-				isMainControlButtonLoading = false;
-				isPlaying = true;
-				updateMainControlButtonText();
-				getElement("main-control-button").classList.toggle("active", true);
-			});
-		}, DELAY_PLAY_MS);
-	} else {
-		electron.invoke(`fl:stop-game`).then(() => {
-			setProgressText("Game stopped.");
-			setProgress(0);
-
-			isMainControlButtonLoading = false;
-			isPlaying = false;
-			updateMainControlButtonText("Start");
-			getElement("main-control-button").classList.toggle("active", false);
-		});
-	}
-}
-
-async function setupTabs() {
-	tabs.mods = new ModsTab();
-	tabs.config = new ConfigTab();
-	tabs.logs = new LogsTab();
-
-	for (const tab in tabs) {
-		getElement(`tab-${tab}`).addEventListener("click", async () => {
-			await selectTab(tab);
-		});
-
-		if (tabs[tab] && tabs[tab].setup) {
-			await tabs[tab].setup();
-		}
-	}
-}
-
-async function selectTab(tab) {
-	if (selectedTab) {
-		getElement(`tab-${selectedTab}`).classList.remove("selected");
-		getElement(`${selectedTab}-tab-content`).style.display = "none";
-		if (tabs[selectedTab] && tabs[selectedTab].deselectTab) await tabs[selectedTab].deselectTab();
-	}
-
-	selectedTab = tab;
-
-	getElement(`tab-${tab}`).classList.add("selected");
-	getElement(`${tab}-tab-content`).style.display = "block";
-	if (tabs[tab] && tabs[tab].selectTab) await tabs[tab].selectTab();
-}
-
-function convertUploadTimeToString(uploadTime) {
-	if (uploadTime == null) return "";
-	const date = new Date(uploadTime);
-	const now = new Date();
-	const diff = now - date;
-
-	// if within 1 minute, show as seconds
-	if (diff < 60 * 1000) {
-		const seconds = Math.floor(diff / 1000);
-		return `${seconds}s ago`;
-	}
-
-	// if within 24 hours, show as hours:minutes
-	if (diff < 24 * 60 * 60 * 1000) {
-		const hours = Math.floor(diff / (60 * 60 * 1000));
-		const minutes = Math.floor((diff % (60 * 60 * 1000)) / (60 * 1000));
-		if (hours === 0) return `${minutes}m ago`;
-		else return `${hours}h ${minutes}m ago`;
-	}
-
-	// if within 30 days, show as days:hours
-	if (diff < 30 * 24 * 60 * 60 * 1000) {
-		const days = Math.floor(diff / (24 * 60 * 60 * 1000));
-		const hours = Math.floor((diff % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
-		return `${days}d ${hours}h ago`;
-	}
-
-	// if older than 30 days, show as date
-	const options = { year: "numeric", month: "2-digit", day: "2-digit" };
-	const formattedDate = date.toLocaleDateString("en-US", options);
-	const formattedTime = date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-	return `${formattedDate} ${formattedTime}`;
 }
 
 class ModsTab {
@@ -483,7 +335,7 @@ class ModsTab {
 	isLoadingRemoteMods = false;
 	isPerformingActions = false;
 
-	// --- Setup ---
+	// ------------ SETUP ------------
 
 	setup() {
 		getElement("mods-tab-table")
@@ -719,10 +571,10 @@ class ModsTab {
 		return { element, modData, isVisible: true };
 	}
 
-	// --- Main ---
+	// ------------ MAIN ------------
 
-	selectMod(modID) {
-		this.setModConfigOpen(false);
+	async selectMod(modID) {
+		await this.setModConfigOpen(false);
 
 		// Deselect a mod and remove all mod info
 		if (this.selectedMod !== null) {
@@ -821,7 +673,7 @@ class ModsTab {
 		getElement("mods-load-button").innerText = text;
 	}
 
-	setModConfigOpen(enabled) {
+	async setModConfigOpen(enabled) {
 		if (this.isModConfigOpen === enabled) return;
 
 		this.isModConfigOpen = enabled;
@@ -841,11 +693,14 @@ class ModsTab {
 			logWarn(`Mod ${this.selectedMod} does not have a config schema, cannot show config.`);
 			return;
 		}
+
 		configContainer.style.display = "block";
 		modInfoContainer.style.display = "none";
 		configContainer.innerHTML = "";
-		const config = electron.invoke("fl-mod-config:get", this.selectedMod);
+
+		const config = await electron.invoke("fl-mod-config:get", this.selectedMod);
 		const schema = modData.meta.info.configSchema;
+
 		this.configRenderer = new ConfigSchemaElement(configContainer, config, schema, async (newConfig) => {
 			logInfo(`Mod ${this.selectedMod} config changed, notifying electron...`);
 			const success = await electron.invoke("fl-mod-config:set", {
@@ -865,7 +720,20 @@ class ModsTab {
 		});
 	}
 
-	// --- Queueing and Actions ---
+	forceSetModSchema(modID, schema) {
+		if (this.modRows[modID] == null) {
+			logError(`Mod ${modID} not found, cannot force set schema.`);
+		}
+
+		this.modRows[modID].modData.meta.info.configSchema = schema;
+
+		if (this.isModConfigOpen && this.selectedMod === modID) {
+			logInfo(`Forcing set schema for mod ${modID}`);
+			this.configRenderer.forceSetSchema(schema);
+		}
+	}
+
+	// ------------ ACTIONS ------------
 
 	queueInstall(modID, version) {
 		if (this.isPerformingActions) return;
@@ -887,7 +755,7 @@ class ModsTab {
 		this.isPerformingActions = true;
 	}
 
-	// --- Filtering ---
+	// ------------ FILTERING ------------
 
 	onSearchChanged() {
 		const searchInput = getElement("mods-tab-search").value.toLowerCase();
@@ -911,9 +779,11 @@ class ConfigTab {
 	renderer = null;
 
 	async setup() {
-		// Load config and schema and create the ConfigSchemaElement
+		// Load config and schema
 		const config = await electron.invoke("fl:get-fluxloader-config");
 		const configSchema = await electron.invoke("fl:get-fluxloader-config-schema");
+
+		// Setup the config schema element
 		const mainElement = getElement("config-tab-content").querySelector(".main");
 		this.renderer = new ConfigSchemaElement(mainElement, config, configSchema, async (newConfig) => {
 			logInfo("Config changed, notifying electron...");
@@ -930,22 +800,42 @@ class ConfigTab {
 		});
 	}
 
-	selectTab() {
-		this.renderer.updateValues();
+	async selectTab() {
+		const config = await electron.invoke("fl:get-fluxloader-config");
+		this.renderer.forceSetConfig(config);
+	}
+
+	forceSetConfig(config) {
+		this.renderer.forceSetConfig(config);
+	}
+
+	forceSetSchema(schema) {
+		this.renderer.forceSetSchema(schema);
 	}
 }
 
 class LogsTab {
+	static SOURCE_LOG_LIMIT = 200;
 	sources = { manager: {}, electron: {}, game: {} };
 	selectedLogSource = null;
 	remoteLogIndex = 0;
+	isSetup = false;
+	isNotifyingError = false;
+	errorNotificationElement = null;
+	tabContainer = null;
+	mainContainer = null;
 
-	setup() {
+	async setup() {
 		// Clear and setup the elements
-		const tabContainer = getElement("logs-tab-content").querySelector(".logs-tab-list");
-		const mainContainer = getElement("logs-tab-content").querySelector(".logs-content-scroll");
-		tabContainer.innerHTML = "";
-		mainContainer.innerHTML = "";
+		this.tabContainer = getElement("logs-tab-content").querySelector(".logs-tab-list");
+		this.mainContainer = getElement("logs-tab-content").querySelector(".logs-content-scroll");
+		this.tabContainer.innerHTML = "";
+		this.mainContainer.innerHTML = "";
+
+		// Setup error notification element
+		const tabElement = getElement("tab-logs");
+		this.errorNotificationElement = createElement(`<img class="logs-error-notification" src="assets/cross.png" style="display: none;">`);
+		tabElement.appendChild(this.errorNotificationElement);
 
 		for (const source in this.sources) {
 			// Create a selectable tab
@@ -954,11 +844,11 @@ class LogsTab {
 					<span class="logs-tab-text">${source.charAt(0).toUpperCase() + source.slice(1)}</span>
 				</div>`);
 			tab.addEventListener("click", () => this.selectLogSource(source));
-			tabContainer.appendChild(tab);
+			this.tabContainer.appendChild(tab);
 
 			// Create a content container
 			const content = createElement(`<div class="logs-content" style="display: none;" data-source="${source}"></div>`);
-			mainContainer.appendChild(content);
+			this.mainContainer.appendChild(content);
 
 			// Initialize the source data
 			this.sources[source].logs = [];
@@ -967,10 +857,18 @@ class LogsTab {
 			this.sources[source].contentElement = content;
 		}
 
+		// Select the default log source
 		this.selectLogSource("manager");
+
+		this.isSetup = true;
+
+		// Request the logs that have made up to this point
+		const managerLogs = await electron.invoke("fl:request-manager-logs");
+		tabs.logs.receiveLogs(managerLogs);
 	}
 
 	selectTab() {
+		this.updateErrorNotification(false);
 		this.updateLogView();
 	}
 
@@ -1001,8 +899,9 @@ class LogsTab {
 		const sourceData = this.sources[source];
 		const logs = sourceData.logs;
 		const content = sourceData.contentElement;
-		let i = sourceData.renderedIndex + 1;
-		for (; i < logs.length; i++) {
+
+		// Render up to the newest logs
+		for (let i = sourceData.renderedIndex + 1; i < logs.length; i++) {
 			const log = logs[i];
 			let timestampText = log.timestamp.toISOString().split("T")[1].split("Z")[0];
 			const row = createElement(`
@@ -1015,20 +914,36 @@ class LogsTab {
 			`);
 			content.appendChild(row);
 		}
-
 		sourceData.renderedIndex = logs.length - 1;
+
+		// Remove old logs if we exceed the limit
+		if (logs.length > LogsTab.SOURCE_LOG_LIMIT) {
+			const excessCount = logs.length - LogsTab.SOURCE_LOG_LIMIT;
+			for (let j = 0; j < excessCount; j++) {
+				logs.shift();
+				if (!content.firstChild) throw new Error("Trying to trim a log that doesn't exist.");
+				content.removeChild(content.firstChild);
+				sourceData.renderedIndex--;
+			}
+		}
+		
+		// Scroll to the bottom of the log view
+		console.log(this.mainContainer);
+		this.mainContainer.scrollTop = content.scrollHeight - 0.1;
 	}
 
 	addLog(log) {
+		if (!this.isSetup) {
+			console.log("Logs tab not setup yet, cannot add log.");
+			return;
+		}
+
 		if (!log || !log.timestamp || !log.level || !log.message) {
 			logWarn(`Invalid log entry: ${JSON.stringify(log)}`);
 			return;
 		}
 
-		if (!this.sources[log.source]) {
-			logError(`Unknown log source: ${log.source}`);
-			return;
-		}
+		if (log.level === "error") this.updateErrorNotification(true);
 
 		this.sources[log.source].logs.push(log);
 
@@ -1039,19 +954,199 @@ class LogsTab {
 		for (let i = this.remoteLogIndex; i < logs.length; i++) this.addLog(logs[i]);
 		this.remoteLogIndex = logs.length;
 	}
+
+	receiveLog(log) {
+		// Have to assume received logs in-order
+		this.addLog(log);
+		this.remoteLogIndex++;
+	}
+
+	updateErrorNotification(toggled) {
+		if (selectedTab === "logs" && toggled) return;
+		this.isNotifyingError = toggled;
+		this.errorNotificationElement.style.display = toggled ? "block" : "none";
+	}
 }
 
-// ---------------- DRIVER ----------------
+function setupElectronEvents() {
+	electron.on("fl:forward-log", (_, log) => {
+		tabs.logs.receiveLog(log);
+	});
+
+	electron.on(`fl:game-closed`, () => {
+		console.log("Game closed event received " + new Date().toISOString());
+		if (!isPlaying) return;
+		setProgressText("Game closed.");
+		setProgress(0);
+		isPlaying = false;
+		updateMainControlButtonText();
+		getElement("main-control-button").classList.toggle("active", false);
+	});
+
+	electron.on("fl:mod-schema-updated", (_, { modID, schema }) => {
+		logInfo(`Received schema update for mod ${modID}`);
+		tabs.mods.forceSetModSchema(modID, schema);
+	});
+
+	electron.on("fl:fluxloader-config-updated", (_, config) => {
+		logInfo("Received config update for FluxLoader");
+		tabs.config.forceSetConfig(config);
+	});
+}
+
+async function setupTabs() {
+	tabs.logs = new LogsTab();
+	tabs.mods = new ModsTab();
+	tabs.config = new ConfigTab();
+
+	for (const tab in tabs) {
+		getElement(`tab-${tab}`).addEventListener("click", async () => {
+			await selectTab(tab);
+		});
+		if (tabs[tab].setup) await tabs[tab].setup();
+	}
+}
+
+async function selectTab(tab) {
+	if (selectedTab) {
+		getElement(`tab-${selectedTab}`).classList.remove("selected");
+		getElement(`${selectedTab}-tab-content`).style.display = "none";
+		if (tabs[selectedTab].deselectTab) await tabs[selectedTab].deselectTab();
+	}
+
+	selectedTab = tab;
+
+	getElement(`tab-${tab}`).classList.add("selected");
+	getElement(`${tab}-tab-content`).style.display = "block";
+	if (tabs[tab].selectTab) await tabs[tab].selectTab();
+}
+
+async function togglePlaying() {
+	setProgressText("Loading...");
+	setProgress(0);
+
+	if (!isPlaying) {
+		console.log("Starting game... " + new Date().toISOString());
+		await electron.invoke(`fl:start-game`);
+		console.log("Game started successfully " + new Date().toISOString());
+		setProgressText("Game started.");
+		setProgress(100);
+		isMainControlButtonLoading = false;
+		isPlaying = true;
+		updateMainControlButtonText();
+		getElement("main-control-button").classList.toggle("active", true);
+	} else {
+		await electron.invoke(`fl:stop-game`);
+		setProgressText("Game stopped.");
+		setProgress(0);
+		isMainControlButtonLoading = false;
+		isPlaying = false;
+		updateMainControlButtonText("Start");
+		getElement("main-control-button").classList.toggle("active", false);
+	}
+}
+
+function setProgressText(text) {
+	getElement("progress-bar-text").innerText = text;
+}
+
+function setProgress(percent) {
+	getElement("progress-bar").style.width = `${percent}%`;
+}
+
+function setConnectionIndicator(state) {
+	if (state === "offline") {
+		getElement("online-indicator").classList.remove("online");
+		getElement("online-indicator").classList.remove("connecting");
+		getElement("online-indicator").classList.add("offline");
+	} else if (state === "connecting") {
+		getElement("online-indicator").classList.remove("offline");
+		getElement("online-indicator").classList.remove("online");
+		getElement("online-indicator").classList.add("connecting");
+	} else if (state === "online") {
+		getElement("online-indicator").classList.remove("offline");
+		getElement("online-indicator").classList.remove("connecting");
+		getElement("online-indicator").classList.add("online");
+	} else {
+		console.error(`Invalid state: ${state}`);
+		return;
+	}
+	connectionIndicatorState = state;
+}
+
+function updateMainControlButtonText() {
+	if (isMainControlButtonLoading) {
+		getElement("main-control-button").innerText = "Loading...";
+	} else {
+		getElement("main-control-button").innerText = isPlaying ? "Stop" : "Start";
+	}
+}
+
+function handleClickMainControlButton(button) {
+	if (isMainControlButtonLoading) {
+		logWarn("Main control button is already loading, ignoring click.");
+		return;
+	}
+
+	if (tabs.mods.isLoadingInstalledMods || tabs.mods.isLoadingRemoteMods) {
+		logWarn("Mods tab is currently loading, ignoring click.");
+		return;
+	}
+
+	if (tabs.mods.isPerformingActions) {
+		logWarn("Mods tab is currently performing actions, ignoring click.");
+		return;
+	}
+
+	isMainControlButtonLoading = true;
+	updateMainControlButtonText();
+	getElement("main-control-button").classList.toggle("active", true);
+
+	// Here we would normally change the functionality
+	if (true) {
+		togglePlaying();
+	}
+}
+
+function convertUploadTimeToString(uploadTime) {
+	if (uploadTime == null) return "";
+	const date = new Date(uploadTime);
+	const now = new Date();
+	const diff = now - date;
+
+	// if within 1 minute, show as seconds
+	if (diff < 60 * 1000) {
+		const seconds = Math.floor(diff / 1000);
+		return `${seconds}s ago`;
+	}
+
+	// if within 24 hours, show as hours:minutes
+	if (diff < 24 * 60 * 60 * 1000) {
+		const hours = Math.floor(diff / (60 * 60 * 1000));
+		const minutes = Math.floor((diff % (60 * 60 * 1000)) / (60 * 1000));
+		if (hours === 0) return `${minutes}m ago`;
+		else return `${hours}h ${minutes}m ago`;
+	}
+
+	// if within 30 days, show as days:hours
+	if (diff < 30 * 24 * 60 * 60 * 1000) {
+		const days = Math.floor(diff / (24 * 60 * 60 * 1000));
+		const hours = Math.floor((diff % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+		return `${days}d ${hours}h ago`;
+	}
+
+	// if older than 30 days, show as date
+	const options = { year: "numeric", month: "2-digit", day: "2-digit" };
+	const formattedDate = date.toLocaleDateString("en-US", options);
+	const formattedTime = date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+	return `${formattedDate} ${formattedTime}`;
+}
+
+// =================== DRIVER ===================
 
 (async () => {
 	await setupTabs();
-
-	electron.on("fl:forward-logs", (_, logs) => {
-		if (tabs && tabs.logs) tabs.logs.receiveLogs(logs);
-	});
-
-	const managerLogs = await electron.invoke("fl:request-manager-logs");
-	tabs.logs.receiveLogs(managerLogs);
+	setupElectronEvents();
 
 	getElement("main-control-button").addEventListener("click", () => handleClickMainControlButton());
 

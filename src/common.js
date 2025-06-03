@@ -97,7 +97,7 @@ export class SchemaValidation {
 					target[schemaKey] = schemaValue.default;
 				}
 				if (!this.validateValue(target[schemaKey], schemaValue)) {
-					log("error", "", `Target Invalid: Key '${schemaKey}' is not valid`);
+					log("error", "", `Target Invalid: Key '${schemaKey}' is invalid`);
 					return false;
 				}
 			}

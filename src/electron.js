@@ -10,7 +10,7 @@ import { randomUUID } from "crypto";
 import { marked } from "marked";
 import { EventBus, SchemaValidation, Logging } from "./common.js";
 
-// ------------- VARIABLES -------------
+// =================== VARIABLES ===================
 
 globalThis.fluxloaderVersion = "2.0.0";
 globalThis.fluxloaderAPI = undefined;
@@ -34,7 +34,7 @@ let logsForManager = [];
 let isGameStarted = false;
 let isManagerStarted = false;
 
-// ------------- LOGGING -------------
+// =================== LOGGING ===================
 
 function setupLogFile() {
 	if (!configLoaded) return;
@@ -87,15 +87,10 @@ globalThis.logError = (...args) => log("error", "", args.join(" "));
 
 function forwardLogToManager(log) {
 	logsForManager.push(log);
-	sendLogsToManager();
+	trySendManagerEvent("fl:forward-log", log);
 }
 
-function sendLogsToManager() {
-	if (!managerWindow || !managerWindow.webContents || managerWindow.webContents.isDestroyed()) return;
-	managerWindow.webContents.send("fl:forward-logs", logsForManager);
-}
-
-// ------------- UTILTY -------------
+// =================== UTILTY ===================
 
 function resolvePathRelativeToFluxloader(name) {
 	// If absolute then return the path as is
@@ -191,7 +186,7 @@ function updateObjectWithDefaults(defaultValues, target) {
 	return modified;
 }
 
-// ------------- MAIN -------------
+// =================== MAIN ===================
 
 class ElectronFluxloaderAPI {
 	static allEvents = ["fl:mod-loaded", "fl:mod-unloaded", "fl:all-mods-loaded", "fl:game-started", "fl:game-closed", "fl:page-redirect", "fl:config-changed"];
@@ -440,7 +435,6 @@ class GameFilesManager {
 		this.fileData[file].patches.delete(tag);
 	}
 
-	// Silently failing version of removePatch (yes it is just a try catch wrapper)
 	tryRemovePatch(file, tag) {
 		try {
 			this.removePatch(file, tag);
@@ -853,6 +847,8 @@ class ModsManager {
 
 		// TODO: Here we should check dependencies and fluxloader versions probably
 
+		this.applyModsScriptModifySchema();
+
 		// Final report of installed mods
 		const modCount = Object.keys(this.installedMods).length;
 		logInfo(
@@ -923,8 +919,22 @@ class ModsManager {
 		logDebug("All mods unloaded successfully");
 	}
 
+	applyModsScriptModifySchema() {
+		// Modify each mods schema
+		for (const modID in this.installedMods) {
+			const mod = this.installedMods[modID];
+			if (this.modScriptsImport[modID] && this.modScriptsImport[modID].modifySchema) {
+				logDebug(`Modifying schema for mod: ${modID}`);
+				this.modScriptsImport[modID].modifySchema(mod.info.configSchema);
+				trySendManagerEvent("fl:mod-schema-updated", { modID, schema: mod.info.configSchema });
+			}
+		}
+	}
+
 	installMod(modID, version) {
 		logDebug(`Installing mod: ${modID} (v${version})`);
+
+		this.applyModsScriptModifySchema();
 	}
 
 	uninstallMod(modID) {
@@ -943,6 +953,8 @@ class ModsManager {
 		delete this.modScriptsImport[modID];
 		this.loadOrder = this.loadOrder.filter((id) => id !== modID);
 		logDebug(`Mod uninstalled successfully: ${modID}`);
+
+		this.applyModsScriptModifySchema();
 	}
 
 	async fetchRemoteMods(config) {
@@ -1010,6 +1022,9 @@ class ModsManager {
 		logDebug(`Setting mod ${modID} enabled state to ${enabled}`);
 		this.installedMods[modID].isEnabled = enabled;
 
+		// Update mod schemas if needed
+		this.applyModsScriptModifySchema();
+
 		// Save this to the config file
 		config.modsEnabled[modID] = enabled;
 		updateFluxloaderConfig();
@@ -1063,6 +1078,7 @@ class ModsManager {
 				throw new Error(`Mod defines ${type} entrypoint ${entrypointPath} but file not found: ${modPath}`);
 			}
 		};
+
 		validateEntrypoint("electron");
 		validateEntrypoint("game");
 		validateEntrypoint("worker");
@@ -1094,14 +1110,11 @@ class ModsManager {
 
 		// if it defines a config schema then we need to validate it first
 		if (mod.info.configSchema && Object.keys(mod.info.configSchema).length > 0) {
-			if (this.modScriptsImport[mod.info.modID] && this.modScriptsImport[mod.info.modID].modifySchema) {
-				logDebug(`Modifying schema for mod: ${mod.info.modID}`);
-				this.modScriptsImport[mod.info.modID].modifySchema(mod.info.configSchema);
-			}
-
 			logDebug(`Validating schema for mod: ${mod.info.modID}`);
 			let config = fluxloaderAPI.modConfig.get(mod.info.modID);
-			SchemaValidation.validate(config, mod.info.configSchema);
+			if (!SchemaValidation.validate(config, mod.info.configSchema)) {
+				logWarn(`Mod config for ${mod.info.modID} is invalid!`);
+			}
 			fluxloaderAPI.modConfig.set(mod.info.modID, config);
 		}
 
@@ -1215,7 +1228,10 @@ function loadFluxloaderConfig() {
 function updateFluxloaderConfig() {
 	fs.writeFileSync(configPath, JSON.stringify(config, null, 4), "utf8");
 	logDebug(`Fluxloader config updated successfully: ${configPath}`);
-	if (fluxloaderAPI) fluxloaderAPI.events.tryTrigger("fl:config-updated", config);
+	if (fluxloaderAPI) {
+		fluxloaderAPI.events.tryTrigger("fl:fluxloader-config-updated", config);
+		trySendManagerEvent("fl:fluxloader-config-updated", config);
+	}
 }
 
 function findValidGamePath() {
@@ -1430,7 +1446,17 @@ function addFluxloaderPatches() {
 	}
 }
 
-// ------------ ELECTRON  ------------
+function trySendManagerEvent(eventName, args) {
+	if (!managerWindow || managerWindow.isDestroyed()) return;
+	try {
+		if (eventName !== "fl:forward-log") logDebug(`Sending event ${eventName} to manager ${new Date().toISOString()}`);
+		managerWindow.webContents.send(eventName, args);
+	} catch (e) {
+		logError(`Failed to send event ${eventName} to manager window: ${e.stack}`);
+	}
+}
+
+// =================== ELECTRON  ===================
 
 function setupElectronIPC() {
 	logDebug("Setting up electron IPC handlers");
@@ -1453,7 +1479,7 @@ function setupElectronIPC() {
 		"fl:get-fluxloader-config-schema": (_) => configSchema,
 		"fl:get-fluxloader-version": (_) => fluxloaderVersion,
 		"fl:forward-log-to-manager": (args) => forwardLogToManager(args),
-		"fl:request-manager-logs": (_) => logsForManager
+		"fl:request-manager-logs": (_) => logsForManager,
 	};
 
 	for (const [endpoint, handler] of Object.entries(simpleEndpoints)) {
@@ -1467,17 +1493,6 @@ function setupElectronIPC() {
 			}
 		});
 	}
-
-	ipcMain.handle("fl:wait-for-game-closed", async (_) => {
-		logDebug("Received fl:wait-for-game-closed");
-		return new Promise((resolve) => {
-			const handler = () => {
-				fluxloaderEvents.off("game-cleanup", handler);
-				resolve();
-			};
-			fluxloaderEvents.on("game-cleanup", handler);
-		});
-	});
 
 	ipcMain.handle("fl:set-fluxloader-config", async (event, args) => {
 		logDebug(`Received fl:set-fluxloader-config with args: ${JSON.stringify(args)}`);
@@ -1556,9 +1571,12 @@ async function startGame() {
 		if (config.game.openDevTools) gameWindow.openDevTools();
 		fluxloaderAPI.events.trigger("fl:game-started");
 	} catch (e) {
+		console.error(`Error starting game window: ${e.stack}`);
 		closeGame();
 		throw new Error(`Error starting game window`, e);
 	}
+
+	console.log(`Game started successfully at ${new Date().toISOString()}`);
 }
 
 function closeGame() {
@@ -1571,7 +1589,7 @@ function closeGame() {
 	gameWindow = null;
 	fluxloaderAPI.events.trigger("fl:game-closed");
 	modsManager.unloadAllMods();
-	fluxloaderEvents.trigger("game-cleanup");
+	trySendManagerEvent("fl:game-closed");
 	isGameStarted = false;
 }
 
@@ -1629,7 +1647,7 @@ async function startApp() {
 	}
 }
 
-// ------------ MAIN ------------
+// =================== MAIN ===================
 
 (async () => {
 	await startApp();
