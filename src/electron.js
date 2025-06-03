@@ -862,6 +862,8 @@ class ModsManager {
 	async loadAllMods() {
 		if (this.areModsLoaded) throw new Error("Cannot load mods, some mods are already loaded");
 
+		this.applyModsScriptModifySchema();
+		
 		const enabledCount = this.loadOrder.filter((modID) => this.installedMods[modID].isEnabled).length;
 		if (enabledCount == this.loadOrder.length) {
 			logDebug(`Loading ${this.loadOrder.length} mods...`);
@@ -925,6 +927,7 @@ class ModsManager {
 			const mod = this.installedMods[modID];
 			if (this.modScriptsImport[modID] && this.modScriptsImport[modID].modifySchema) {
 				logDebug(`Modifying schema for mod: ${modID}`);
+				mod.info.configSchema = JSON.parse(JSON.stringify(mod.info.configSchemaBase));
 				this.modScriptsImport[modID].modifySchema(mod.info.configSchema);
 				trySendManagerEvent("fl:mod-schema-updated", { modID, schema: mod.info.configSchema });
 			}
@@ -1050,7 +1053,7 @@ class ModsManager {
 	// ------------ INTERNAL ------------
 
 	async _initializeMod(modPath) {
-		// Load the modInfo schema on the first call
+		// Load the modInfo schema on first call to _initializeMod()
 		if (!this.modInfoSchema) {
 			try {
 				const resolvedPath = resolvePathInsideFluxloader(modInfoSchemaPath);
@@ -1070,6 +1073,9 @@ class ModsManager {
 		if (!SchemaValidation.validate(modInfo, this.modInfoSchema, { unknownKeyMethod: "ignore" })) {
 			throw new Error(`Invalid modinfo.json found: ${modInfoPath}`);
 		}
+
+		// Store the base schema
+		modInfo.configSchemaBase = JSON.parse(JSON.stringify(modInfo.configSchema));
 
 		// Validate each entrypoint
 		const validateEntrypoint = (type) => {
@@ -1112,9 +1118,7 @@ class ModsManager {
 		if (mod.info.configSchema && Object.keys(mod.info.configSchema).length > 0) {
 			logDebug(`Validating schema for mod: ${mod.info.modID}`);
 			let config = fluxloaderAPI.modConfig.get(mod.info.modID);
-			if (!SchemaValidation.validate(config, mod.info.configSchema)) {
-				logWarn(`Mod config for ${mod.info.modID} is invalid!`);
-			}
+			SchemaValidation.validate(config, mod.info.configSchema);
 			fluxloaderAPI.modConfig.set(mod.info.modID, config);
 		}
 
