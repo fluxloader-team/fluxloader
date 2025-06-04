@@ -15,6 +15,7 @@
 	--color-bg-medium: #2c2f39;
 	--color-bg-light: #3a3d49;
 	--color-bg-light2: #4c4f5b;
+	--color-bg-light3: #6f717a;
 	--color-text-primary: #ddd;
 	--color-text-secondary: #aaa;
 	--color-text-muted: #919191;
@@ -22,6 +23,7 @@
 	--color-vivid-green: #53b356;
 	--color-vivid-red: #d9534f;
 	--color-vivid-orange: #f0ad4e;
+	--color-vivid-blue: #528bf1;
 
 	/* Modified Colours */
 	--color-bg-dark3-hover-lighter: #2a2d36;
@@ -34,6 +36,8 @@
 	--color-bg-light-hover-lighter: #4c505d;
 	--color-bg-light-active-lighter: #525564;
 	--color-bg-light2-hover-lighter: #5c5f70;
+	--color-bg-light3-hover-lighter: #848790;
+	--color-vivid-blue-hover-lighter: #7d9bf6;
 
 	/* Specific Colours */
 	--color-control: #888;
@@ -163,6 +167,33 @@ body {
 
 ::-webkit-scrollbar-corner {
 	background: var(--color-bg-dark3);
+}
+
+input[type="checkbox"] {
+	appearance: none;
+	background: var(--color-bg-light3);
+	border-radius: var(--br-small);
+	width: 0.9rem;
+	height: 0.9rem;
+	border: none;
+	outline: none;
+	padding: 0;
+}
+
+input[type="checkbox"]:hover {
+	background: var(--color-bg-light3-hover-lighter);
+	border: none;
+	outline: none;
+}
+
+input[type="checkbox"]:checked {
+	background: var(--color-vivid-blue);
+	border: none;
+	outline: none;
+}
+
+input[type="checkbox"]:checked:hover {
+	background: var(--color-vivid-blue-hover-lighter);
 }
 
 /* -------------------- TAB/MODS -------------------- */
@@ -332,7 +363,6 @@ body {
 	position: relative;
 	overflow: hidden;
 	white-space: nowrap;
-	text-overflow: ellipsis;
 	width: fit-content;
 }
 
@@ -370,7 +400,30 @@ body {
 	background: var(--color-bg-dark);
 }
 
-#mods-tab-content .mods-tab-table-tag-list {
+#mods-tab-content .mods-table td.mod-row-versions select {
+	width: 100%;
+	height: 1.6rem;
+	background: var(--color-bg-light2);
+	color: var(--color-text-primary);
+	border-radius: var(--br-small);
+	font-size: 0.9rem;
+	padding-left: 0.2rem;
+	outline: none;
+	border: none;
+}
+
+#mods-tab-content .mods-table td.mod-row-versions select:hover {
+	background: var(--color-bg-light2-hover-lighter);
+	outline: none;
+	border: none;
+}
+
+#mods-tab-content .mods-table td.mod-row-versions option {
+	background: var(--color-bg-light2);
+	color: var(--color-text-primary);
+}
+
+#mods-tab-content .mods-table-tag-list {
 	text-overflow: unset;
 }
 
@@ -661,6 +714,7 @@ body {
 	padding: 0.2rem 0.5rem;
 	margin: 0.2rem;
 	font-size: 0.8rem;
+	overflow: hidden;
 }
 
 /* -------------------- TAB/CONFIG -------------------- */
@@ -1015,7 +1069,7 @@ body {
 }
 
 .config-schema-container .config-input[type="checkbox"] {
-	width: auto;
+	padding: 0;
 }
 
 .config-schema-container .config-input.invalid {

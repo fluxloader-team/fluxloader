@@ -434,7 +434,7 @@ class ModsTab {
 		this.isLoadingMods = false;
 		this.setLoadButtonText("Load more mods");
 		setProgressText("Loaded mods.");
-		setProgress(100);
+		setProgress(0);
 	}
 
 	async _loadInstalledMods() {
@@ -470,7 +470,7 @@ class ModsTab {
 				modID: mod.info.modID,
 				info: mod.info,
 				votes: null,
-				lastUpdated: "",
+				lastUpdated: "local",
 				renderedDescription: mod.renderedDescription,
 				version: null,
 				isLocal: true,
@@ -490,26 +490,29 @@ class ModsTab {
 		if (!this.isLoadingMods) return;
 
 		// Request the versions for the installed mods from the backend
-		const mods = await api.invoke("fl:get-installed-mods-versions");
+		const modVersions = await api.invoke("fl:get-installed-mods-versions");
 
 		// Update each existing installed mod we got versions for
-		for (const mod of mods) {
-			if (this.modRows[mod.modID] == null) {
-				logError(`Mod ${mod.modID} should exist but it does not.`);
+		for (const modID in modVersions) {
+			if (this.modRows[modID] == null) {
+				logError(`Mod ${modID} should exist but it does not.`);
 				continue;
 			}
 
 			// It is possible that the mod is local only
-			if (mod.versions == null || mod.versions.length === 0) continue;
+			if (modVersions[modID] == null || modVersions[modID].length === 0) continue;
 
 			// Update mod row data with new versions
-			this.modRows[mod.modID].modData.versions = mod.versions;
-			const versionsTD = this.modRows[mod.modID].element.querySelector(".mod-row-versions");
+			this.modRows[modID].modData.versions = modVersions[modID];
+			const versionsTD = this.modRows[modID].element.querySelector(".mod-row-versions");
 			if (versionsTD == null) {
-				logError(`Mod row for ${mod.modID} does not have versions td, cannot update versions.`);
+				logError(`Mod row for ${modID} does not have versions td, cannot update versions.`);
 				return;
 			}
-			versionsTD.innerHTML = this._createModRowVersions(this.modRows[mod.modID].modData);
+
+			// Create the versions element
+			const versionElement = this.createModRowVersions(this.modRows[modID].modData);
+			element.querySelector(".mod-row-versions").appendChild(versionElement);
 		}
 	}
 
@@ -570,6 +573,7 @@ class ModsTab {
 		}
 		for (const modID of newModIDs) tbody.appendChild(this.modRows[modID].element);
 		this.currentModPage++;
+		setConnectionState("online");
 	}
 
 	createModRow(modData) {
@@ -581,10 +585,10 @@ class ModsTab {
 				`</td>
 				<td>${modData.info.name}</td>
 				<td>${modData.info.author}</td>
-				<td class="mod-row-versions">${this._createModRowVersions(modData)}</td>
+				<td class="mod-row-versions"></td>
 				<td>${modData.info.shortDescription || ""}</td>
 				<td>${modData.lastUpdated}</td>
-				<td class="mods-tab-table-tag-list">
+				<td class="mods-table-tag-list">
 				${
 					modData.info.tags
 						? modData.info.tags.reduce((acc, tag) => {
@@ -598,6 +602,10 @@ class ModsTab {
 
 		element.classList.toggle("disabled", modData.isInstalled && !modData.isEnabled);
 		element.addEventListener("click", (e) => this.selectMod(modData.modID));
+
+		// Setup version element
+		const versionElement = this.createModRowVersions(modData);
+		element.querySelector(".mod-row-versions").appendChild(versionElement);
 
 		// Listen to the checkbox for enabling / disabling mods
 		if (modData.isInstalled) {
@@ -622,20 +630,32 @@ class ModsTab {
 		return { element, modData, isVisible: true };
 	}
 
-	_createModRowVersions(modData) {
+	createModRowVersions(modData) {
 		if (modData.versions == null || modData.versions.length === 0) {
-			return `<span>${modData.info.version}</span>`;
+			return createElement(`<span>${modData.info.version}</span>`);
 		} else {
-			return `
+			const dropdown = createElement(`
 				<select>
 					${modData.versions.reduce((acc, version) => {
 						return acc + `<option value="${version}" ${version === modData.info.version ? "selected" : ""}>${version}</option>`;
 					}, "")}
-				</select>`;
+				</select>`);
+			dropdown.addEventListener("click", (e) => e.stopPropagation());
+			dropdown.addEventListener("change", (e) => this.changeModVersion(modData.modID, e));
+			return dropdown;
 		}
 	}
 
 	// ------------ MAIN ------------
+
+	async changeModVersion(modID, e) {
+		const version = e.target.value;
+		logInfo(`Changing mod ${modID} version to ${version}`);
+		await api.invoke("fl:get-mod-version", { modID, version });
+		
+		e.target.value = this.modRows[modID].modData.info.version;
+		e.preventDefault();
+	}
 
 	async selectMod(modID) {
 		await this.setViewingModConfig(false);
@@ -1092,7 +1112,7 @@ async function togglePlaying() {
 	if (!isPlaying) {
 		await api.invoke(`fl:start-game`);
 		setProgressText("Game started.");
-		setProgress(100);
+		setProgress(0);
 		isMainControlButtonLoading = false;
 		isPlaying = true;
 		updateMainControlButtonText();
