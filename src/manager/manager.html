@@ -12,8 +12,14 @@
 					<div class="option" id="tab-config"><p>Config</p></div>
 					<div class="option" id="tab-logs"><p>Logs</p></div>
 				</div>
-				<div class="online-indicator">
-					<div class="online-indicator-circle offline" id="online-indicator"></div>
+				<div class="status-container">
+					<div class="blocking-indicator" id="blocking-indicator" style="opacity: 0;">
+						<img src="./assets/hourglass.gif" />
+					</div>
+					<div class="connection-indicator">
+						<div class="connection-button" id="connection-button">Connect</div>
+						<div class="connection-circle offline" id="connection-indicator"></div>
+					</div>
 				</div>
 			</div>
 
@@ -30,8 +36,8 @@
 						<div class="resizer"></div>
 					</div>
 					<div class="main-center">
-						<div class="refresh-mods" id="refresh-mods">
-							<img src="./assets/refresh.png" />
+						<div class="reload-mods" id="reload-mods">
+							<img src="./assets/reload.png" />
 						</div>
 						<div class="main-center-scroll">
 							<table class="mods-table" id="mods-tab-table">
@@ -112,13 +118,19 @@
 						</div>
 						<div class="rightbar-bottom">
 							<div class="mod-buttons" id="mod-buttons" style="display: none"></div>
-							<div class="action-queue" id="mods-tab-action-queue">
-								<div class="selection" id="mods-tab-action-queue-selection">
+							<div class="action-queue" id="action-queue">
+								<div class="selection" id="action-queue-selection">
 									<span>Actions</span>
 									<img src="assets/uparrow.png" />
 								</div>
 								<div class="hider" style="display: none">
-									<div class="content" id="mods-tab-action-queue-content"></div>
+									<div class="content" id="action-queue-content"></div>
+									<div class="action-queue-no-content" id="action-queue-no-content">
+										No actions queued.
+									</div>
+									<div class="footer">
+										<div class="action-execute-button" id="action-execute-button">Execute</div>
+									</div>
 								</div>
 							</div>
 						</div>
@@ -147,7 +159,7 @@
 					</div>
 				</div>
 				<div class="footer-control">
-					<div class="footer-control-input button" id="main-control-button"><p>Play</p></div>
+					<div class="footer-control-input button" id="play-button"><p>Play</p></div>
 					<div class="footer-control-input dropdown"><img src="assets/downarrow.png" /></div>
 				</div>
 			</div>
@@ -155,6 +167,7 @@
 
 		<div class="fullscreen-alert" id="fullscreen-alert" style="display: none">
 			<div class="alert-container">
+				<p class="alert-title">Alert title</p>
 				<p class="alert-text">This is an example warning message that will be shown when an error occurs.</p>
 				<div class="alert-buttons">
 					<div class="alert-button" id="fullscreen-alert-close-button">

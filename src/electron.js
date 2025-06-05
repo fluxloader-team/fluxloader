@@ -1146,7 +1146,6 @@ class ModsManager {
 		// Track the nodes visited to avoid cycles and to avoid re-visiting nodes
 		const totalVisited = new Set();
 		const currentVisited = new Set();
-
 		const visitModID = (modID) => {
 			if (totalVisited.has(modID)) return;
 			if (currentVisited.has(modID)) return errorResponse(`Cyclic dependency at ${modID}`);
@@ -1740,6 +1739,21 @@ function setupElectronIPC() {
 		}
 		config = args;
 		return updateFluxloaderConfig();
+	});
+
+	ipcMain.handle("fl:ping-server", async (event, args) => {
+		logDebug(`Received fl:ping-server with args: ${JSON.stringify(args)}`);
+		const url = `https://fluxloader.app/api`;
+		try {
+			const pingStart = Date.now();
+			const response = await fetch(url);
+			const data = await response.json();
+			const pingEnd = Date.now();
+			logDebug(`Pinged server in ${pingEnd - pingStart}ms`);
+			return successResponse("Server pinged successfully", { data, ping: pingEnd - pingStart });
+		} catch (e) {
+			return errorResponse(`Failed to ping server: ${e.message}`);
+		}
 	});
 }
 

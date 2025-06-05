@@ -33,7 +33,10 @@
 	--color-bg-dark-hover-darker: #20232d;
 	--color-bg-dark-active-lighter: #4c505d;
 	--color-bg-medium-hover-darker: #272a33;
-	--color-bg-light-hover-lighter: #4c505d;
+	--color-bg-medium-active-darker: #24262f;
+	--color-bg-medium-hover-lighter: #333640;
+	--color-bg-light-hover-lighter: #404450;
+	--color-bg-light-active-darker: #353640;
 	--color-bg-light-active-lighter: #525564;
 	--color-bg-light2-hover-lighter: #5c5f70;
 	--color-bg-light3-hover-lighter: #848790;
@@ -99,29 +102,73 @@ body {
 	background: var(--color-bg-dark2-active-lighter);
 }
 
-.online-indicator {
+.status-container {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	padding: 0.4rem;
+	background: var(--color-bg-dark2);
+	padding: 0 1rem;
 }
 
-.online-indicator-circle {
+.status-container .blocking-indicator {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transition: opacity 0.2s ease-in-out;
+}
+
+.status-container .blocking-indicator img {
+	height: 1.8rem;
+	object-fit: contain;
+	transition: transform 0.02s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.status-container .blocking-indicator.animate img {
+	transform: scale(1.15);
+}
+
+.status-container .connection-indicator {
+	padding: 0.4rem;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.7rem;
+}
+
+.status-container .connection-indicator .connection-button {
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	width: 5.5rem;
+	justify-content: center;
+	border-radius: var(--br-small);
+	background: var(--color-bg-light);
+	color: var(--color-text-secondary);
+	padding: 0.2rem 0;
+	font-size: 0.8rem;
+}
+
+.status-container .connection-indicator .connection-button:hover {
+	background: var(--color-bg-light-hover-lighter);
+	color: var(--color-text-primary);
+}
+
+.status-container .connection-indicator .connection-circle {
 	width: 0.9rem;
 	height: 0.9rem;
 	border-radius: 50%;
 	margin-right: 0.4rem;
 }
 
-.online-indicator-circle.offline {
+.status-container .connection-indicator .connection-circle.offline {
 	background: var(--color-vivid-red);
 }
 
-.online-indicator-circle.connecting {
+.status-container .connection-indicator .connection-circle.connecting {
 	background: var(--color-vivid-orange);
 }
 
-.online-indicator-circle.online {
+.status-container .connection-indicator .connection-circle.online {
 	background: var(--color-vivid-green);
 }
 
@@ -213,13 +260,14 @@ input[type="checkbox"]::before {
 input[type="checkbox"]:checked::before {
 	opacity: 1;
 }
+
 .fullscreen-alert {
 	position: fixed;
 	top: 0;
 	left: 0;
 	width: 100vw;
 	height: 100vh;
-	background: #000000cc;
+	background: #00000083;
 	z-index: 1000;
 	display: flex;
 	flex-direction: column;
@@ -227,11 +275,11 @@ input[type="checkbox"]:checked::before {
 	align-items: center;
 }
 
-.fullscreen-alert .vcontainer {
+.fullscreen-alert .alert-container {
 	background: var(--color-bg-light);
 	border-radius: var(--br-medium);
-	box-shadow: 0 4px 24px #0008;
-	padding: 2.2rem 2.5rem 1.5rem 2.5rem;
+	box-shadow: 0 4px 24px rgba(44, 44, 44, 0.071);
+	padding: 2rem 2rem 1.3rem 2rem;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
@@ -240,9 +288,16 @@ input[type="checkbox"]:checked::before {
 	height: fit-content;
 }
 
+.fullscreen-alert .alert-title {
+	color: var(--color-text-primary);
+	font-size: 1.4rem;
+	margin-bottom: 1.2rem;
+	text-align: center;
+}
+
 .fullscreen-alert .alert-text {
 	color: var(--color-text-primary);
-	font-size: 1.2rem;
+	font-size: 1.1rem;
 	margin-bottom: 1.5rem;
 	text-align: center;
 	word-break: break-word;
@@ -268,6 +323,10 @@ input[type="checkbox"]:checked::before {
 
 .fullscreen-alert .alert-buttons .alert-button:hover {
 	background: var(--color-bg-medium-hover-darker);
+}
+
+.block-cursor {
+	cursor: not-allowed !important;
 }
 
 /* -------------------- TAB/MODS -------------------- */
@@ -379,10 +438,14 @@ input[type="checkbox"]:checked::before {
 }
 
 #mods-tab-content .main-center .mods-load-button:hover {
-	background: var(--color-bg-medium-hover-darker);
+	background: var(--color-bg-medium-hover-lighter);
 }
 
-#mods-tab-content .main-center .refresh-mods {
+#mods-tab-content .main-center .mods-load-button.loading {
+	background: var(--color-bg-medium-active-darker);
+}
+
+#mods-tab-content .main-center .reload-mods {
 	position: absolute;
 	right: 1.4rem;
 	bottom: 1.4rem;
@@ -397,14 +460,22 @@ input[type="checkbox"]:checked::before {
 	border-radius: var(--br-medium);
 }
 
-#mods-tab-content .main-center .refresh-mods img {
+#mods-tab-content .main-center .reload-mods img {
 	flex: 0;
 	width: 1.1rem;
 	height: 1.1rem;
 }
 
-#mods-tab-content .main-center .refresh-mods:hover {
+#mods-tab-content .main-center .reload-mods:hover {
 	background: var(--color-bg-light2);
+}
+
+#mods-tab-content .main-center .reload-mods.loading {
+	background: var(--color-bg-light-active-darker);
+}
+
+#mods-tab-content .main-center .reload-mods.loading img {
+	filter: brightness(0.6);
 }
 
 #mods-tab-content .mods-table {
@@ -497,6 +568,7 @@ input[type="checkbox"]:checked::before {
 }
 
 #mods-tab-content .mods-table td.mod-row-status img {
+	position: relative;
 	width: 0.9rem;
 	height: 0.9rem;
 	object-fit: contain;
@@ -507,8 +579,33 @@ input[type="checkbox"]:checked::before {
 	filter: brightness(0.6);
 }
 
+#mods-tab-content .mods-table td.mod-row-status .hover-text {
+	display: none;
+	position: absolute;
+	right: 0.1rem;
+	top: 0.4rem;
+	font-size: 1rem;
+	text-align: center;
+	font-family: monospace;
+	font-weight: bold;
+	pointer-events: none;
+}
+
+#mods-tab-content .mods-table td.mod-row-status img:hover ~ .hover-text {
+	display: block;
+	color: var(--color-text-secondary);
+}
+
 #mods-tab-content .mods-table td.mod-row-status img.active {
 	filter: brightness(0.8);
+}
+
+#mods-tab-content .mods-table td.mod-row-status img.active ~ .hover-text {
+	display: block;
+	color: var(--color-vivid-blue);
+	font-size: 1.2rem;
+	right: 0.04rem;
+	top: 0.28rem;
 }
 
 #mods-tab-content .mods-table-tag-list {
@@ -670,7 +767,7 @@ input[type="checkbox"]:checked::before {
 }
 
 #mods-tab-content .rightbar-bottom .mod-button.active {
-	background: var(--color-bg-light-active-lighter);
+	background: var(--color-bg-light-active-darker);
 }
 
 #mods-tab-content .rightbar-bottom .mod-button span {
@@ -803,6 +900,52 @@ input[type="checkbox"]:checked::before {
 	height: 0.6rem;
 	object-fit: contain;
 	filter: brightness(0.7);
+}
+
+#mods-tab-content .rightbar-bottom .action-queue .content.performing {
+	background: var(--color-bg-light-active-darker);
+	color: var(--color-text-primary);
+	pointer-events: none;
+}
+
+#mods-tab-content .rightbar-bottom .action-queue .action-queue-no-content {
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	color: var(--color-text-muted);
+	background-color: var(--color-bg-light);
+	font-size: 0.9rem;
+	padding: 0.6rem 0.7rem;
+}
+
+#mods-tab-content .rightbar-bottom .action-queue .footer {
+	width: 100%;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	padding: 2.2rem 1rem;
+	background: var(--color-bg-medium);
+}
+
+#mods-tab-content .rightbar-bottom .action-queue .footer .action-execute-button {
+	cursor: pointer;
+	background: var(--color-bg-light);
+	color: var(--color-text-primary);
+	border-radius: var(--br-small);
+	width: 100%;
+	padding: 0.6rem 0;
+	text-align: center;
+	font-size: 1.1rem;
+}
+
+#mods-tab-content .rightbar-bottom .action-queue .footer .action-execute-button:hover {
+	background: var(--color-bg-light-hover-lighter);
+}
+
+#mods-tab-content .rightbar-bottom .action-queue .footer .action-execute-button.active {
+	background: var(--color-bg-light-active-darker);
+	color: var(--color-text-primary);
+	cursor: not-allowed;
 }
 
 #mods-tab-content .tag {
