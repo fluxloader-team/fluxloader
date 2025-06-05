@@ -118,12 +118,7 @@
 									<img src="assets/uparrow.png" />
 								</div>
 								<div class="hider" style="display: none">
-									<div class="content">
-										<div class="action"><span class="action-id">testmod</span><span class="action-type">?v1.3.2</span><img src="assets/close.png"></div>
-										<div class="action sub"><span class="action-id">sub1</span><span class="action-type">v0.6.5<img src="assets/rightarrow.png"></img> v1.0.</span><img src="assets/close.png"></div>
-										<div class="action sub"><span class="action-id">sub2</span><span class="action-type">v1.1.</span><img src="assets/close.png"></div>
-										<div class="action"><span class="action-id">anothermod</span><span class="action-type">v2.1.</span><img src="assets/close.png"></div>
-									</div>
+									<div class="content" id="mods-tab-action-queue-content"></div>
 								</div>
 							</div>
 						</div>
@@ -154,6 +149,20 @@
 				<div class="footer-control">
 					<div class="footer-control-input button" id="main-control-button"><p>Play</p></div>
 					<div class="footer-control-input dropdown"><img src="assets/downarrow.png" /></div>
+				</div>
+			</div>
+		</div>
+
+		<div class="fullscreen-alert" id="fullscreen-alert" style="display: none">
+			<div class="alert-container">
+				<p class="alert-text">This is an example warning message that will be shown when an error occurs.</p>
+				<div class="alert-buttons">
+					<div class="alert-button" id="fullscreen-alert-close-button">
+						<p>Close</p>
+					</div>
+					<div class="alert-button" id="fullscreen-alert-reload-button">
+						<p>Reload</p>
+					</div>
 				</div>
 			</div>
 		</div>

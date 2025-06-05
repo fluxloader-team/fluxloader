@@ -13,6 +13,7 @@ let isMainControlButtonLoading = false;
 let connectionState = "offline";
 let selectedTab = null;
 let getElementMemoization = {};
+let isNotifying = false;
 
 // =================== LOGGING ===================
 
@@ -329,11 +330,13 @@ class ModsTab {
 	modRows = {};
 	selectedMod = null;
 	filterInfo = { search: null, tags: [] };
-	queuedActions = [];
+	mainQueuedActions = {};
+	allQueuedActions = {};
 	hasLoadedOnce = false;
 	isViewingModConfig = false;
 	isLoadingMods = false;
-	isActionQueueOpen = false;
+	isActionQueueVisible = false;
+	isQueueingAction = false;
 	isPerformingActions = false;
 
 	// ------------ SETUP ------------
@@ -357,11 +360,11 @@ class ModsTab {
 		});
 
 		getElement("mods-tab-action-queue-selection").addEventListener("click", () => {
-			this.toggleActionQueue();
+			this.toggleActionQueue(!this.isActionQueueVisible);
 		});
 
 		getElement("refresh-mods").addEventListener("click", async () => {
-			await reloadMods();
+			await this.reloadMods();
 		});
 
 		getElement("mods-load-button").addEventListener("click", async () => {
@@ -377,9 +380,13 @@ class ModsTab {
 		}
 	}
 
+	// ------------ MAIN ------------
+	// Functions used by events or from outside this class
+
 	async reloadMods() {
-		if (this.isLoadingMods) return;
+		if (this.isLoadingMods || this.isPerformingActions) return;
 		this.isLoadingMods = true;
+
 		this.setLoadButtonText("Loading...");
 		setProgressText("Reloading all mods...");
 		setProgress(0);
@@ -395,7 +402,15 @@ class ModsTab {
 		this.currentModPage = 0;
 
 		// Update then fetch the installed mods
-		await api.invoke("fl:find-installed-mods");
+		const res = await api.invoke("fl:find-installed-mods");
+		if (!res.success) {
+			logError("Failed to find installed mods:", res.error);
+			this.setLoadButtonText("Load mods");
+			setProgressText("Failed to find installed mods");
+			this.isLoadingMods = false;
+			return;
+		}
+
 		await this._loadInstalledMods();
 
 		// If we are connected then fetch remote mods
@@ -410,12 +425,13 @@ class ModsTab {
 
 		this.isLoadingMods = false;
 		this.setLoadButtonText("Load more mods");
-		setProgressText("Reloaded mods.");
+		setProgressText("Reloaded mods");
 	}
 
 	async loadMoreMods() {
-		if (this.isLoadingMods) return;
+		if (this.isLoadingMods || this.isPerformingActions) return;
 		this.isLoadingMods = true;
+
 		this.setLoadButtonText("Loading...");
 		setProgressText("Loading more mods...");
 		setProgress(0);
@@ -433,232 +449,12 @@ class ModsTab {
 
 		this.isLoadingMods = false;
 		this.setLoadButtonText("Load more mods");
-		setProgressText("Loaded mods.");
+		setProgressText("Loaded mods");
 		setProgress(0);
 	}
 
-	async _loadInstalledMods() {
-		if (!this.isLoadingMods) return;
-
-		// Request the installed mods from the backend
-		// They should already be populated from 'find-installed-mods'
-		const mods = await api.invoke("fl:get-installed-mods", { rendered: true });
-
-		// Now populate the table with the mods, this table should be empty at this point
-		const tbody = getElement("mods-tab-table").querySelector("tbody");
-		let newModIDs = [];
-		for (const mod of mods) {
-			if (this.modRows[mod.info.modID] != null) {
-				throw new Error(`Mod ${mod.info.modID} already exists in the mod table, this should not happen.`);
-			}
-
-			// Manually filter installed mods based on the search and tags
-			if (this.filterInfo.search) {
-				const check = this.filterInfo.search.toLowerCase();
-				let matched = false;
-				matched |= mod.info.modID.toLowerCase().includes(check);
-				matched |= mod.info.name.toLowerCase().includes(check);
-				matched |= mod.info.version.toLowerCase().includes(check);
-				matched |= mod.info.author.toLowerCase().includes(check);
-				if (mod.info.shortDescription) matched |= mod.info.shortDescription.toLowerCase().includes(check);
-				if (mod.info.description) matched |= mod.info.description.toLowerCase().includes(check);
-				if (!matched) continue;
-			}
-
-			// Convert them to our modData format
-			let modData = {
-				modID: mod.info.modID,
-				info: mod.info,
-				votes: null,
-				lastUpdated: "local",
-				renderedDescription: mod.renderedDescription,
-				version: null,
-				isLocal: true,
-				isInstalled: true,
-				isLoaded: mod.isLoaded,
-				isEnabled: mod.isEnabled,
-			};
-
-			this.modRows[modData.modID] = this.createModRow(modData);
-			newModIDs.push(modData.modID);
-		}
-
-		for (const modID of newModIDs) tbody.appendChild(this.modRows[modID].element);
-	}
-
-	async _loadInstalledModsVersions() {
-		if (!this.isLoadingMods) return;
-
-		// Request the versions for the installed mods from the backend
-		const modVersions = await api.invoke("fl:get-installed-mods-versions");
-
-		// Update each existing installed mod we got versions for
-		for (const modID in modVersions) {
-			if (this.modRows[modID] == null) {
-				logError(`Mod ${modID} should exist but it does not.`);
-				continue;
-			}
-
-			// It is possible that the mod is local only
-			if (modVersions[modID] == null || modVersions[modID].length === 0) continue;
-
-			// Update mod row data with new versions
-			this.modRows[modID].modData.versions = modVersions[modID];
-			const versionsTD = this.modRows[modID].element.querySelector(".mod-row-versions");
-			if (versionsTD == null) {
-				logError(`Mod row for ${modID} does not have versions td, cannot update versions.`);
-				return;
-			}
-
-			// Create the versions element
-			const versionElement = this.createModRowVersions(this.modRows[modID].modData);
-			element.querySelector(".mod-row-versions").appendChild(versionElement);
-		}
-	}
-
-	async _loadMoreRemoteMods() {
-		if (!this.isLoadingMods) return;
-
-		const getInfo = {
-			search: this.filterInfo.search,
-			tags: this.filterInfo.tags,
-			pageSize: ModsTab.PAGE_SIZE,
-			page: this.currentModPage + 1,
-			rendered: true,
-		};
-
-		// Fetch mods but then apply arbitrary delay to make it not feel too fast
-		const startTime = Date.now();
-		const mods = await api.invoke("fl:fetch-remote-mods", getInfo);
-		const endTime = Date.now();
-		if (endTime - startTime < DELAY_LOAD_REMOTE_MS) {
-			await new Promise((resolve) => setTimeout(resolve, DELAY_LOAD_REMOTE_MS - (endTime - startTime)));
-		}
-
-		// Did not receive any mods so presume that we are offline
-		if (mods == null || mods == []) {
-			this.setLoadButtonText("Load mods");
-			setConnectionState("offline");
-			setProgressText("No remote mods available.");
-			this.isLoadingMods = false;
-			return;
-		}
-
-		// Now populate the table with the remote mods
-		const tbody = getElement("mods-tab-table").querySelector("tbody");
-		let newModIDs = [];
-		for (const mod of mods) {
-			// If the mod is already visible then skip it
-			if (this.modRows[mod.modID] != null) {
-				logDebug(`Skipping already existing mod: ${mod.modID}`);
-				continue;
-			}
-
-			// Convert into modData format and put into the table
-			let modData = {
-				modID: mod.modID,
-				info: mod.modData,
-				votes: mod.votes,
-				lastUpdated: convertUploadTimeToString(mod.uploadTime),
-				renderedDescription: mod.renderedDescription,
-				versions: mod.versionNumbers,
-				isLocal: false,
-				isInstalled: false,
-				isLoaded: false,
-				isEnabled: false,
-			};
-
-			this.modRows[modData.modID] = this.createModRow(modData);
-			newModIDs.push(modData.modID);
-		}
-		for (const modID of newModIDs) tbody.appendChild(this.modRows[modID].element);
-		this.currentModPage++;
-		setConnectionState("online");
-	}
-
-	createModRow(modData) {
-		const element = createElement(
-			`<tr>
-				<td>
-				` +
-				(modData.isInstalled ? `<input type="checkbox" ${modData.isEnabled ? "checked" : ""}>` : ``) +
-				`</td>
-				<td>${modData.info.name}</td>
-				<td>${modData.info.author}</td>
-				<td class="mod-row-versions"></td>
-				<td>${modData.info.shortDescription || ""}</td>
-				<td>${modData.lastUpdated}</td>
-				<td class="mods-table-tag-list">
-				${
-					modData.info.tags
-						? modData.info.tags.reduce((acc, tag) => {
-								return acc + `<span class="tag">${tag}</span>`;
-						  }, "")
-						: ""
-				}
-				</td>
-			</tr>`
-		);
-
-		element.classList.toggle("disabled", modData.isInstalled && !modData.isEnabled);
-		element.addEventListener("click", (e) => this.selectMod(modData.modID));
-
-		// Setup version element
-		const versionElement = this.createModRowVersions(modData);
-		element.querySelector(".mod-row-versions").appendChild(versionElement);
-
-		// Listen to the checkbox for enabling / disabling mods
-		if (modData.isInstalled) {
-			const checkbox = element.querySelector("input[type='checkbox']");
-			checkbox.addEventListener("click", (e) => e.stopPropagation());
-			checkbox.addEventListener("change", (e) => {
-				const checkbox = e.target;
-				const isChecked = checkbox.checked;
-				checkbox.disabled = true;
-				api.invoke("fl:set-mod-enabled", { modID: modData.modID, enabled: isChecked }).then((success) => {
-					checkbox.disabled = false;
-					if (!success) {
-						checkbox.checked = !isChecked;
-						setProgressText("Failed to set mod enabled state.");
-					}
-					modData.isEnabled = checkbox.checked;
-					element.classList.toggle("disabled", modData.isInstalled && !modData.isEnabled);
-				});
-			});
-		}
-
-		return { element, modData, isVisible: true };
-	}
-
-	createModRowVersions(modData) {
-		if (modData.versions == null || modData.versions.length === 0) {
-			return createElement(`<span>${modData.info.version}</span>`);
-		} else {
-			const dropdown = createElement(`
-				<select>
-					${modData.versions.reduce((acc, version) => {
-						return acc + `<option value="${version}" ${version === modData.info.version ? "selected" : ""}>${version}</option>`;
-					}, "")}
-				</select>`);
-			dropdown.addEventListener("click", (e) => e.stopPropagation());
-			dropdown.addEventListener("change", (e) => this.changeModVersion(modData.modID, e));
-			return dropdown;
-		}
-	}
-
-	// ------------ MAIN ------------
-
-	async changeModVersion(modID, e) {
-		const version = e.target.value;
-		logInfo(`Changing mod ${modID} version to ${version}`);
-		await api.invoke("fl:get-mod-version", { modID, version });
-		
-		e.target.value = this.modRows[modID].modData.info.version;
-		e.preventDefault();
-	}
-
 	async selectMod(modID) {
-		await this.setViewingModConfig(false);
+		await this._setViewingModConfig(false);
 
 		// Deselect a mod and remove all mod info
 		if (this.selectedMod !== null) {
@@ -667,7 +463,7 @@ class ModsTab {
 				getElement("mod-info-title").innerText = "Mod Name";
 				getElement("mod-info").style.display = "none";
 				getElement("mod-info-empty").style.display = "block";
-				this.setModButtons([]);
+				this._setModButtons([]);
 				this.selectedMod = null;
 				return;
 			}
@@ -716,18 +512,392 @@ class ModsTab {
 			// Update the mod info buttons
 			let buttons = [];
 			if (modData.isInstalled) {
-				buttons.push({ text: "Uninstall", onClick: () => this.queueUninstall(modData.modID) });
+				buttons.push({ text: "Uninstall", onClick: () => this.clickSelectedModMainButton(modData.modID) });
 				if (modData.info.configSchema) {
-					buttons.push({ icon: "assets/config.png", onClick: () => this.setViewingModConfig(!this.isViewingModConfig), toggle: true });
+					buttons.push({ icon: "assets/config.png", onClick: () => this._setViewingModConfig(!this.isViewingModConfig), toggle: true });
 				}
 			} else {
-				buttons.push({ text: "Install", onClick: () => this.queueInstall(modData.modID, modData.info.version) });
+				buttons.push({ text: "Install", onClick: () => this.clickSelectedModMainButton(modData.modID) });
 			}
-			this.setModButtons(buttons);
+			this._setModButtons(buttons);
 		}
 	}
 
-	setModButtons(buttons) {
+	async changeModVersion(modID, e) {
+		// Grab the version and block anything further
+		const wantedVersion = e.target.value;
+		e.target.value = this.modRows[modID].modData.info.version;
+		e.preventDefault();
+
+		if (this.isLoadingMods || this.isPerformingActions) {
+			logWarn("Cannot change mod version as mods are currently loading or actions are being performed.");
+			return;
+		}
+		this.isLoadingMods = true;
+
+		setProgressText(`Changing mod '${modID}' version to ${wantedVersion}...`);
+		setProgress(0);
+
+		if (!this.modRows[modID]) {
+			logError(`Mod row for '${modID}' does not exist, cannot change version.`);
+			this.isLoadingMods = false;
+			return;
+		}
+
+		// Fetch remote version
+		logDebug(`Changing mod '${modID}' version to ${wantedVersion}`);
+		const res = await api.invoke("fl:get-mod-version", { modID, version: wantedVersion, rendered: true });
+		if (!res.success) {
+			logError(`Failed to change mod '${modID}' version to ${wantedVersion}`);
+			setProgressText("Failed to change mod version");
+			setProgress(0);
+			this.isLoadingMods = false;
+			return;
+		}
+
+		// Convert into modData format and put into the table
+		const versionMod = res.data;
+		let modData = {
+			modID: versionMod.modID,
+			info: versionMod.modData,
+			votes: versionMod.votes,
+			lastUpdated: convertUploadTimeToString(versionMod.uploadTime),
+			renderedDescription: versionMod.renderedDescription,
+			versions: this.modRows[modID].modData.versions, // The versions have not changed (and also not returned here)
+			isInstalled: false,
+			isEnabled: false,
+		};
+
+		this._updateModRow(modData);
+
+		// Reselect the mod so that mod info is updated
+		if (this.selectedMod === modID) {
+			this.selectedMod = null;
+			this.selectMod(modID);
+		}
+
+		this.isLoadingMods = false;
+		setProgressText(`Changed mod '${modID}' version to ${wantedVersion}`);
+		setProgress(0);
+	}
+
+	async changeModEnabled(modID, e) {
+		// Grab the value and block anything further
+		const checkbox = e.target;
+		const previousEnabled = !checkbox.checked;
+		const wantedEnabled = checkbox.checked;
+		checkbox.checked = previousEnabled;
+		checkbox.disabled = true;
+
+		if (this.isLoadingMods || this.isPerformingActions) {
+			logWarn("Cannot change mod enabled state as mods are currently loading or actions are being performed.");
+			return;
+		}
+		this.isLoadingMods = true;
+
+		// Request backend to change the mod enabled state
+		const res = await api.invoke("fl:set-mod-enabled", { modID, enabled: wantedEnabled });
+		const modRow = this.modRows[modID];
+		if (!res.success) {
+			setProgressText(`Failed to change mod '${modID}' enabled state`);
+			modRow.modData.isEnabled = previousEnabled;
+			checkbox.checked = previousEnabled;
+		} else {
+			modRow.modData.isEnabled = wantedEnabled;
+			checkbox.checked = wantedEnabled;
+		}
+		modRow.element.classList.toggle("disabled", modRow.modData.isInstalled && !modRow.modData.isEnabled);
+		checkbox.disabled = false;
+		this.isLoadingMods = false;
+	}
+
+	async clickRowInstall(modID, e) {
+		if (this.isLoadingMods || this.isPerformingActions) {
+			logWarn("Cannot click install / uninstall as mods are currently loading or actions are being performed.");
+			return;
+		}
+
+		e.stopPropagation();
+
+		// If there is an existing action and it is an install then unqueue it
+		if (this.allQueuedActions[modID]) {
+			if (this.allQueuedActions[modID].type === "install") {
+				this.unqueueAction(modID);
+			} else {
+				logWarn(`Cannot click install / uninstall for mod '${modID}' as it already has another action.`);
+			}
+		}
+
+		// Otherwise queue the install action
+		else {
+			await this.queueMainAction(modID, "install");
+		}
+	}
+
+	async clickSelectedModMainButton(modID) {
+		if (this.isLoadingMods || this.isPerformingActions) {
+			logWarn("Cannot click main button as mods are currently loading or actions are being performed.");
+			return;
+		}
+
+		if (this.selectedMod !== modID) {
+			logError("Somethings gone wrong, selected mod does not match the clicked modID.");
+			return;
+		}
+
+		// if the selected mod is installed then uninstall it, and vice versa
+		const modData = this.modRows[modID].modData;
+		if (modData.isInstalled) {
+			await this.instantMainAction(modID, "uninstall");
+		} else {
+			await this.instantMainAction(modID, "install");
+		}
+	}
+
+	forceSetModSchema(modID, schema) {
+		if (this.modRows[modID] == null) return;
+		this.modRows[modID].modData.info.configSchema = schema;
+		if (this.isViewingModConfig && this.selectedMod === modID) {
+			logDebug(`Forcing set schema for mod '${modID}'`);
+			this.configRenderer.forceSetSchema(schema);
+		}
+	}
+
+	setLoadButtonText(text) {
+		getElement("mods-load-button").innerText = text;
+	}
+
+	// ------------ INTERNAL ------------
+	// Functions mainly used by MAIN and inside this class
+
+	async _loadInstalledMods() {
+		if (!this.isLoadingMods) return;
+
+		// Request the installed mods from the backend
+		// They should already be populated from 'find-installed-mods'
+		const mods = await api.invoke("fl:get-installed-mods", { rendered: true });
+
+		// Now populate the table with the mods, this table should be empty at this point
+		const tbody = getElement("mods-tab-table").querySelector("tbody");
+		let newModIDs = [];
+		for (const mod of mods) {
+			if (this.modRows[mod.info.modID] != null) {
+				throw new Error(`Mod ${mod.info.modID} already exists in the mod table, this should not happen.`);
+			}
+
+			// Manually filter installed mods based on the search and tags
+			if (this.filterInfo.search) {
+				const check = this.filterInfo.search.toLowerCase();
+				let matched = false;
+				matched |= mod.info.modID.toLowerCase().includes(check);
+				matched |= mod.info.name.toLowerCase().includes(check);
+				matched |= mod.info.version.toLowerCase().includes(check);
+				matched |= mod.info.author.toLowerCase().includes(check);
+				if (mod.info.shortDescription) matched |= mod.info.shortDescription.toLowerCase().includes(check);
+				if (mod.info.description) matched |= mod.info.description.toLowerCase().includes(check);
+				if (!matched) continue;
+			}
+
+			// Convert them to our modData format
+			let modData = this._getBaseModData();
+			modData.modID = mod.info.modID;
+			modData.info = mod.info;
+			modData.votes = null;
+			modData.lastUpdated = "local";
+			modData.renderedDescription = mod.renderedDescription;
+			modData.versions = null;
+			modData.isInstalled = true;
+			modData.isEnabled = mod.isEnabled;
+
+			this.modRows[modData.modID] = this._createModRow(modData);
+			newModIDs.push(modData.modID);
+		}
+
+		for (const modID of newModIDs) tbody.appendChild(this.modRows[modID].element);
+	}
+
+	async _loadInstalledModsVersions() {
+		if (!this.isLoadingMods) return;
+
+		// Request the versions for the installed mods from the backend
+		const res = await api.invoke("fl:get-installed-mods-versions");
+		if (!res.success) {
+			logError("Failed to fetch installed mods versions:", res.error);
+			setConnectionState("offline");
+			return;
+		}
+		
+		// Update each existing installed mod we got versions for
+		const modVersions = res.data;
+		for (const modID in modVersions) {
+			if (this.modRows[modID] == null) {
+				logError(`Mod '${modID}' should exist but it does not.`);
+				continue;
+			}
+
+			// It is possible that the mod is local only
+			if (modVersions[modID] == null || modVersions[modID].length === 0) continue;
+
+			// Update mod row data with new versions
+			this.modRows[modID].modData.versions = modVersions[modID];
+			const versionsTD = this.modRows[modID].element.querySelector(".mod-row-versions");
+			if (versionsTD == null) {
+				logError(`Mod row for '${modID}' does not have versions td, cannot update versions.`);
+				return;
+			}
+
+			// Create the versions element
+			const versionElement = this._createModRowVersions(this.modRows[modID].modData);
+			element.querySelector(".mod-row-versions").appendChild(versionElement);
+		}
+	}
+
+	async _loadMoreRemoteMods() {
+		if (!this.isLoadingMods) return;
+
+		const getInfo = {
+			search: this.filterInfo.search,
+			tags: this.filterInfo.tags,
+			pageSize: ModsTab.PAGE_SIZE,
+			page: this.currentModPage + 1,
+			rendered: true,
+		};
+
+		// Fetch mods but then apply arbitrary delay to make it not feel too fast
+		const startTime = Date.now();
+		const res = await api.invoke("fl:fetch-remote-mods", getInfo);
+		if (!res.success) {
+			logError("Failed to fetch remote mods:", res.error);
+			setConnectionState("offline");
+			this.isLoadingMods = false;
+			return;
+		}
+
+		const mods = res.data;
+		const endTime = Date.now();
+		if (endTime - startTime < DELAY_LOAD_REMOTE_MS) {
+			await new Promise((resolve) => setTimeout(resolve, DELAY_LOAD_REMOTE_MS - (endTime - startTime)));
+		}
+
+		// Did not receive any mods so presume that we are offline
+		if (mods == null || mods == []) {
+			logInfo("No remote mods found, setting connection state to offline.");
+			setConnectionState("offline");
+			this.isLoadingMods = false;
+			return;
+		}
+
+		// Now populate the table with the remote mods
+		const tbody = getElement("mods-tab-table").querySelector("tbody");
+		let newModIDs = [];
+		for (const mod of mods) {
+			// If the mod is already visible then skip it
+			if (this.modRows[mod.modID] != null) {
+				logDebug(`Skipping already existing mod: ${mod.modID}`);
+				continue;
+			}
+
+			// Convert into modData format and put into the table
+			let modData = this._getBaseModData();
+			modData.modID = mod.modID;
+			modData.info = mod.modData;
+			modData.votes = mod.votes;
+			modData.lastUpdated = convertUploadTimeToString(mod.uploadTime);
+			modData.renderedDescription = mod.renderedDescription;
+			modData.versions = mod.versionNumbers;
+			modData.isInstalled = false;
+			modData.isEnabled = false;
+
+			this.modRows[modData.modID] = this._createModRow(modData);
+			newModIDs.push(modData.modID);
+		}
+
+		for (const modID of newModIDs) tbody.appendChild(this.modRows[modID].element);
+		this.currentModPage++;
+		setConnectionState("online");
+	}
+
+	_createModRow(modData) {
+		let tagsList = "";
+		if (modData.info.tags) tagsList = modData.info.tags.reduce((acc, tag) => acc + `<span class="tag">${tag}</span>`, "");
+
+		const element = createElement(`<tr>
+			<td class="mod-row-status"></td>
+			<td>${modData.info.name}</td>
+			<td>${modData.info.author}</td>
+			<td class="mod-row-versions"></td>
+			<td>${modData.info.shortDescription || ""}</td>
+			<td>${modData.lastUpdated}</td>
+			<td class="mods-table-tag-list">${tagsList}</td>
+		</tr>`);
+
+		// Select mod on click
+		element.addEventListener("click", (e) => this.selectMod(modData.modID));
+
+		// Set initial disabled state
+		element.classList.toggle("disabled", modData.isInstalled && !modData.isEnabled);
+
+		// Setup status element
+		const statusElement = this._createModRowStatus(modData);
+		element.querySelector(".mod-row-status").appendChild(statusElement);
+
+		// Setup version element
+		const versionElement = this._createModRowVersions(modData);
+		element.querySelector(".mod-row-versions").appendChild(versionElement);
+
+		return { element, modData };
+	}
+
+	_updateModRow(modData) {
+		if (this.modRows[modData.modID] == null) {
+			logError(`Mod row for ${modData.modID} does not exist, cannot update.`);
+			return;
+		}
+
+		// Create new row element and replace the old one
+		const oldElement = this.modRows[modData.modID].element;
+		const newRow = this._createModRow(modData);
+		oldElement.parentNode.replaceChild(newRow.element, oldElement);
+
+		// Update the modRows map with the new row
+		this.modRows[modData.modID].element = newRow.element;
+		this.modRows[modData.modID].modData = modData;
+	}
+
+	_createModRowStatus(modData) {
+		// If installed then create a checkbox for enabling / disabling
+		if (modData.isInstalled) {
+			const checkboxElement = createElement(`<input type="checkbox" ${modData.isEnabled ? "checked" : ""}>`);
+			checkboxElement.addEventListener("click", (e) => e.stopPropagation());
+			checkboxElement.addEventListener("change", (e) => this.changeModEnabled(modData.modID, e));
+			return checkboxElement;
+		}
+
+		// Otherwise create a download icon for installing
+		else {
+			const downloadElement = createElement(`<img src="assets/download.png" />`);
+			downloadElement.addEventListener("click", (e) => this.clickRowInstall(modData.modID, e));
+			return downloadElement;
+		}
+	}
+
+	_createModRowVersions(modData) {
+		// If given a single version (or no versions make a span)
+		if (modData.versions == null || modData.versions.length === 0) {
+			return createElement(`<span>${modData.info.version}</span>`);
+		}
+
+		// Otherwise make a dropdown with all versions
+		else {
+			const versionToOption = (v) => `<option value="${v}" ${v === modData.info.version ? "selected" : ""}>${v}</option>`;
+			const dropdown = createElement(`<select>${modData.versions.reduce((acc, v) => acc + versionToOption(v), "")}</select>`);
+			dropdown.addEventListener("click", (e) => e.stopPropagation());
+			dropdown.addEventListener("change", (e) => this.changeModVersion(modData.modID, e));
+			return dropdown;
+		}
+	}
+
+	_setModButtons(buttons) {
 		if (buttons.length == 0) {
 			getElement("mod-buttons").style.display = "none";
 			return;
@@ -755,11 +925,7 @@ class ModsTab {
 		}
 	}
 
-	setLoadButtonText(text) {
-		getElement("mods-load-button").innerText = text;
-	}
-
-	async setViewingModConfig(enabled) {
+	async _setViewingModConfig(enabled) {
 		if (this.isViewingModConfig === enabled) return;
 		this.isViewingModConfig = enabled;
 		const configContainer = getElement("mod-config-container");
@@ -787,58 +953,219 @@ class ModsTab {
 		const schema = modData.info.configSchema;
 
 		this.configRenderer = new ConfigSchemaElement(configContainer, config, schema, async (newConfig) => {
-			logInfo(`Mod ${this.selectedMod} config changed, notifying electron...`);
+			logDebug(`Mod ${this.selectedMod} config changed, notifying electron...`);
 			const success = await api.invoke("fl-mod-config:set", this.selectedMod, newConfig);
 			if (!success) {
 				logError(`Failed to set config for mod ${this.selectedMod}`);
-				setProgressText("Failed to set mod config.");
+				setProgressText("Failed to set mod config");
 				setProgress(0);
 			} else {
-				logInfo(`Config for mod ${this.selectedMod} set successfully.`);
+				logDebug(`Config for mod ${this.selectedMod} set successfully.`);
 				this.modRows[this.selectedMod].modData.info.config = newConfig;
-				setProgressText("Mod config updated successfully.");
+				setProgressText("Mod config updated successfully");
 				setProgress(0);
 			}
 		});
 	}
 
-	forceSetModSchema(modID, schema) {
-		if (this.modRows[modID] == null) return;
-		this.modRows[modID].modData.info.configSchema = schema;
-		if (this.isViewingModConfig && this.selectedMod === modID) {
-			logInfo(`Forcing set schema for mod ${modID}`);
-			this.configRenderer.forceSetSchema(schema);
-		}
+	_getBaseModData() {
+		return {
+			modID: null,
+			info: null,
+			votes: null,
+			lastUpdated: null,
+			renderedDescription: null,
+			versions: null,
+			isInstalled: false,
+			isEnabled: false,
+		};
 	}
 
 	// ------------ ACTIONS ------------
 
-	toggleActionQueue() {
-		this.isActionQueueOpen = !this.isActionQueueOpen;
+	toggleActionQueue(visible) {
+		if (visible === this.isActionQueueVisible) return;
+
+		if (Object.keys(this.allQueuedActions).length === 0 && visible) return;
+
+		this.isActionQueueVisible = visible;
+
 		const actionQueue = getElement("mods-tab-action-queue");
+		actionQueue.classList.toggle("open", visible);
+
 		const hider = actionQueue.querySelector(".hider");
-		hider.style.display = this.isActionQueueOpen ? "block" : "none";
-		actionQueue.classList.toggle("open", this.isActionQueueOpen);
+		hider.style.display = visible ? "block" : "none";
 	}
 
-	queueInstall(modID, version) {
-		if (this.isPerformingActions) return;
-		logInfo(`Installing mod ${modID} version ${version}`);
-		this.queuedActions.push({ action: "install", modID, version });
-		this.addQueueElement(this.queuedActions[this.queuedActions.length - 1]);
+	async queueMainAction(modID, type) {
+		// TODO: We shouldn't outright block queueing actions if we are already queuing actions
+		if (this.isLoadingMods || this.isPerformingActions || this.isQueueingAction) {
+			logDebug(`Cannot queue action for mod '${modID}' as we are currently loading mods or performing actions.`);
+			return;
+		}
+		this.isQueueingAction = true;
+
+		// There should not be an existing action for this mod, and the mod should exist
+		if (this.mainQueuedActions[modID] != null) {
+			logWarn(`Mod '${modID}' already has a queued action.`);
+			return;
+		}
+		if (!this.modRows[modID]) {
+			logError(`Mod row for '${modID}' does not exist, cannot queue action.`);
+			return;
+		}
+
+		// Only allow INSTALL and UNINSTALL actions to be queued through this function
+		if (type !== "install" && type !== "uninstall") {
+			logError(`Invalid action type '${type}' for mod '${modID}', only 'install' and 'uninstall' are allowed.`);
+			return;
+		}
+
+		// Make the main action
+		const modRow = this.modRows[modID];
+		const action = { modID, version: modRow.modData.info.version, type, element: null, parentAction: null, derivedActions: [] };
+		this.mainQueuedActions[modID] = action;
+
+		// Ask the backend to figure out all the actions based on the main actions
+		const allActions = await api.invoke("fl:calculate-mod-actions", this.mainQueuedActions);
+		logDebug(`Queueing action ${type} for mod '${modID}', received ${Object.keys(allActions).length} total actions.`);
+		if (!allActions || Object.keys(allActions).length === 0) {
+			throw new Error(`Failed to calculate actions for mod '${modID}'`);
+		}
+
+		// Remake the full action queue with the new all queued actions
+		this.allQueuedActions = allActions;
+		const actionQueueContent = getElement("mods-tab-action-queue-content");
+		actionQueueContent.innerHTML = "";
+
+		// Create the action elements for each action
+		for (const actionID in this.allQueuedActions) {
+			const action = this.allQueuedActions[actionID];
+			action.element = createElement(`
+				<div class="action">
+					<span class="action-type">${action.type}</span>
+					<span class="action-id">${action.modID}</span>
+					<span class="action-data">${action.version}</span>
+					<img src="assets/close.png" class="action-remove">
+				</div>
+			`);
+			action.element.addEventListener("click", (e) => {
+				e.stopPropagation();
+				this.unqueueAction(action.modID);
+			});
+			actionQueueContent.appendChild(action.element);
+			this.modifyActionPreview(action, true);
+		}
+
+		this.toggleActionQueue(true);
+		this.isQueueingAction = false;
 	}
 
-	queueUninstall(modID) {
-		if (this.isPerformingActions) return;
-		logInfo(`Uninstalling mod ${modID}`);
-		this.queuedActions.push({ action: "uninstall", modID });
-		this.addQueueElement(this.queuedActions[this.queuedActions.length - 1]);
+	unqueueAction(modID) {
+		if (this.isLoadingMods || this.isPerformingActions || this.isQueueingAction) {
+			logDebug(`Cannot unqueue action for mod '${modID}' as we are currently loading mods or performing actions.`);
+			return;
+		}
+		this.isQueueingAction = true;
+
+		const action = this.allQueuedActions[modID];
+		if (!action) {
+			logWarn(`No queued action for mod '${modID}' to unqueue.`);
+			return;
+		}
+
+		logDebug(`Unqueuing action for mod '${modID}'`);
+
+		// If it is a child action then just remove the parent action
+		if (action.parentAction) {
+			logDebug(`Redirecting to remove parent action for mod ${action.parentAction}`);
+			this.unqueueAction(action.parentAction);
+			return;
+		}
+
+		// At this point it must be a main action
+		if (!this.mainQueuedActions[modID]) {
+			logError(`Expected action for mod '${modID}' to be a main action, but it is not.`);
+			this.isQueueingAction = false;
+			return;
+		}
+
+		logDebug(`Removing main action for mod '${modID}'`);
+		this.modifyActionPreview(action, false);
+		if (action.element && action.element.parentNode) {
+			action.element.parentNode.removeChild(action.element);
+		}
+		delete this.allQueuedActions[modID];
+		delete this.mainQueuedActions[modID];
+
+		// Remove all derived actions
+		if (action.derivedActions.length > 0) {
+			for (const derivedActionModID of action.derivedActions) {
+				const derivedAction = this.allQueuedActions[derivedActionModID];
+				logDebug(`Removing derived action for mod ${derivedAction.modID}`);
+				this.modifyActionPreview(derivedAction, false);
+				if (derivedAction.element && derivedAction.element.parentNode) {
+					derivedAction.element.parentNode.removeChild(derivedAction.element);
+				}
+				delete this.allQueuedActions[derivedAction.modID];
+			}
+			action.derivedActions = [];
+		}
+
+		// Hide the action queue if there are no more actions
+		if (Object.keys(this.mainQueuedActions).length === 0) this.toggleActionQueue(false);
+		this.isQueueingAction = false;
 	}
 
-	addQueueElement(action) {}
+	async instantMainAction(modID, type) {
+		if (this.isLoadingMods || this.isPerformingActions || this.isQueueingAction) {
+			logDebug(`Cannot perform instant main action for mod '${modID}' as we are currently loading mods or performing actions.`);
+			return;
+		}
 
-	performQueuedActions() {
+		logDebug(`Performing instant main action for mod '${modID}' of type ${type}`);
+
+		// Clear the action queue
+		this.allQueuedActions = {};
+		this.mainQueuedActions = {};
+		const actionQueueContent = getElement("mods-tab-action-queue-content");
+		actionQueueContent.innerHTML = "";
+		this.toggleActionQueue(true);
+
+		// Queue this as a main action
+		await this.queueMainAction(modID, type);
+		const action = this.allQueuedActions[modID];
+		if (!action) {
+			logError(`Failed to queue main action for mod '${modID}'`);
+			this.isPerformingActions = false;
+			return;
+		}
+
+		// Perform the queued actions
+		await this.performQueuedActions();
+	}
+
+	async performQueuedActions() {
+		if (this.isLoadingMods || this.isPerformingActions) {
+			logDebug("Cannot perform queued actions as we are currently loading mods or performing actions.");
+			return;
+		}
+
 		this.isPerformingActions = true;
+		setProgressText("Performing actions...");
+		setProgress(0);
+	}
+
+	modifyActionPreview(action, preview) {
+		if (action.type == "install") {
+			// Highlight / unhighlight the install button
+			const installButton = this.modRows[action.modID].element.querySelector(".mod-row-status img");
+			if (!installButton) {
+				logError(`Mod row for ${action.modID} does not have a status element, cannot modify action preview.`);
+				return;
+			}
+			installButton.classList.toggle("active", preview);
+		}
 	}
 
 	// ------------ FILTERING ------------
@@ -872,15 +1199,15 @@ class ConfigTab {
 		// Setup the config schema element
 		const mainElement = getElement("config-tab-content").querySelector(".main");
 		this.renderer = new ConfigSchemaElement(mainElement, config, configSchema, async (newConfig) => {
-			logInfo("Config changed, notifying electron...");
+			logDebug("Config changed, notifying electron...");
 			const success = await api.invoke("fl:set-fluxloader-config", newConfig);
 			if (!success) {
 				logError("Failed to set config");
-				setProgressText("Failed to set config.");
+				setProgressText("Failed to set config");
 				setProgress(0);
 			} else {
-				logInfo("Config set successfully.");
-				setProgressText("Config updated successfully.");
+				logDebug("Config set successfully.");
+				setProgressText("Config updated successfully");
 				setProgress(0);
 			}
 		});
@@ -1060,7 +1387,7 @@ function setupElectronEvents() {
 
 	api.on(`fl:game-closed`, () => {
 		if (!isPlaying) return;
-		setProgressText("Game closed.");
+		setProgressText("Game closed");
 		setProgress(0);
 		isPlaying = false;
 		updateMainControlButtonText();
@@ -1068,12 +1395,12 @@ function setupElectronEvents() {
 	});
 
 	api.on("fl:mod-schema-updated", (_, { modID, schema }) => {
-		logInfo(`Received schema update for mod ${modID}`);
+		logDebug(`Received schema update for mod '${modID}'`);
 		tabs.mods.forceSetModSchema(modID, schema);
 	});
 
 	api.on("fl:fluxloader-config-updated", (_, config) => {
-		logInfo("Received config update for FluxLoader");
+		logDebug("Received config update for FluxLoader");
 		tabs.config.forceSetConfig(config);
 	});
 }
@@ -1110,21 +1437,26 @@ async function togglePlaying() {
 	setProgress(0);
 
 	if (!isPlaying) {
-		await api.invoke(`fl:start-game`);
-		setProgressText("Game started.");
+		const res = await api.invoke(`fl:start-game`);
+		if (!res.success) {
+			logError("Failed to start the game, please check the logs for more details.");
+			setProgressText("Failed to start game");
+		} else {
+			setProgressText("Game started");
+		}
 		setProgress(0);
+		getElement("main-control-button").classList.toggle("active", res.success);
+		isPlaying = res.success;
 		isMainControlButtonLoading = false;
-		isPlaying = true;
 		updateMainControlButtonText();
-		getElement("main-control-button").classList.toggle("active", true);
 	} else {
-		await api.invoke(`fl:stop-game`);
-		setProgressText("Game stopped.");
+		await api.invoke(`fl:close-game`);
+		setProgressText("Game stopped");
 		setProgress(0);
+		getElement("main-control-button").classList.toggle("active", false);
 		isMainControlButtonLoading = false;
 		isPlaying = false;
-		updateMainControlButtonText("Start");
-		getElement("main-control-button").classList.toggle("active", false);
+		updateMainControlButtonText();
 	}
 }
 
@@ -1224,6 +1556,26 @@ function convertUploadTimeToString(uploadTime) {
 	return `${formattedDate} ${formattedTime}`;
 }
 
+function setFullscreenAlert(text, buttons) {
+	const alertElement = getElement("fullscreen-alert");
+
+	alertElement.querySelector(".alert-text").innerText = text;
+
+	const buttonContainer = alertElement.querySelector(".alert-buttons");
+	buttonContainer.innerHTML = "";
+
+	buttons.forEach((button) => {
+		const buttonElement = createElement(`<button class="alert-button">${button.text}</button>`);
+		buttonElement.addEventListener("click", () => {
+			button.onClick();
+			alertElement.style.display = "none";
+		});
+		buttonContainer.appendChild(buttonElement);
+	});
+
+	alertElement.style.display = "flex";
+}
+
 // =================== DRIVER ===================
 
 (async () => {
@@ -1238,5 +1590,5 @@ function convertUploadTimeToString(uploadTime) {
 	setProgress(0);
 	selectTab("mods");
 
-	logInfo("FluxLoader Manager started.");
+	logDebug("FluxLoader Manager started.");
 })();
