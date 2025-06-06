@@ -735,6 +735,51 @@ input[type="checkbox"]:checked::before {
 	margin-top: 0;
 }
 
+#mods-tab-content .main-rightbar .mod-info .row.dependency-row {
+	flex-direction: column;
+	justify-content: flex-start;
+	align-items: start;
+	margin-top: 0.8rem;
+	padding: 0.3rem 0;
+	gap: 0.5rem;
+}
+
+#mods-tab-content .main-rightbar .mod-info .dependency-list {
+	display: flex;
+	flex-direction: column;
+	gap: 0.4rem;
+}
+
+#mods-tab-content .main-rightbar .mod-info .dependency-list.empty {
+	color: var(--color-text-muted2);
+}
+
+#mods-tab-content .main-rightbar .mod-info .dependency-list .dependency-list-row {
+	background: var(--color-bg-light2);
+	border-radius: var(--br-small);
+	padding: 0.3rem 0.85rem;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+}
+
+#mods-tab-content .main-rightbar .mod-info .dependency-list .dependency-mod-id {
+	flex: 1;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	color: var(--color-text-primary);
+}
+
+#mods-tab-content .main-rightbar .mod-info .dependency-list .dependency-mod-version {
+	flex-shrink: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	color: var(--color-text-secondary);
+}
+
 #mods-tab-content .rightbar-bottom {
 	width: 100%;
 	background: var(--color-bg-medium);

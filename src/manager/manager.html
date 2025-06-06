@@ -13,7 +13,7 @@
 					<div class="option" id="tab-logs"><p>Logs</p></div>
 				</div>
 				<div class="status-container">
-					<div class="blocking-indicator" id="blocking-indicator" style="opacity: 0;">
+					<div class="blocking-indicator" id="blocking-indicator" style="opacity: 0">
 						<img src="./assets/loading.gif" />
 					</div>
 					<div class="connection-indicator">
@@ -110,6 +110,10 @@
 											<p class="label">Tags</p>
 											<p id="mod-info-tags"></p>
 										</div>
+										<div class="row dependency-row">
+											<p class="label">Dependencies</p>
+											<div class="dependency-list" id="mod-info-dependency-list"></div>
+										</div>
 									</div>
 									<p class="description" id="mod-info-description"></p>
 								</div>
@@ -127,9 +131,7 @@
 								</div>
 								<div class="hider" style="display: none">
 									<div class="content" id="action-queue-content"></div>
-									<div class="action-queue-no-content" id="action-queue-no-content">
-										No actions queued.
-									</div>
+									<div class="action-queue-no-content" id="action-queue-no-content">No actions queued.</div>
 									<div class="footer">
 										<div class="action-execute-button" id="action-execute-button">Execute</div>
 									</div>

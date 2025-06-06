@@ -522,15 +522,7 @@ class ModsTab {
 			getElement("mod-info").style.display = "block";
 			getElement("mod-info-empty").style.display = "none";
 
-			if (modData.renderedDescription) {
-				getElement("mod-info-description").classList.remove("empty");
-				modData.renderedDescription = modData.renderedDescription.replace(/<a /g, '<a target="_blank" ');
-				getElement("mod-info-description").innerHTML = modData.renderedDescription;
-			} else {
-				getElement("mod-info-description").classList.add("empty");
-				getElement("mod-info-description").innerText = "No description provided.";
-			}
-
+			// Update the mod info fields
 			getElement("mod-info-mod-id").innerText = modData.modID;
 			getElement("mod-info-author").innerText = modData.info.author;
 			getElement("mod-info-version").innerText = modData.info.version;
@@ -546,6 +538,42 @@ class ModsTab {
 						getElement("mod-info-tags").appendChild(tagElement);
 					}
 				}
+			}
+
+			// Show rendered description
+			if (modData.renderedDescription) {
+				getElement("mod-info-description").classList.remove("empty");
+				modData.renderedDescription = modData.renderedDescription.replace(/<a /g, '<a target="_blank" ');
+				getElement("mod-info-description").innerHTML = modData.renderedDescription;
+			} else {
+				getElement("mod-info-description").classList.add("empty");
+				getElement("mod-info-description").innerText = "No description provided.";
+			}
+
+			// <div class="dependency-list-row">
+			// 	<span class="dependency-mod-id">corelib</span>
+			// 	<span class="dependency-mod-version">1.0.0</span>
+			// </div>
+			// <div class="dependency-list-row">
+			// 	<span class="dependency-mod-id">anothermod</span>
+			// 	<span class="dependency-mod-version">1.2.0</span>
+			// </div>
+
+			// Show dependencies
+			const dependenciesList = getElement("mod-info-dependency-list");
+			dependenciesList.innerHTML = "";
+			if (modData.info.dependencies && Object.keys(modData.info.dependencies).length > 0) {
+				dependenciesList.classList.remove("empty");
+				for (const [depModID, depVersion] of Object.entries(modData.info.dependencies)) {
+					const depElement = createElement(`<div class="dependency-list-row">
+						<span class="mod-info-dependency-mod-id">${depModID}</span>
+						<span class="mod-info-dependency-version">${depVersion}</span>
+					</div>`);
+					dependenciesList.appendChild(depElement);
+				}
+			} else {
+				dependenciesList.classList.add("empty");
+				dependenciesList.innerText = "No dependencies provided.";
 			}
 
 			// Update the mod info buttons
@@ -1351,7 +1379,6 @@ class ModsTab {
 				else if (type == "failed") installHoverButton.src = "assets/cross.png";
 				else if (type == "complete") installHoverButton.src = "assets/check.png";
 			}
-
 		}
 	}
 
