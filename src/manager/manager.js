@@ -550,15 +550,6 @@ class ModsTab {
 				getElement("mod-info-description").innerText = "No description provided.";
 			}
 
-			// <div class="dependency-list-row">
-			// 	<span class="dependency-mod-id">corelib</span>
-			// 	<span class="dependency-mod-version">1.0.0</span>
-			// </div>
-			// <div class="dependency-list-row">
-			// 	<span class="dependency-mod-id">anothermod</span>
-			// 	<span class="dependency-mod-version">1.2.0</span>
-			// </div>
-
 			// Show dependencies
 			const dependenciesList = getElement("mod-info-dependency-list");
 			dependenciesList.innerHTML = "";
@@ -1507,7 +1498,7 @@ class LogsTab {
 
 		// Request the logs that have made up to this point
 		const managerLogs = await api.invoke("fl:request-manager-logs");
-		tabs.logs.receiveLogs(managerLogs);
+		for (let i = this.remoteLogIndex; i < managerLogs.length; i++) this.receiveLogFromRemote(managerLogs[i], false);
 	}
 
 	selectTab() {
@@ -1578,18 +1569,13 @@ class LogsTab {
 		this.mainContainer.scrollTop = content.scrollHeight - 0.1;
 	}
 
-	receiveLogs(logs) {
-		for (let i = this.remoteLogIndex; i < logs.length; i++) this.addLog(logs[i]);
-		this.remoteLogIndex = logs.length;
-	}
-
-	receiveLog(log) {
+	receiveLogFromRemote(log, notifyErrors = true) {
 		// Have to assume received logs in-order
-		this.addLog(log);
+		this.addLog(log, notifyErrors);
 		this.remoteLogIndex++;
 	}
 
-	addLog(log) {
+	addLog(log, notifyErrors = true) {
 		if (!this.isSetup) {
 			console.log("Logs tab not setup yet, cannot add log.");
 			return;
@@ -1600,7 +1586,8 @@ class LogsTab {
 			return;
 		}
 
-		if (log.level === "error") this.setErrorNotification(log.source, true);
+		console.log(`Adding log: ${log.timestamp.toISOString()} [${log.level}] ${log.message}`);
+		if (log.level === "error" && notifyErrors) this.setErrorNotification(log.source, true);
 
 		this.sources[log.source].logs.push(log);
 
