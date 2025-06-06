@@ -965,12 +965,216 @@ class ModsManager {
 	}
 
 	async calculateModActions(mainActions) {
-		logDebug(`Calculating mod actions: ${JSON.stringify(mainActions)}`);
-		return mainActions;
+		logDebug(`Calculating all mod actions for ${Object.keys(mainActions).length} main action(s)`);
+
+		// We need to convert the main actions into a big list of actions that we can perform
+		let allActions = [];
+		for (const modID in mainActions) {
+			const action = mainActions[modID];
+
+			// On an install action we want to recursively install all dependencies
+			// We track version dependencies for all mods because if we find a duplicate dependency we need to ensure they all match
+			if (action.type === "install") {
+				const versionDependencies = {};
+				const queue = [[modID, action.version]];
+				while (queue.length > 0) {
+					const [currentModID, depVersion] = queue.shift();
+
+					// If we already have this mod in the actions we need to check the versions overlap with semver
+					if (versionDependencies[currentModID]) {
+						for (const existingDepVersion of versionDependencies[currentModID]) {
+							if (!semver.intersects(depVersion, existingDepVersion)) {
+								return errorResponse(`Cannot install mod '${action.modID}' as the dependency ${currentModID} has a version conflict: ${existingDepVersion} vs ${depVersion}`, {
+									allActions: allActions,
+									errorModID: currentModID,
+									errorReason: "version-conflict",
+								});
+							}
+						}
+						logDebug(`mod '${currentModID}' already in actions with compatible version(s) ${versionDependencies[currentModID].join(", ")}`);
+						continue;
+					}
+
+					// If it is already installed check if the version satisfies the dependency
+					// TODO: Make this try a "change" action if the version does not match
+					if (this.installedMods[currentModID]) {
+						const modInfo = this.installedMods[currentModID].info;
+						if (!this._doesVersionSatisfyDependency(modInfo.version, depVersion)) {
+							return errorResponse(`Cannot install mod '${action.modID} as the dependency ${currentModID} is already installed with version ${modInfo.version}' but requires version ${depVersion}`, {
+								allActions: allActions,
+								errorModID: currentModID,
+								errorReason: "version-mismatch",
+							});
+						}
+						logDebug(`mod '${currentModID}' is already installed with compatible version ${modInfo.version}`);
+						continue;
+					}
+
+					// If we do not have the mod installed, we need to install it
+					// Get all the available versions of the mod
+					const versionsURL = `https://fluxloader.app/api/mods?option=versions&modid=${currentModID}`;
+					let versionsResData;
+					try {
+						const res = await fetch(versionsURL);
+						versionsResData = await res.json();
+					} catch (e) {
+						return errorResponse(`Failed to fetch available versions for mod '${currentModID}' with url ${versionsURL}: ${e.stack}`, {
+							allActions: allActions,
+							errorModID: currentModID,
+							errorReason: "version-fetch",
+						});
+					}
+					if (!versionsResData || !versionsResData.versions || !Array.isArray(versionsResData.versions)) {
+						// return errorResponse(`Invalid response for available versions of mod '${currentModID}' with url ${versionsURL}`, {
+						// 	allActions: allActions,
+						// 	errorModID: currentModID,
+						// 	errorReason: "version-fetch",
+						// });
+						// TODO: For now just ignore the dependency
+						continue;
+					}
+
+					// Find the first (latest) version that satisfies the dependency
+					const versions = versionsResData.versions;
+					let latestVersion = null;
+					for (const availableVersion of versions) {
+						if (this._doesVersionSatisfyDependency(availableVersion, depVersion)) {
+							latestVersion = availableVersion;
+							break;
+						}
+					}
+
+					// Did not find a version that satisfies the dependency
+					if (!latestVersion) {
+						// return errorResponse(`Cannot install mod '${action.modID}' as the dependency '${currentModID}' does not have a version that satisfies ${depVersion}`, {
+						// 	allActions: allActions,
+						// 	errorModID: currentModID,
+						// 	errorReason: "version-none-found",
+						// });
+						// TODO: For now just ignore the dependency
+						continue;
+					}
+
+					// Add the install action for this mod
+					logDebug(`Adding install action for mod '${currentModID}' with version ${latestVersion}`);
+					allActions.push({ type: "install", modID: currentModID, version: latestVersion, parentAction: action.modID, derivedActions: [] });
+					if (!versionDependencies[currentModID]) versionDependencies[currentModID] = [];
+					versionDependencies[currentModID].push(depVersion);
+
+					// Fetch this specific versions info
+					const modInfoURL = `https://fluxloader.app/api/mods?option=info&modid=${currentModID}&version=${latestVersion}`;
+					let infoResData;
+					try {
+						const res = await fetch(modInfoURL);
+						infoResData = await res.json();
+					} catch (e) {
+						return errorResponse(`Failed to fetch mod info for ${currentModID} version ${latestVersion}: ${e.stack}`, {
+							allActions: allActions,
+							errorModID: currentModID,
+							errorReason: "version-info-fetch",
+						});
+					}
+					if (!infoResData || !infoResData.mod) {
+						return errorResponse(`Invalid response for mod info of ${currentModID} version ${latestVersion}`, {
+							allActions: allActions,
+							errorModID: currentModID,
+							errorReason: "version-info-fetch",
+						});
+					}
+
+					// Add each dependency of this mod to the queue
+					const dependencies = infoResData.mod.modData.dependencies || {};
+					for (const depModID in dependencies) {
+						const depVersion = dependencies[depModID];
+						logDebug(`Adding dependency ${depModID} with version ${depVersion} for mod ${currentModID}`);
+						queue.push([depModID, depVersion]);
+					}
+				}
+			}
+
+			// On an uninstall action we want to only remove the mod but then also check if other mods depend on it
+			else if (action.type === "uninstall") {
+				// If the mod is not installed, we can skip it
+				if (!this.installedMods[modID]) {
+					return errorResponse(`Cannot uninstall mod '${modID}' as it is not installed`);
+				} else {
+					// Check if any other installed mods depend on this mod
+					const installedVersion = this.installedMods[modID].info.version;
+					let hasDependents = false;
+					for (const otherModID in this.installedMods) {
+						if (otherModID === modID) continue;
+						const otherModInfo = this.installedMods[otherModID].info;
+						if (otherModInfo.dependencies && otherModInfo.dependencies[modID]) {
+							const requiredVersion = otherModInfo.dependencies[modID];
+							if (this._isDependencyValid(requiredVersion, installedVersion)) {
+								hasDependents = true;
+								logDebug(`Mod '${otherModID}' depends on '${modID}' with version ${requiredVersion}`);
+								break;
+							}
+						}
+					}
+
+					// Some other mod depends on this mod, we cannot uninstall it
+					if (hasDependents) {
+						return errorResponse(`Cannot uninstall mod '${modID}' as it is required by other mods`);
+					}
+
+					// Otherwise we can safely remove the mod
+					logDebug(`Mod '${modID}' has no dependents, can safely uninstall`);
+					allActions.push({ type: "uninstall", modID: action.modID, version: installedVersion, parentAction: null, derivedActions: [] });
+				}
+			}
+		}
+
+		return successResponse(`Calculated mod actions`, mainActions);
 	}
 
 	async performModActions(allActions) {
-		logDebug(`Performing mod actions: ${JSON.stringify(allActions)}`);
+		logDebug(`Performing ${Object.keys(allActions).length} mod action(s)`);
+
+		if (this.isPerformingActions) return errorResponse("Already performing mod actions, cannot perform again");
+		this.isPerformingActions = true;
+
+		// Go over each action in order and perform it
+		const performedActions = [];
+		for (const actionModID in allActions) {
+			const action = allActions[actionModID];
+			logDebug(`Performing action '${action.type}' for mod '${action.modID}' (version: ${action.version})`);
+
+			if (action.type === "install") {
+				// Last check if the mod is already installed
+				if (this.installedMods[action.modID]) {
+					const installedMod = this.installedMods[action.modID];
+					return errorResponse(`Mod '${action.modID}' is already installed with version ${installedMod.info.version}`, {
+						performedActions: performedActions,
+						errorModID: action.modID,
+						errorReason: "already-installed",
+					});
+				}
+
+				// Fetch the mod version from the API
+				const versionURL = `https://fluxloader.app/api/mods?option=download&modid=${action.modID}&version=${action.version}`;
+				let versionResData;
+				try {
+					const res = await fetch(versionURL);
+					versionResData = await res.json();
+				} catch (e) {
+					return errorResponse(`Failed to fetch mod version ${action.version} for ${action.modID}: ${e.stack}`, {
+						performedActions: performedActions,
+						errorModID: action.modID,
+						errorReason: "version-fetch",
+					});
+				}
+
+				// TODO: For now just assume it went through and worked
+				console.log(versionResData);
+			} else if (action.type === "uninstall") {
+				// TODO: For now just assume it went through and worked
+			}
+		}
+
+		this.isPerformingActions = false;
+		return successResponse("Mod actions performed successfully");
 	}
 
 	// ------------ INTERNAL ------------
@@ -1014,14 +1218,14 @@ class ModsManager {
 			const validateEntrypoint = (type) => {
 				const entrypointPath = modInfo[`${type}Entrypoint`];
 				if (entrypointPath && !fs.existsSync(path.join(modPath, entrypointPath))) {
-					throw new Error(`Mod ${modInfo.modID} has an invalid ${type}Entrypoint: ${entrypointPath}`);
+					throw new Error(`Mod '${modInfo.modID}' has an invalid ${type}Entrypoint: ${entrypointPath}`);
 				}
 			};
 			validateEntrypoint("electron");
 			validateEntrypoint("game");
 			validateEntrypoint("worker");
 		} catch (e) {
-			return errorResponse(`Mod ${modInfo.modID} has an invalid entrypoint: ${e.message}`);
+			return errorResponse(`Mod '${modInfo.modID}' has an invalid entrypoint: ${e.message}`);
 		}
 
 		// Load the mod scripts if they exist
@@ -1051,9 +1255,8 @@ class ModsManager {
 		// https://github.com/npm/node-semver
 		if (modInfo.dependencies) {
 			for (const modID in modInfo.dependencies) {
-				if (modInfo.dependencies[modID] == "soft") continue;
-				if (!semver.valid(semver.coerce(modInfo.dependencies[modID]))) {
-					return errorResponse(`Mod ${modInfo.modID} has an invalid dependency version for ${modID}: ${modInfo.dependencies[modID]}`);
+				if (!this._isDependencyValid(modInfo.dependencies[modID])) {
+					return errorResponse(`Mod '${modInfo.modID}' has an invalid dependency version for ${modID}: ${modInfo.dependencies[modID]}`);
 				}
 			}
 		} else modInfo.dependencies = {};
@@ -1081,7 +1284,7 @@ class ModsManager {
 			logDebug(`Validating schema for mod: ${mod.info.modID}`);
 			let config = fluxloaderAPI.modConfig.get(mod.info.modID);
 			if (!SchemaValidation.validate(config, mod.info.configSchema)) {
-				return errorResponse(`Mod ${mod.info.modID} config schema validation failed: ${e.message}`);
+				return errorResponse(`Mod '${mod.info.modID}' config schema validation failed: ${e.message}`);
 			}
 			fluxloaderAPI.modConfig.set(mod.info.modID, config);
 		}
@@ -1118,11 +1321,11 @@ class ModsManager {
 		mod.isLoaded = true;
 		this.loadedModCount++;
 		fluxloaderAPI.events.trigger("fl:mod-loaded", mod);
-		return successResponse(`Mod ${mod.info.modID} loaded successfully`, mod);
+		return successResponse(`Mod '${mod.info.modID}' loaded successfully`, mod);
 	}
 
 	_unloadMod(mod) {
-		if (!mod.isLoaded) logWarn(`Mod ${mod.info.modID} is not loaded, cannot unload it`);
+		if (!mod.isLoaded) logWarn(`Mod '${mod.info.modID}' is not loaded, cannot unload it`);
 		logDebug(`Unloading mod: ${mod.info.modID}`);
 		delete this.modScriptsImport[mod.info.modID];
 		delete this.modElectronModules[mod.info.modID];
@@ -1172,19 +1375,71 @@ class ModsManager {
 			const mod = this.installedMods[modID];
 			if (mod.isEnabled && mod.info.dependencies) {
 				for (const depModID in mod.info.dependencies) {
-					if (!this.isModInstalled(depModID)) {
-						return errorResponse(`Mod ${modID} depends on missing mod: ${depModID}`);
-					}
 					const depVersion = mod.info.dependencies[depModID];
-					if (depVersion !== "soft" && !semver.satisfies(this.installedMods[depModID].info.version, depVersion)) {
-						return errorResponse(`Mod ${modID} depends on ${depModID} with version ${depVersion}, but installed version is ${this.installedMods[depModID].info.version}`);
+					const modVersion = this.isModInstalled(depModID) ? this.installedMods[depModID].info.version : null;
+					if (!this._doesVersionSatisfyDependency(modVersion, depVersion)) {
+						return errorResponse(`Mod '${modID}' depends on '${depModID}' with version ${depVersion}, but installed version is ${modVersion}`);
 					}
-					``;
 				}
 			}
 		}
 		logDebug("All mod dependencies verified successfully");
 		return successResponse("All mod dependencies are valid");
+	}
+
+	_isDependencyValid(depVersion) {
+		// If it is `param:version` then we validate param and version seperately
+		if (depVersion.includes(":")) {
+			const splitDepVersion = depVersion.split(":");
+			if (!splitDepVersion || splitDepVersion.length !== 2) return false;
+			const [param, semverDepVersion] = splitDepVersion;
+
+			// Must be one of the valid `param` values
+			const validParams = ["optional", "conflict"];
+			if (!validParams.includes(param)) {
+				logError(`Invalid dependency parameter: ${param}`);
+				return false;
+			}
+
+			// Must be a valid semver `version`
+			if (!semver.valid(semver.coerce(semverDepVersion))) {
+				logError(`Invalid semver dependency format: ${depVersion}`);
+				return false;
+			}
+
+			return true;
+		}
+
+		// Otherwise `version` should be a valid semver version.
+		if (!semver.valid(semver.coerce(depVersion))) {
+			logError(`Invalid semver dependency format: ${depVersion}`);
+			return false;
+		}
+
+		return true;
+	}
+
+	_doesVersionSatisfyDependency(version, depVersion) {
+		// If it is `param:version` then we use custom logic
+		if (depVersion.includes(":")) {
+			const splitDepVersion = depVersion.split(":");
+			const [param, semverDepVersion] = splitDepVersion;
+
+			// `optional:version` means the version should satisfy the dependency if it exists
+			if (param === "optional") {
+				// If the mod is not installed (and therefore version = null) we can skip this check
+				if (!version) return true;
+				else return semver.satisfies(version, semverDepVersion);
+			}
+
+			// `conflict:version` means the version should not satisfy the dependency
+			if (param === "conflict") {
+				return !semver.satisfies(version, semverDepVersion);
+			}
+		}
+
+		// Regular semver dependency check for `version`
+		return semver.satisfies(version, depVersion);
 	}
 
 	_applyModsScriptModifySchema() {
@@ -1259,7 +1514,7 @@ class ModsManager {
 			const response = await fetch(url);
 			responseData = await response.json();
 			const versionEnd = Date.now();
-			logDebug(`Fetched version info for mod ${args.modID} (v${args.version}) in ${versionEnd - versionStart}ms`);
+			logDebug(`Fetched version info for mod '${args.modID}' (v${args.version}) in ${versionEnd - versionStart}ms`);
 		} catch (e) {
 			return errorResponse(`Failed to fetch mod version info from API: ${e.stack}`);
 		}
@@ -1272,10 +1527,10 @@ class ModsManager {
 			const renderStart = Date.now();
 			responseData.mod.renderedDescription = marked(responseData.mod.modData.description);
 			const renderEnd = Date.now();
-			logDebug(`Rendered description for mod ${args.modID} (v${args.version}) in ${renderEnd - renderStart}ms`);
+			logDebug(`Rendered description for mod '${args.modID}' (v${args.version}) in ${renderEnd - renderStart}ms`);
 		}
 
-		return successResponse(`Fetched version info for mod ${args.modID} (v${args.version})`, responseData.mod);
+		return successResponse(`Fetched version info for mod '${args.modID}' (v${args.version})`, responseData.mod);
 	}
 
 	isModInstalled(modID) {
@@ -1284,10 +1539,10 @@ class ModsManager {
 
 	setModEnabled(modID, enabled) {
 		// Ensure mod exists and should be toggled
-		if (!this.isModInstalled(modID)) return errorResponse(`Mod ${modID} is not installed`);
-		if (this.installedMods[modID].isEnabled === enabled) return successResponse(`Mod ${modID} is already in the desired state: ${enabled}`);
+		if (!this.isModInstalled(modID)) return errorResponse(`Mod '${modID}' is not installed`);
+		if (this.installedMods[modID].isEnabled === enabled) return successResponse(`Mod '${modID}' is already in the desired state: ${enabled}`);
 
-		logDebug(`Setting mod ${modID} enabled state to ${enabled}`);
+		logDebug(`Setting mod '${modID}' enabled state to ${enabled}`);
 		this.installedMods[modID].isEnabled = enabled;
 
 		// Update mod schemas if needed
@@ -1296,9 +1551,9 @@ class ModsManager {
 		// Save this to the config file
 		config.modsEnabled[modID] = enabled;
 		const res = updateFluxloaderConfig();
-		if (!res.success) return errorResponse(`Failed to update config after setting mod ${modID} enabled state: ${res.message}`);
+		if (!res.success) return errorResponse(`Failed to update config after setting mod '${modID}' enabled state: ${res.message}`);
 
-		return successResponse(`Mod ${modID} enabled state set to ${enabled}`, this.installedMods[modID]);
+		return successResponse(`Mod '${modID}' enabled state set to ${enabled}`, this.installedMods[modID]);
 	}
 }
 
@@ -1656,7 +1911,7 @@ function addFluxloaderPatches() {
 function trySendManagerEvent(eventName, args) {
 	if (!managerWindow || managerWindow.isDestroyed()) return;
 	try {
-		if (eventName !== "fl:forward-log") logDebug(`Sending event ${eventName} to manager ${new Date().toISOString()}`);
+		if (eventName !== "fl:forward-log") logDebug(`Sending event ${eventName} to manager`);
 		managerWindow.webContents.send(eventName, args);
 	} catch (e) {
 		logError(`Failed to send event ${eventName} to manager window: ${e.stack}`);

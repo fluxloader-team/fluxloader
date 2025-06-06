@@ -4,15 +4,16 @@ import { SchemaValidation, Logging } from "../common.js";
 
 const DELAY_LOAD_REMOTE_MS = 150;
 const DELAY_RELOAD_MS = 150;
+const DELAY_BEFORE_PERFORM_ACTIONS_MS = 300;
 
 globalThis.tabs = { mods: null, config: null, logs: null };
 let selectedTab = null;
 let getElementMemoization = {};
 
-// The following are blocking and should block other actions
-// When they are changed use addBlockingAction() & removeBlockingAction()
-// When you try to do a blocked action use pingBlockingAction()
-let blockingActions = new Set();
+// The following are blocking and should block other tasks
+// When they are changed use addBlockingTask() & removeBlockingTask()
+// When you try to do a blocked action use pingBlockingTask()
+let blockingTasks = new Set();
 let isPlaying = false;
 let isPlayButtonLoading = false;
 let isFullscreenAlertVisible = false;
@@ -429,9 +430,9 @@ class ModsTab {
 	// Functions used by internal events or from outside this class
 
 	async reloadMods() {
-		if (this.isLoadingMods || this.isPerformingActions) return pingBlockingAction("Cannot reload mods while loading or performing actions.");
+		if (this.isLoadingMods || this.isPerformingActions) return pingBlockingTask("Cannot reload mods while loading or performing actions.");
 		this.setIsLoadingMods(true);
-		setProgressBar("Reloading all mods...", 0);
+		setProgressBar("Reloading all mods...", 0, "loading");
 		getElement("reload-mods").classList.add("loading");
 
 		// We want to fully reload the entire mod table
@@ -441,8 +442,8 @@ class ModsTab {
 		// Tell the backend to re-discover installed mods
 		const res = await api.invoke("fl:find-installed-mods");
 		if (!res.success) {
-			logError("Failed to find installed mods:", res.error);
-			setProgressBar("Failed to find installed mods", 0);
+			logError("Failed to find installed mods:", res.data);
+			setProgressBar("Failed to find installed mods", 0, "loading");
 			this.setIsLoadingMods(false);
 			getElement("reload-mods").classList.remove("loading");
 			return;
@@ -467,14 +468,14 @@ class ModsTab {
 		}
 
 		this.setIsLoadingMods(false);
-		setProgressBar("Reloaded mods", 0);
+		setProgressBar("Reloaded mods", 0, "success");
 		getElement("reload-mods").classList.remove("loading");
 	}
 
 	async loadMoreMods() {
-		if (this.isLoadingMods || this.isPerformingActions) return pingBlockingAction("Cannot load more mods while loading or performing actions.");
+		if (this.isLoadingMods || this.isPerformingActions) return pingBlockingTask("Cannot load more mods while loading or performing actions.");
 		this.setIsLoadingMods(true);
-		setProgressBar("Loading more mods...", 0);
+		setProgressBar("Loading more mods...", 0, "loading");
 
 		// This function makes you go online if you are offline
 		if (connectionState === "offline") {
@@ -487,7 +488,7 @@ class ModsTab {
 		await this.loadMoreRemoteMods();
 
 		this.setIsLoadingMods(false);
-		setProgressBar("Loaded mods", 0);
+		setProgressBar("Loaded mods", 0, "success");
 	}
 
 	async selectMod(modID) {
@@ -568,7 +569,7 @@ class ModsTab {
 
 		if (this.isLoadingMods || this.isPerformingActions) {
 			e.target.value = previousVersion;
-			return pingBlockingAction("Cannot change mod version as mods are currently loading or actions are being performed.");
+			return pingBlockingTask("Cannot change mod version as mods are currently loading or actions are being performed.");
 		}
 
 		if (!this.modRows[modID]) {
@@ -578,7 +579,7 @@ class ModsTab {
 			return;
 		}
 
-		setProgressBar(`Changing mod '${modID}' version to ${wantedVersion}...`, 0);
+		setProgressBar(`Changing mod '${modID}' version to ${wantedVersion}...`, 0, "loading");
 		this.setIsLoadingMods(true);
 
 		// Fetch remote version
@@ -587,7 +588,7 @@ class ModsTab {
 		if (!res.success) {
 			e.target.value = previousVersion;
 			logError(`Failed to change mod '${modID}' version to ${wantedVersion}`);
-			setProgressBar("Failed to change mod version", 0);
+			setProgressBar("Failed to change mod version", 0, "error");
 			this.setIsLoadingMods(false);
 			return;
 		}
@@ -614,7 +615,7 @@ class ModsTab {
 		}
 
 		this.setIsLoadingMods(false);
-		setProgressBar(`Changed mod '${modID}' version to ${wantedVersion}`, 0);
+		setProgressBar(`Changed mod '${modID}' version to ${wantedVersion}`, 0, "success");
 	}
 
 	async changeModEnabled(modID, e) {
@@ -625,14 +626,14 @@ class ModsTab {
 		checkbox.checked = previousEnabled;
 		checkbox.disabled = true;
 
-		if (this.isLoadingMods || this.isPerformingActions) pingBlockingAction("Cannot change mod enabled state as mods are currently loading or actions are being performed.");
+		if (this.isLoadingMods || this.isPerformingActions) pingBlockingTask("Cannot change mod enabled state as mods are currently loading or actions are being performed.");
 		this.setIsPerformingActions(true);
 
 		// Request backend to change the mod enabled state
 		const res = await api.invoke("fl:set-mod-enabled", { modID, enabled: wantedEnabled });
 		const modRow = this.modRows[modID];
 		if (!res.success) {
-			setProgressBar(`Failed to change mod '${modID}' enabled state`, 0);
+			setProgressBar(`Failed to change mod '${modID}' enabled state`, 0, "error");
 			modRow.modData.isEnabled = previousEnabled;
 			checkbox.checked = previousEnabled;
 		} else {
@@ -668,7 +669,7 @@ class ModsTab {
 	}
 
 	async clickSelectedModMainButton(modID) {
-		if (this.isLoadingMods || this.isPerformingActions) return pingBlockingAction("Cannot click main button as mods are currently loading or actions are being performed.");
+		if (this.isLoadingMods || this.isPerformingActions) return pingBlockingTask("Cannot click main button as mods are currently loading or actions are being performed.");
 
 		if (this.selectedMod !== modID) {
 			logError("Somethings gone wrong, selected mod does not match the clicked modID");
@@ -775,7 +776,7 @@ class ModsTab {
 		// Request the versions for the installed mods from the backend
 		const res = await api.invoke("fl:get-installed-mods-versions");
 		if (!res.success) {
-			logError("Failed to fetch installed mods versions:", res.error);
+			logError("Failed to fetch installed mods versions:", res.data);
 			setConnectionState("offline");
 			return;
 		}
@@ -980,7 +981,7 @@ class ModsTab {
 	}
 
 	async setViewingModConfig(enabled) {
-		if (this.isViewingModConfig === enabled) return logWarn("Cannot set viewing mod config state to the same value");
+		if (this.isViewingModConfig === enabled) return logWarn("Cannot set isViewingModConfig to the same value");
 		this.isViewingModConfig = enabled;
 		const configContainer = getElement("mod-config-container");
 		const modInfoContainer = getElement("mod-info-container");
@@ -1011,11 +1012,11 @@ class ModsTab {
 			const success = await api.invoke("fl-mod-config:set", this.selectedMod, newConfig);
 			if (!success) {
 				logError(`Failed to set config for mod ${this.selectedMod}`);
-				setProgressBar("Failed to set mod config", 0);
+				setProgressBar("Failed to set mod config", 0, "error");
 			} else {
 				logDebug(`Config for mod ${this.selectedMod} set successfully`);
 				this.modRows[this.selectedMod].modData.info.config = newConfig;
-				setProgressBar("Mod config updated successfully", 0);
+				setProgressBar("Mod config updated successfully", 0, "success");
 			}
 		});
 	}
@@ -1034,7 +1035,7 @@ class ModsTab {
 	}
 
 	setIsLoadingMods(isLoading) {
-		if (isLoading === this.isLoadingMods) return logWarn("Cannot set loading mods state to the same value.");
+		if (isLoading === this.isLoadingMods) return logWarn("Cannot set isLoadingMods to the same value.");
 
 		this.isLoadingMods = isLoading;
 
@@ -1046,30 +1047,30 @@ class ModsTab {
 			getElement("mods-load-button").classList.remove("loading");
 		}
 
-		if (this.isLoadingMods) addBlockingAction("isLoadingMods");
-		else removeBlockingAction("isLoadingMods");
+		if (this.isLoadingMods) addBlockingTask("isLoadingMods");
+		else removeBlockingTask("isLoadingMods");
 	}
 
 	setIsQueueingAction(isQueueing) {
-		if (isQueueing === this.isQueueingAction) return logWarn("Cannot set queueing action state to the same value.");
+		if (isQueueing === this.isQueueingAction) return logWarn("Cannot set isQueueingAction to the same value");
 		this.isQueueingAction = isQueueing;
-		if (this.isQueueingAction) addBlockingAction("isQueueingAction");
-		else removeBlockingAction("isQueueingAction");
+		if (this.isQueueingAction) addBlockingTask("isQueueingAction");
+		else removeBlockingTask("isQueueingAction");
 	}
 
 	setIsPerformingActions(isPerforming) {
-		if (isPerforming === this.isPerformingActions) return logWarn("Cannot set performing actions state to the same value.");
+		if (isPerforming === this.isPerformingActions) return logWarn("Cannot set isPerformingActions to the same value");
 		this.isPerformingActions = isPerforming;
 
 		getElement("action-queue-content").classList.toggle("performing", isPerforming);
 
 		if (this.isPerformingActions) {
-			addBlockingAction("isPerformingActions");
+			addBlockingTask("isPerformingActions");
 			getElement("action-execute-button").innerText = "Executing...";
 			getElement("action-execute-button").classList.add("active");
 			getElement("action-execute-button").classList.add("block-cursor");
 		} else {
-			removeBlockingAction("isPerformingActions");
+			removeBlockingTask("isPerformingActions");
 			getElement("action-execute-button").innerText = "Execute";
 			getElement("action-execute-button").classList.remove("active");
 			getElement("action-execute-button").classList.remove("block-cursor");
@@ -1079,7 +1080,7 @@ class ModsTab {
 	// ------------ ACTIONS ------------
 
 	setActionQueueVisible(visible) {
-		if (visible === this.isActionQueueVisible) return logWarn("Cannot set action queue visibility to the same value.");
+		if (visible === this.isActionQueueVisible) return logWarn("Cannot set isActionQueueVisible to the same value");
 
 		this.isActionQueueVisible = visible;
 
@@ -1088,6 +1089,29 @@ class ModsTab {
 
 		const hider = actionQueue.querySelector(".hider");
 		hider.style.display = visible ? "block" : "none";
+	}
+
+	async instantMainAction(modID, type) {
+		if (this.isLoadingMods || this.isPerformingActions || this.isQueueingAction) pingBlockingTask("Cannot perform instant main action as mods are currently loading or actions are being performed.");
+
+		logDebug(`Performing instant main action for mod '${modID}' of type ${type}`);
+
+		// Clear the action queue
+		this.allQueuedActions = {};
+		this.mainQueuedActions = {};
+		const actionQueueContent = getElement("action-queue-content");
+		actionQueueContent.innerHTML = "";
+
+		// Queue this as a main action
+		await this.queueMainAction(modID, type);
+		const action = this.allQueuedActions[modID];
+		if (!action) {
+			logError(`Failed to queue main action for mod '${modID}'`);
+			return;
+		}
+
+		// Perform the queued actions
+		await this.performQueuedActions();
 	}
 
 	async queueMainAction(modID, type) {
@@ -1118,17 +1142,27 @@ class ModsTab {
 		// Make the main action
 		const modRow = this.modRows[modID];
 		const action = { modID, version: modRow.modData.info.version, type };
-		this.mainQueuedActions[modID] = action;
+		const potentialMainQueuedActions = {};
+		for (const actionID in this.mainQueuedActions) potentialMainQueuedActions[actionID] = this.mainQueuedActions[actionID];
+		potentialMainQueuedActions[modID] = action;
 
-		// Ask the backend to figure out all the actions based on the main actions
-		const allActions = await api.invoke("fl:calculate-mod-actions", this.mainQueuedActions);
-		logDebug(`Queueing action ${type} for mod '${modID}', received ${Object.keys(allActions).length} total actions`);
-		if (!allActions || Object.keys(allActions).length === 0) {
-			throw new Error(`Failed to calculate actions for mod '${modID}'`);
+		this.setActionQueueVisible(true);
+
+		// Ask the backend to figure out all the actions based on these new potential main actions
+		const res = await api.invoke("fl:calculate-mod-actions", potentialMainQueuedActions);
+		if (!res.success) {
+			logError(`Failed to queue action for mod '${modID}':`, res.data);
+			this.setIsQueueingAction(false);
+			return;
 		}
 
-		// Remake the full action queue with the new all queued actions
+		// Accept the newly set main and all queued actions
+		const allActions = res.data;
+		this.mainQueuedActions = potentialMainQueuedActions;
 		this.allQueuedActions = allActions;
+		logDebug(`Queueing action ${type} for mod '${modID}', received ${Object.keys(allActions).length} total actions`);
+
+		// Remake the full action queue with the new all queued actions
 		const actionQueueContent = getElement("action-queue-content");
 		actionQueueContent.innerHTML = "";
 
@@ -1151,7 +1185,6 @@ class ModsTab {
 			this.modifyActionPreview(action, true);
 		}
 
-		this.setActionQueueVisible(true);
 		this.setIsQueueingAction(false);
 
 		if (Object.keys(this.allQueuedActions).length > 0) {
@@ -1161,7 +1194,7 @@ class ModsTab {
 	}
 
 	unqueueAction(modID) {
-		if (this.isLoadingMods || this.isPerformingActions || this.isQueueingAction) return pingBlockingAction("Cannot unqueue action as mods are currently loading or actions are being performed.");
+		if (this.isLoadingMods || this.isPerformingActions || this.isQueueingAction) return pingBlockingTask("Cannot unqueue action as mods are currently loading or actions are being performed.");
 
 		const action = this.allQueuedActions[modID];
 		if (!action) return logError(`No queued action for mod '${modID}' to unqueue.`);
@@ -1176,53 +1209,34 @@ class ModsTab {
 			this._unqueueMainAction(modID);
 		}
 
-		// Hide the action queue if there are no more actions
 		this.setIsQueueingAction(false);
-		if (Object.keys(this.allQueuedActions).length === 0) {
-			getElement("action-queue-no-content").style.display = "block";
-			getElement("action-queue-content").style.display = "none";
-		}
-	}
-
-	async instantMainAction(modID, type) {
-		if (this.isLoadingMods || this.isPerformingActions || this.isQueueingAction) pingBlockingAction("Cannot perform instant main action as mods are currently loading or actions are being performed.");
-
-		logDebug(`Performing instant main action for mod '${modID}' of type ${type}`);
-
-		// Clear the action queue
-		this.allQueuedActions = {};
-		this.mainQueuedActions = {};
-		const actionQueueContent = getElement("action-queue-content");
-		actionQueueContent.innerHTML = "";
-
-		// Queue this as a main action
-		await this.queueMainAction(modID, type);
-		const action = this.allQueuedActions[modID];
-		if (!action) {
-			logError(`Failed to queue main action for mod '${modID}'`);
-			return;
-		}
-
-		// Perform the queued actions
-		await this.performQueuedActions();
 	}
 
 	async performQueuedActions() {
-		if (this.isLoadingMods || this.isPerformingActions) pingBlockingAction("Cannot perform actions as mods are currently loading or actions are being performed.");
+		if (this.isLoadingMods || this.isPerformingActions) pingBlockingTask("Cannot perform actions as mods are currently loading or actions are being performed.");
 
 		if (Object.keys(this.allQueuedActions).length === 0) return logWarn("No actions to perform, returning");
 
-		setProgressBar("Performing actions...", 0);
+		setProgressBar("Performing actions...", 0, "loading");
 		this.setIsPerformingActions(true);
 
-		await new Promise((resolve) => setTimeout(resolve, 3000));
+		// Apply arbitrary delay to make it not feel too fast
+		await new Promise((resolve) => setTimeout(resolve, DELAY_BEFORE_PERFORM_ACTIONS_MS));
 
+		// Ask the backend to perform the actions
+		const res = await api.invoke("fl:perform-mod-actions", this.allQueuedActions);
+		if (!res.success) {
+			logError("Failed to perform actions:", JSON.stringify(res.data));
+			setProgressBar("Failed to perform actions", 0, "error");
+			this.setIsPerformingActions(false);
+			return;
+		}
+
+		setProgressBar("All actions performed successfully", 0, "success");
 		for (const modID in this.mainQueuedActions) this._unqueueMainAction(modID);
-
-		setProgressBar("All actions performed successfully", 0);
 		this.setIsPerformingActions(false);
 
-		await this.reloadMods();
+		this.reloadMods();
 	}
 
 	modifyActionPreview(action, preview) {
@@ -1244,8 +1258,6 @@ class ModsTab {
 		// Remove the main action
 		logDebug(`Removing main action for mod '${modID}'`);
 		const action = this.allQueuedActions[modID];
-		console.log(action);
-		console.log(action.element);
 		this.modifyActionPreview(action, false);
 		if (action.element && action.element.parentNode) action.element.parentNode.removeChild(action.element);
 		delete this.allQueuedActions[modID];
@@ -1263,6 +1275,12 @@ class ModsTab {
 				delete this.allQueuedActions[derivedAction.modID];
 			}
 			action.derivedActions = [];
+		}
+
+		// Hide the action queue if there are no more actions
+		if (Object.keys(this.allQueuedActions).length === 0) {
+			getElement("action-queue-no-content").style.display = "block";
+			getElement("action-queue-content").style.display = "none";
 		}
 	}
 
@@ -1301,10 +1319,10 @@ class ConfigTab {
 			const success = await api.invoke("fl:set-fluxloader-config", newConfig);
 			if (!success) {
 				logError("Failed to set config");
-				setProgressBar("Failed to set config", 0);
+				setProgressBar("Failed to set config", 0, "error");
 			} else {
 				logDebug("Config set successfully.");
-				setProgressBar("Config updated successfully", 0);
+				setProgressBar("Config updated successfully", 0, "success");
 			}
 		});
 	}
@@ -1329,8 +1347,8 @@ class LogsTab {
 	selectedLogSource = null;
 	remoteLogIndex = 0;
 	isSetup = false;
-	isNotifyingError = false;
 	errorNotificationElement = null;
+	errorNotificationCount = 0;
 	tabContainer = null;
 	mainContainer = null;
 
@@ -1351,6 +1369,7 @@ class LogsTab {
 			const tab = createElement(`
 				<div class="option" data-source="${source}">
 					<span class="logs-tab-text">${source.charAt(0).toUpperCase() + source.slice(1)}</span>
+					<img class="logs-tab-icon" src="assets/cross.png" style="display: none;">
 				</div>`);
 			tab.addEventListener("click", () => this.selectLogSource(source));
 			this.tabContainer.appendChild(tab);
@@ -1364,6 +1383,7 @@ class LogsTab {
 			this.sources[source].renderedIndex = -1;
 			this.sources[source].tabElement = tab;
 			this.sources[source].contentElement = content;
+			this.sources[source].hasErrorNotification = false;
 		}
 
 		// Select the default log source
@@ -1377,8 +1397,11 @@ class LogsTab {
 	}
 
 	selectTab() {
-		this.updateErrorNotification(false);
 		this.updateLogView();
+	}
+
+	deselectTab() {
+		this.setErrorNotification(this.selectedLogSource, false);
 	}
 
 	selectLogSource(source) {
@@ -1391,6 +1414,7 @@ class LogsTab {
 		if (this.selectedLogSource) {
 			this.sources[this.selectedLogSource].tabElement.classList.remove("selected");
 			this.sources[this.selectedLogSource].contentElement.style.display = "none";
+			this.setErrorNotification(this.selectedLogSource, false);
 		}
 
 		this.selectedLogSource = source;
@@ -1440,24 +1464,6 @@ class LogsTab {
 		this.mainContainer.scrollTop = content.scrollHeight - 0.1;
 	}
 
-	addLog(log) {
-		if (!this.isSetup) {
-			console.log("Logs tab not setup yet, cannot add log.");
-			return;
-		}
-
-		if (!log || !log.timestamp || !log.level || !log.message) {
-			logWarn(`Invalid log entry: ${JSON.stringify(log)}`);
-			return;
-		}
-
-		if (log.level === "error") this.updateErrorNotification(true);
-
-		this.sources[log.source].logs.push(log);
-
-		if (selectedTab == "logs" && this.selectedLogSource === log.source) this.updateLogView();
-	}
-
 	receiveLogs(logs) {
 		for (let i = this.remoteLogIndex; i < logs.length; i++) this.addLog(logs[i]);
 		this.remoteLogIndex = logs.length;
@@ -1469,10 +1475,32 @@ class LogsTab {
 		this.remoteLogIndex++;
 	}
 
-	updateErrorNotification(toggled) {
-		if (selectedTab === "logs" && toggled) return;
-		this.isNotifyingError = toggled;
-		this.errorNotificationElement.style.display = toggled ? "block" : "none";
+	addLog(log) {
+		if (!this.isSetup) {
+			console.log("Logs tab not setup yet, cannot add log.");
+			return;
+		}
+
+		if (!log || !log.timestamp || !log.level || !log.message) {
+			logWarn(`Invalid log entry: ${JSON.stringify(log)}`);
+			return;
+		}
+
+		if (log.level === "error") this.setErrorNotification(log.source, true);
+
+		this.sources[log.source].logs.push(log);
+
+		if (selectedTab == "logs" && this.selectedLogSource === log.source) this.updateLogView();
+	}
+
+	setErrorNotification(source, toggled = true) {
+		logDebug(`Setting error notification for source '${source}' to ${toggled}`);
+		if (this.sources[source].hasErrorNotification === toggled) return;
+		this.sources[source].tabElement.querySelector(".logs-tab-icon").style.display = toggled ? "block" : "none";
+		this.sources[source].hasErrorNotification = toggled;
+		this.errorNotificationCount += toggled ? 1 : -1;
+		logDebug(`Error notification count is now ${this.errorNotificationCount}`);
+		this.errorNotificationElement.style.display = this.errorNotificationCount > 0 ? "block" : "none";
 	}
 }
 
@@ -1506,23 +1534,23 @@ async function selectTab(tab) {
 // =================== MAIN ===================
 
 function setIsPlaying(playing) {
-	if (isPlaying === playing) return pingBlockingAction(`Tried to set isPlaying to ${playing} but it is already set to that.`);
+	if (isPlaying === playing) return pingBlockingTask(`Tried to set isPlaying to ${playing} but it is already set to that.`);
 	isPlaying = playing;
-	if (isPlaying) addBlockingAction("isPlaying");
-	else removeBlockingAction("isPlaying");
+	if (isPlaying) addBlockingTask("isPlaying");
+	else removeBlockingTask("isPlaying");
 }
 
 function setIsPlayButtonLoading(loading) {
-	if (isPlayButtonLoading === loading) return pingBlockingAction(`Tried to set isPlayButtonLoading to ${loading} but it is already set to that.`);
+	if (isPlayButtonLoading === loading) return pingBlockingTask(`Tried to set isPlayButtonLoading to ${loading} but it is already set to that.`);
 	isPlayButtonLoading = loading;
-	if (isPlayButtonLoading) addBlockingAction("isPlayButtonLoading");
-	else removeBlockingAction("isPlayButtonLoading");
+	if (isPlayButtonLoading) addBlockingTask("isPlayButtonLoading");
+	else removeBlockingTask("isPlayButtonLoading");
 }
 
 function setFullscreenAlert(title, text, buttons) {
-	if (isFullscreenAlertVisible) return pingBlockingAction("Tried to set fullscreen alert but it is already visible.");
+	if (isFullscreenAlertVisible) return pingBlockingTask("Tried to set fullscreen alert but it is already visible.");
 	isFullscreenAlertVisible = true;
-	addBlockingAction("isFullscreenAlertVisible");
+	addBlockingTask("isFullscreenAlertVisible");
 
 	const alertElement = getElement("fullscreen-alert");
 
@@ -1540,7 +1568,7 @@ function setFullscreenAlert(title, text, buttons) {
 			button.onClick();
 			alertElement.style.display = "none";
 			isFullscreenAlertVisible = false;
-			removeBlockingAction("isFullscreenAlertVisible");
+			removeBlockingTask("isFullscreenAlertVisible");
 		});
 		buttonContainer.appendChild(buttonElement);
 	});
@@ -1548,9 +1576,20 @@ function setFullscreenAlert(title, text, buttons) {
 	alertElement.style.display = "flex";
 }
 
-function setProgressBar(text, percent) {
-	getElement("progress-bar-text").innerText = text;
-	getElement("progress-bar").style.width = `${percent}%`;
+function setProgressBar(text, percent, icon = null) {
+	getElement("footer-progress-text").innerText = text;
+	getElement("footer-progress-bar").style.width = `${percent}%`;
+	if (icon == null) {
+		getElement("footer-progress-icon").style.display = "none";
+	} else {
+		getElement("footer-progress-icon").style.display = "block";
+		const map = {
+			success: "assets/check.png",
+			failed: "assets/cross.png",
+			loading: "assets/loading.gif",
+		};
+		getElement("footer-progress-icon").src = map[icon] || icon;
+	}
 }
 
 function setConnectionState(state) {
@@ -1577,7 +1616,7 @@ function setConnectionState(state) {
 
 async function handleClickConnectionButton(e) {
 	if (isPlaying || tabs.mods.isLoadingMods || tabs.mods.isPerformingActions || isPlayButtonLoading) {
-		return pingBlockingAction("Cannot change connection state while playing, loading mods, or performing actions.");
+		return pingBlockingTask("Cannot change connection state while playing, loading mods, or performing actions.");
 	}
 	// Instantly disconnect
 	if (connectionState === "online") {
@@ -1592,7 +1631,7 @@ async function handleClickConnectionButton(e) {
 
 	// Attempt to connect if offline
 	else if (connectionState === "offline") {
-		addBlockingAction("connecting");
+		addBlockingTask("connecting");
 		setConnectionState("connecting");
 		logDebug("Attempting to connect to the server...");
 		const res = await api.invoke("fl:ping-server");
@@ -1603,7 +1642,7 @@ async function handleClickConnectionButton(e) {
 			logError("Failed to ping the server, connection is offline");
 			setConnectionState("offline");
 		}
-		removeBlockingAction("connecting");
+		removeBlockingTask("connecting");
 	}
 }
 
@@ -1616,20 +1655,20 @@ function updatePlayButton() {
 }
 
 async function handleClickPlayButton() {
-	if (isPlayButtonLoading || tabs.mods.isLoadingMods || tabs.mods.isPerformingActions) return pingBlockingAction("Cannot change game state while loading mods or performing actions.");
+	if (isPlayButtonLoading || tabs.mods.isLoadingMods || tabs.mods.isPerformingActions) return pingBlockingTask("Cannot change game state while loading mods or performing actions.");
 
 	setIsPlayButtonLoading(true);
 	updatePlayButton();
 	getElement("play-button").classList.toggle("active", true);
-	setProgressBar("Loading...", 0);
+	setProgressBar("Loading...", 0, "loading");
 
 	if (!isPlaying) {
 		const res = await api.invoke(`fl:start-game`);
 		if (!res.success) {
 			logError("Failed to start the game, please check the logs for more details");
-			setProgressBar("Failed to start game", 0);
+			setProgressBar("Failed to start game", 0, "failed");
 		} else {
-			setProgressBar("Game started", 0);
+			setProgressBar("Game started", 0, "success");
 		}
 		getElement("play-button").classList.toggle("active", res.success);
 		isPlaying = res.success;
@@ -1637,7 +1676,7 @@ async function handleClickPlayButton() {
 		updatePlayButton();
 	} else {
 		await api.invoke(`fl:close-game`);
-		setProgressBar("Game stopped", 0);
+		setProgressBar("Game stopped", 0, "success");
 		getElement("play-button").classList.toggle("active", false);
 		setIsPlayButtonLoading(false);
 		setIsPlaying(false);
@@ -1645,30 +1684,30 @@ async function handleClickPlayButton() {
 	}
 }
 
-function addBlockingAction(action) {
-	blockingActions.add(action);
-	logDebug(`Added blocking action: ${action}`);
-	if (blockingActions.size === 1) {
+function addBlockingTask(task) {
+	blockingTasks.add(task);
+	logDebug(`Added blocking task: ${task}`);
+	if (blockingTasks.size === 1) {
 		const blockingIndicator = getElement("blocking-indicator");
 		blockingIndicator.style.opacity = "1";
 		blockingIndicator.classList.remove("animate");
-		blockingIndicator.querySelector("img").src = "assets/hourglass.gif";
+		blockingIndicator.querySelector("img").src = "assets/loading.gif";
 	}
 }
 
-function removeBlockingAction(action) {
-	if (!blockingActions.delete(action)) {
-		logWarn(`Tried to remove blocking action that does not exist: ${action}`);
+function removeBlockingTask(task) {
+	if (!blockingTasks.delete(task)) {
+		logWarn(`Tried to remove blocking action that does not exist: ${task}`);
 		return;
 	}
-	logDebug(`Removed blocking action: ${action}`);
-	if (blockingActions.size === 0) {
+	logDebug(`Removed blocking task: ${task}`);
+	if (blockingTasks.size === 0) {
 		const blockingIndicator = getElement("blocking-indicator");
 		blockingIndicator.style.opacity = "0";
 	}
 }
 
-function pingBlockingAction(message) {
+function pingBlockingTask(message) {
 	if (message && message.length > 0) logWarn(`Cannot perform action while blocking: ${message}`);
 	const indicator = getElement("blocking-indicator");
 	indicator.classList.remove("animate");
@@ -1688,7 +1727,7 @@ function setupElectronEvents() {
 
 	api.on(`fl:game-closed`, () => {
 		if (!isPlaying) return logWarn("Received game closed event but isPlaying is false, ignoring.");
-		setProgressBar("Game closed", 0);
+		setProgressBar("Game closed", 0, "success");
 		setIsPlaying(false);
 		updatePlayButton();
 		getElement("play-button").classList.toggle("active", false);

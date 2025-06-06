@@ -1026,6 +1026,14 @@ input[type="checkbox"]:checked::before {
 	background: var(--color-bg-dark-active-lighter);
 }
 
+#logs-tab-content .logs-tab-list .option .logs-tab-icon {
+	width: 0.75rem;
+	height: 0.75rem;
+	object-fit: contain;
+	filter: contrast(0.7);
+	margin-left: 0.4rem;
+}
+
 #logs-tab-content .logs-content-scroll {
 	flex: 1;
 	overflow: auto;
@@ -1128,6 +1136,15 @@ input[type="checkbox"]:checked::before {
 
 .footer-progress-text p {
 	font-size: 0.85rem;
+}
+
+.footer-progress-icon {
+	width: 0.75rem;
+	height: 0.75rem;
+	object-fit: contain;
+	filter: contrast(0.5);
+	margin-left: 0.6rem;
+	margin-top: 0.05rem;
 }
 
 .footer-progress-bar {
