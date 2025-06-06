@@ -794,15 +794,19 @@ class ModsManager {
 	loadedModCount = 0;
 	modScriptsImport = {};
 	modElectronModules = {};
+	fetchedModCache = {};
 
 	// ------------ MAIN ------------
 
-	async findInstalledMods() {
+	async reloadInstalledMods() {
 		if (this.isPerformingActions) return errorResponse("Cannot find installed mods while performing actions");
 
 		this.installedMods = {};
 		this.loadOrder = [];
 		this.loadedModCount = 0;
+
+		// We also want to reset the mod dependencies
+		this.fetchedModCache = {};
 
 		this.baseModsPath = resolvePathRelativeToFluxloader(config.modsPath);
 		try {
@@ -811,6 +815,7 @@ class ModsManager {
 			return errorResponse(`Failed to ensure mods directory exists: ${e.stack}`);
 		}
 
+		// Find all the folders in the back directory and treat each as a mod
 		let modPaths = fs.readdirSync(this.baseModsPath);
 		modPaths = modPaths.filter((p) => p !== "config");
 		modPaths = modPaths.map((p) => path.join(this.baseModsPath, p));
@@ -960,6 +965,9 @@ class ModsManager {
 			logDebug(`Rendered ${responseData.mods.length} descriptions for remote mods in ${renderEnd - renderStart}ms`);
 		}
 
+		// Cache the fetched mods
+		for (const mod of responseData.mods) this.fetchedModCache[mod.modID] = mod;
+
 		logDebug(`Returning ${responseData.mods.length} total mods for page ${config.page} of size ${config.pageSize} (${responseData.resultsCount} total)`);
 		return successResponse(`Fetched ${responseData.mods.length} remote mods`, responseData.mods);
 	}
@@ -979,6 +987,8 @@ class ModsManager {
 				const queue = [[modID, action.version]];
 				while (queue.length > 0) {
 					const [currentModID, depVersion] = queue.shift();
+					let isChangingVersion = false;
+					logDebug(`Processing 'install' for current mod '${currentModID}' version '${depVersion}'`);
 
 					// If we already have this mod in the actions we need to check the versions overlap with semver
 					if (versionDependencies[currentModID]) {
@@ -991,51 +1001,73 @@ class ModsManager {
 								});
 							}
 						}
+						// TODO: This isn't quite true, we need to find a version that does overlap both
 						logDebug(`mod '${currentModID}' already in actions with compatible version(s) ${versionDependencies[currentModID].join(", ")}`);
 						continue;
 					}
 
 					// If it is already installed check if the version satisfies the dependency
-					// TODO: Make this try a "change" action if the version does not match
 					if (this.installedMods[currentModID]) {
 						const modInfo = this.installedMods[currentModID].info;
 						if (!this._doesVersionSatisfyDependency(modInfo.version, depVersion)) {
-							return errorResponse(`Cannot install mod '${action.modID} as the dependency ${currentModID} is already installed with version ${modInfo.version}' but requires version ${depVersion}`, {
-								allActions: allActions,
-								errorModID: currentModID,
-								errorReason: "version-mismatch",
-							});
+							logDebug(`mod '${currentModID}' is already installed with version ${modInfo.version} but does not satisfy dependency ${depVersion}, trying to change version...`);
+							isChangingVersion = true;
 						}
 						logDebug(`mod '${currentModID}' is already installed with compatible version ${modInfo.version}`);
 						continue;
 					}
 
-					// If we do not have the mod installed, we need to install it
-					// Get all the available versions of the mod
-					const versionsURL = `https://fluxloader.app/api/mods?option=versions&modid=${currentModID}`;
-					let versionsResData;
-					try {
-						const res = await fetch(versionsURL);
-						versionsResData = await res.json();
-					} catch (e) {
-						return errorResponse(`Failed to fetch available versions for mod '${currentModID}' with url ${versionsURL}: ${e.stack}`, {
+					// We need to install the mod, so first get all the available versions of the mod
+					let versions = null;
+
+					// - We have it installed or cached so use them versions
+					if (this.fetchedModCache[currentModID]) {
+						versions = this.fetchedModCache[currentModID].versionNumbers;
+						logDebug(`Using fetched cached versions for mod '${currentModID}' [ ${versions.join(", ")} ]`);
+					} else if (this.installedMods[currentModID]) {
+						versions = this.installedMods[currentModID].versions;
+						logDebug(`Using installed versions for mod '${currentModID}' [ ${versions.join(", ")} ]`);
+						console.log(versions); // TODO: Check this
+					}
+
+					// - Otherwise we need to fetch the versions from the API
+					else {
+						const versionsURL = `https://fluxloader.app/api/mods?option=versions&modid=${currentModID}`;
+						let versionsResData;
+						try {
+							const versionFetchStart = Date.now();
+							const res = await fetch(versionsURL);
+							versionsResData = await res.json();
+							const versionFetchEnd = Date.now();
+							logDebug(`Fetched available versions for mod '${currentModID}' in ${versionFetchEnd - versionFetchStart}ms`);
+						} catch (e) {
+							return errorResponse(`Failed to fetch available versions for mod '${currentModID}' with url ${versionsURL}: ${e.stack}`, {
+								allActions: allActions,
+								errorModID: currentModID,
+								errorReason: "version-fetch",
+							});
+						}
+						if (!versionsResData || !Object.hasOwn(versionsResData, "versions")) {
+							return errorResponse(`Invalid response for available versions of mod '${currentModID}' with url ${versionsURL}`, {
+								allActions: allActions,
+								errorModID: currentModID,
+								errorReason: "version-fetch",
+							});
+						}
+						versions = versionsResData.versions;
+					}
+
+					// Version info is not valid, we cannot proceed
+					if (!versions || !Array.isArray(versions)) {
+						logError(`No versions found for mod '${currentModID}'`);
+						return errorResponse(`No versions found for mod '${currentModID}'`, {
 							allActions: allActions,
 							errorModID: currentModID,
 							errorReason: "version-fetch",
 						});
 					}
-					if (!versionsResData || !versionsResData.versions || !Array.isArray(versionsResData.versions)) {
-						// return errorResponse(`Invalid response for available versions of mod '${currentModID}' with url ${versionsURL}`, {
-						// 	allActions: allActions,
-						// 	errorModID: currentModID,
-						// 	errorReason: "version-fetch",
-						// });
-						// TODO: For now just ignore the dependency
-						continue;
-					}
 
 					// Find the first (latest) version that satisfies the dependency
-					const versions = versionsResData.versions;
 					let latestVersion = null;
 					for (const availableVersion of versions) {
 						if (this._doesVersionSatisfyDependency(availableVersion, depVersion)) {
@@ -1046,35 +1078,63 @@ class ModsManager {
 
 					// Did not find a version that satisfies the dependency
 					if (!latestVersion) {
-						// return errorResponse(`Cannot install mod '${action.modID}' as the dependency '${currentModID}' does not have a version that satisfies ${depVersion}`, {
-						// 	allActions: allActions,
-						// 	errorModID: currentModID,
-						// 	errorReason: "version-none-found",
-						// });
-						// TODO: For now just ignore the dependency
-						continue;
-					}
-
-					// Add the install action for this mod
-					logDebug(`Adding install action for mod '${currentModID}' with version ${latestVersion}`);
-					allActions.push({ type: "install", modID: currentModID, version: latestVersion, parentAction: action.modID, derivedActions: [] });
-					if (!versionDependencies[currentModID]) versionDependencies[currentModID] = [];
-					versionDependencies[currentModID].push(depVersion);
-
-					// Fetch this specific versions info
-					const modInfoURL = `https://fluxloader.app/api/mods?option=info&modid=${currentModID}&version=${latestVersion}`;
-					let infoResData;
-					try {
-						const res = await fetch(modInfoURL);
-						infoResData = await res.json();
-					} catch (e) {
-						return errorResponse(`Failed to fetch mod info for ${currentModID} version ${latestVersion}: ${e.stack}`, {
+						logError(`No version found for mod '${currentModID}' that satisfies dependency '${depVersion}'`);
+						return errorResponse(`No version found for mod '${currentModID}' that satisfies dependency '${depVersion}'`, {
 							allActions: allActions,
 							errorModID: currentModID,
-							errorReason: "version-info-fetch",
+							errorReason: "version-not-found",
 						});
 					}
-					if (!infoResData || !infoResData.mod) {
+
+					// If we are changing the version we use a change action
+					if (isChangingVersion) {
+						logDebug(`Changing version for mod '${currentModID}' from '${this.installedMods[currentModID].info.version}' to '${latestVersion}'`);
+						allActions.push({ type: "change", modID: currentModID, version: latestVersion, parentAction: action.modID, derivedActions: [] });
+						if (!versionDependencies[currentModID]) versionDependencies[currentModID] = [];
+						versionDependencies[currentModID].push(depVersion);
+					}
+					// Otherwise we just add the install action
+					else {
+						logDebug(`Adding install action for mod '${currentModID}' with version '${latestVersion}'`);
+						allActions.push({ type: "install", modID: currentModID, version: latestVersion, parentAction: action.modID, derivedActions: [] });
+						if (!versionDependencies[currentModID]) versionDependencies[currentModID] = [];
+						versionDependencies[currentModID].push(depVersion);
+					}
+
+					// We now need the dependencies of this version of the mod
+					let dependencies = null;
+
+					// - If we have it installed or cached, use the dependencies from there
+					if (this.fetchedModCache[currentModID]) {
+						logDebug(`Using fetched cached dependencies for mod '${currentModID}' version '${latestVersion}'`);
+						dependencies = this.fetchedModCache[currentModID].modData.dependencies || {};
+					} else if (this.installedMods[currentModID]) {
+						logDebug(`Using installed dependencies for mod '${currentModID}' version '${latestVersion}'`);
+						dependencies = this.installedMods[currentModID].info.dependencies || {};
+					}
+
+					// - Otherwise we need to fetch the mod info from the API
+					else {
+						const modInfoURL = `https://fluxloader.app/api/mods?option=info&modid=${currentModID}&version=${latestVersion}`;
+						let infoResData;
+						try {
+							const modInfoFetchStart = Date.now();
+							const res = await fetch(modInfoURL);
+							infoResData = await res.json();
+							const modInfoFetchEnd = Date.now();
+							logDebug(`Fetched mod info for '${currentModID}' version ${latestVersion} in ${modInfoFetchEnd - modInfoFetchStart}ms`);
+						} catch (e) {
+							return errorResponse(`Failed to fetch mod info for ${currentModID} version ${latestVersion}: ${e.stack}`, {
+								allActions: allActions,
+								errorModID: currentModID,
+								errorReason: "version-info-fetch",
+							});
+						}
+						dependencies = infoResData.mod.modData.dependencies || {};
+					}
+
+					// Dependencies is not valid, we cannot proceed
+					if (!dependencies || typeof dependencies !== "object") {
 						return errorResponse(`Invalid response for mod info of ${currentModID} version ${latestVersion}`, {
 							allActions: allActions,
 							errorModID: currentModID,
@@ -1083,10 +1143,9 @@ class ModsManager {
 					}
 
 					// Add each dependency of this mod to the queue
-					const dependencies = infoResData.mod.modData.dependencies || {};
 					for (const depModID in dependencies) {
 						const depVersion = dependencies[depModID];
-						logDebug(`Adding dependency ${depModID} with version ${depVersion} for mod ${currentModID}`);
+						logDebug(`Adding dependency '${depModID}' with version '${depVersion}' for mod '${currentModID}'`);
 						queue.push([depModID, depVersion]);
 					}
 				}
@@ -1096,7 +1155,11 @@ class ModsManager {
 			else if (action.type === "uninstall") {
 				// If the mod is not installed, we can skip it
 				if (!this.installedMods[modID]) {
-					return errorResponse(`Cannot uninstall mod '${modID}' as it is not installed`);
+					return errorResponse(`Cannot uninstall mod '${modID}' as it is not installed`, {
+						allActions: allActions,
+						errorModID: modID,
+						errorReason: "not-installed",
+					});
 				} else {
 					// Check if any other installed mods depend on this mod
 					const installedVersion = this.installedMods[modID].info.version;
@@ -1108,7 +1171,7 @@ class ModsManager {
 							const requiredVersion = otherModInfo.dependencies[modID];
 							if (this._isDependencyValid(requiredVersion, installedVersion)) {
 								hasDependents = true;
-								logDebug(`Mod '${otherModID}' depends on '${modID}' with version ${requiredVersion}`);
+								logDebug(`Mod '${otherModID}' depends on '${modID}' with version '${requiredVersion}'`);
 								break;
 							}
 						}
@@ -1116,7 +1179,11 @@ class ModsManager {
 
 					// Some other mod depends on this mod, we cannot uninstall it
 					if (hasDependents) {
-						return errorResponse(`Cannot uninstall mod '${modID}' as it is required by other mods`);
+						return errorResponse(`Cannot uninstall mod '${modID}' as it is required by other mods`, {
+							allActions: allActions,
+							errorModID: modID,
+							errorReason: "has-dependents",
+						});
 					}
 
 					// Otherwise we can safely remove the mod
@@ -1139,13 +1206,14 @@ class ModsManager {
 		const performedActions = [];
 		for (const actionModID in allActions) {
 			const action = allActions[actionModID];
-			logDebug(`Performing action '${action.type}' for mod '${action.modID}' (version: ${action.version})`);
+			logDebug(`Performing action '${action.type}' for mod '${action.modID}' (version: '${action.version}')`);
 
+			// Install the mod from the server
 			if (action.type === "install") {
 				// Last check if the mod is already installed
 				if (this.installedMods[action.modID]) {
 					const installedMod = this.installedMods[action.modID];
-					return errorResponse(`Mod '${action.modID}' is already installed with version ${installedMod.info.version}`, {
+					return errorResponse(`Mod '${action.modID}' is already installed with version '${installedMod.info.version}'`, {
 						performedActions: performedActions,
 						errorModID: action.modID,
 						errorReason: "already-installed",
@@ -1159,7 +1227,7 @@ class ModsManager {
 					const res = await fetch(versionURL);
 					versionResData = await res.json();
 				} catch (e) {
-					return errorResponse(`Failed to fetch mod version ${action.version} for ${action.modID}: ${e.stack}`, {
+					return errorResponse(`Failed to fetch mod version '${action.version}' for '${action.modID}': ${e.stack}`, {
 						performedActions: performedActions,
 						errorModID: action.modID,
 						errorReason: "version-fetch",
@@ -1167,9 +1235,19 @@ class ModsManager {
 				}
 
 				// TODO: For now just assume it went through and worked
-				console.log(versionResData);
-			} else if (action.type === "uninstall") {
+				logError(`Mod '${action.modID}' installed successfully with version ${action.version}, but this is a stub implementation, no files were actually downloaded or installed.`);
+			}
+
+			// Remove the mod from the local files
+			else if (action.type === "uninstall") {
 				// TODO: For now just assume it went through and worked
+				logError(`Mod '${action.modID}' uninstalled successfully, but this is a stub implementation, no files were actually removed.`);
+			}
+
+			// Uninstall current version and install the new version
+			else if (action.type === "change") {
+				// TODO: For now just assume it went through and worked
+				logError(`Mod '${action.modID}' changed from version ${action.version} to ${action.version}, but this is a stub implementation, no files were actually downloaded or installed.`);
 			}
 		}
 
@@ -1258,6 +1336,7 @@ class ModsManager {
 				if (!this._isDependencyValid(modInfo.dependencies[modID])) {
 					return errorResponse(`Mod '${modInfo.modID}' has an invalid dependency version for ${modID}: ${modInfo.dependencies[modID]}`);
 				}
+				this.fetchedModCache[modInfo.modID] = this.fetchedModCache[modInfo.modID] || {};
 			}
 		} else modInfo.dependencies = {};
 
@@ -1960,7 +2039,7 @@ function setupElectronIPC() {
 		"fl:calculate-mod-actions": async (args) => await modsManager.calculateModActions(args),
 		"fl:perform-mod-actions": async (args) => await modsManager.performModActions(args),
 		"fl:get-mod-version": async (args) => await modsManager.getModVersion(args),
-		"fl:find-installed-mods": async (_) => await modsManager.findInstalledMods(),
+		"fl:reload-installed-mods": async (_) => await modsManager.reloadInstalledMods(),
 		"fl:trigger-page-redirect": (args) => fluxloaderAPI.events.trigger("fl:page-redirect", args),
 		"fl:set-mod-enabled": async (args) => modsManager.setModEnabled(args.modID, args.enabled),
 		"fl:start-game": (_) => startGame(),
@@ -2155,7 +2234,7 @@ async function startApp() {
 	fluxloaderAPI = new ElectronFluxloaderAPI();
 	modsManager = new ModsManager();
 
-	responseAsError(await modsManager.findInstalledMods());
+	responseAsError(await modsManager.reloadInstalledMods());
 	setupElectronIPC();
 
 	// Start manager or game window based on config
