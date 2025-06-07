@@ -212,6 +212,16 @@ class ElectronFluxloaderAPI {
 		gameFilesManager.setPatch(file, tag, patch);
 	}
 
+	addMappedPatch(fileMap, mapFunction) {
+		const tag = randomUUID();
+		gameFilesManager.setMappedPatch(fileMap, tag, mapFunction);
+		return tag;
+	}
+
+	setMappedPatch(fileMap, tag, mapFunction) {
+		gameFilesManager.setMappedPatch(fileMap, tag, mapFunction);
+	}
+
 	patchExists(file, tag) {
 		gameFilesManager.patchExists(file, tag);
 	}
@@ -398,6 +408,23 @@ class GameFilesManager {
 		logDebug(`Setting patch '${tag}' in file: ${file}`);
 		this.fileData[file].patches.set(tag, patch);
 		return successResponse(`Patch '${tag}' set in file: ${file}`);
+	}
+
+	setMappedPatch(fileMap, tag, mapFunction) {
+		if (!this.isGameExtracted) return errorResponse("Game files not extracted yet cannot set mapped patch");
+
+		logDebug(`Setting mapped patch '${tag}' in file(s): ${Object.keys(fileMap)}`);
+		for (const [file, variables] of Object.entries(fileMap)) {
+			if (!this.fileData[file]) {
+				try {
+					this._initializeFileData(file);
+				} catch (e) {
+					return errorResponse(`Failed to initialize file data for '${file}' when setting mapped patch '${tag}'`);
+				}
+			}
+			this.fileData[file].patches.set(tag, mapFunction(...variables));
+		}
+		return successResponse(`Mapped patch '${tag}' set in file(s): ${Object.keys(fileMap)}`);
 	}
 
 	patchExists(file, tag) {
@@ -1379,10 +1406,27 @@ class ModsManager {
 				this.modElectronModules[mod.info.modID] = module;
 
 				// This mod linking is for import calls inside the module
-				// (May or may not work for relative imports)
-				await module.link(async (specifier) => {
-					return await import(specifier);
-				});
+				async function linker(specifier, referencingModule) {
+					const refURL = referencingModule.identifier;
+					const refPath = url.fileURLToPath(refURL);
+					const refDir = path.dirname(refPath);
+
+					const resolvedPath = path.resolve(refDir, specifier);
+					const resolvedURL = url.pathToFileURL(resolvedPath).href;
+
+					const source = await fs.promises.readFile(resolvedPath, "utf8");
+					const mod = new vm.SourceTextModule(source, {
+						identifier: resolvedURL,
+						context: referencingModule.context,
+						initializeImportMeta(meta) {
+							meta.url = resolvedURL;
+						},
+					});
+
+					await mod.link(linker);
+					return mod;
+				}
+				await module.link(linker);
 
 				// We want to listen for any errors inside the module
 				(async () => {
