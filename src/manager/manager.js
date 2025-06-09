@@ -450,7 +450,7 @@ class ModsTab {
 			return;
 		}
 
-		// Fetch these installed mods, clear the table, add an arbitrary delay
+		// Fetch these installed with an arbitrary delay
 		const reloadStartTime = Date.now();
 		await this.loadInstalledMods(true);
 		const reloadEndTime = Date.now();
@@ -747,6 +747,7 @@ class ModsTab {
 		// If told to clear the table then do so now
 		// Doing it here minimizes the flicker rather than doing it inside reloadMods()
 		const tbody = getElement("mods-tab-table").querySelector("tbody");
+		getElement("mods-tab-table-empty").style.display = "block";
 		if (clearTable) {
 			tbody.innerHTML = "";
 			this.modRows = {};
@@ -789,6 +790,7 @@ class ModsTab {
 		}
 
 		for (const modID of newModIDs) tbody.appendChild(this.modRows[modID].element);
+		if (newModIDs.length > 0) getElement("mods-tab-table-empty").style.display = "none";
 	}
 
 	async loadInstalledModsVersions() {
@@ -887,6 +889,7 @@ class ModsTab {
 		}
 
 		for (const modID of newModIDs) tbody.appendChild(this.modRows[modID].element);
+		if (newModIDs.length > 0) getElement("mods-tab-table-empty").style.display = "none";
 		this.currentModPage++;
 		setConnectionState("online");
 	}

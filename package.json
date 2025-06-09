@@ -20,24 +20,5 @@
 	"devDependencies": {
 		"electron": "^35.0.2",
 		"electron-builder": "^26.0.12"
-	},
-	"build": {
-		"appId": "com.fluxloader",
-		"productName": "Fluxloader",
-		"files": [
-			"src/**/*",
-			"package.json"
-		],
-		"win": {
-			"icon": "build/icon.ico",
-			"target": "portable"
-		},
-		"portable": {
-			"artifactName": "fluxloader-${version}-win.exe"
-		},
-		"directories": {
-			"output": "dist",
-			"buildResources": "build"
-		}
 	}
 }

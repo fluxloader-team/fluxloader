@@ -483,6 +483,16 @@ input[type="checkbox"]:checked::before {
 	filter: brightness(0.6);
 }
 
+#mods-tab-content .mods-table-empty {
+	position: relative;
+	left: -0.75rem;
+	text-align: center;
+	padding-top: 1.5rem;
+	padding-bottom: 0.5rem;
+	font-style: italic;
+	color: var(--color-text-muted);
+}
+
 #mods-tab-content .mods-table {
 	width: 100%;
 	position: relative;

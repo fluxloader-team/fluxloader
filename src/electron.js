@@ -11,6 +11,7 @@ import { marked } from "marked";
 import { EventBus, SchemaValidation, Logging } from "./common.js";
 import semver from "semver";
 import AdmZip from "adm-zip";
+import Module from "module";
 
 // ---- General architecture ----
 //
@@ -124,9 +125,20 @@ function resolvePathRelativeToExecutable(name) {
 	// If absolute then return the path as is
 	if (path.isAbsolute(name)) return name;
 
-	let executablePath = process.env.PORTABLE_EXECUTABLE_DIR;
-	if (!executablePath) executablePath = url.fileURLToPath(import.meta.url);
-	return path.join(path.dirname(executablePath), name);
+	if (app.isPackaged) {
+		// PORTABLE_EXECUTABLE_DIR is only defined in a portable build
+		if (process.env.PORTABLE_EXECUTABLE_DIR) {
+			return path.join(process.env.PORTABLE_EXECUTABLE_DIR, name);
+		}
+		// Otherwise it must be standard electron-builder
+		else {
+			return path.join(path.dirname(process.execPath), name);
+		}
+	}
+	// Running through electron
+	else {
+		return path.join(path.dirname(url.fileURLToPath(import.meta.url)), name);
+	}
 }
 
 function resolvePathInsideFluxloader(name) {
@@ -144,44 +156,6 @@ function ensureDirectoryExists(dirPath) {
 		fs.mkdirSync(dirPath, { recursive: true });
 		logDebug(`Directory created: ${dirPath}`);
 	}
-}
-
-function stringToHash(string) {
-	let hash = 0;
-	if (string.length == 0) return hash;
-	for (let i = 0; i < string.length; i++) {
-		const char = string.charCodeAt(i);
-		hash = (hash << 5) - hash + char;
-		hash = hash & hash;
-	}
-	return hash;
-}
-
-function updateObjectWithDefaults(defaultValues, target) {
-	let modified = false;
-	// If target doesn't have a property in the defaults then add it
-	for (const key in defaultValues) {
-		if (typeof defaultValues[key] === "object" && defaultValues[key] !== null) {
-			if (!Object.hasOwn(target, key)) {
-				target[key] = {};
-				modified = true;
-			}
-			updateObjectWithDefaults(defaultValues[key], target[key]);
-		} else {
-			if (!Object.hasOwn(target, key)) {
-				target[key] = defaultValues[key];
-				modified = true;
-			}
-		}
-	}
-	// If target has a property source doesn't have, then remove it
-	for (const key in target) {
-		if (!Object.hasOwn(defaultValues, key)) {
-			delete target[key];
-			modified = true;
-		}
-	}
-	return modified;
 }
 
 // =================== MAIN ===================
@@ -1473,41 +1447,26 @@ class ModsManager {
 
 		if (mod.info.electronEntrypoint) {
 			try {
-				// Load and start the electron entrypoint as a module in the context
 				const entrypointPath = path.join(mod.path, mod.info.electronEntrypoint);
 				const entrypointCode = fs.readFileSync(entrypointPath, "utf8");
 				const identifier = url.pathToFileURL(entrypointPath).href;
 				logDebug(`Loading electron entrypoint: ${identifier}`);
-				const module = new vm.SourceTextModule(entrypointCode, { context: this.modContext, identifier });
+
+				// Wrap the code so top level async works
+				const wrappedCode = `globalThis.fluxloaderTopLevel = async () => {${entrypointCode}\n}`;
+
+				// Load and start the electron entrypoint as a module in the context
+				const module = new vm.Script(wrappedCode, { filename: identifier });
 				this.modElectronModules[mod.info.modID] = module;
 
-				// This mod linking is for import calls inside the module
-				async function linker(specifier, referencingModule) {
-					const refURL = referencingModule.identifier;
-					const refPath = url.fileURLToPath(refURL);
-					const refDir = path.dirname(refPath);
-
-					const resolvedPath = path.resolve(refDir, specifier);
-					const resolvedURL = url.pathToFileURL(resolvedPath).href;
-
-					const source = await fs.promises.readFile(resolvedPath, "utf8");
-					const mod = new vm.SourceTextModule(source, {
-						identifier: resolvedURL,
-						context: referencingModule.context,
-						initializeImportMeta(meta) {
-							meta.url = resolvedURL;
-						},
-					});
-
-					await mod.link(linker);
-					return mod;
-				}
-				await module.link(linker);
-
-				// We want to listen for any errors inside the module
+				// Await the async top level asynchronously
 				(async () => {
 					try {
-						await module.evaluate();
+						const customRequire = Module.createRequire(entrypointPath);
+						this.modContext.require = customRequire;
+						module.runInContext(this.modContext);
+						await this.modContext.fluxloaderTopLevel();
+						delete this.modContext.fluxloaderTopLevel;
 					} catch (e) {
 						catchModError(`Error evaluating mod electron entrypoint`, mod.info.modID, e);
 					}
@@ -1842,8 +1801,22 @@ function findValidGamePath() {
 
 	function findGameAsarInDirectory(dir) {
 		if (!fs.existsSync(dir)) return null;
+
+		let foundAny = false;
+		for (let name of ["sandustrydemo", "sandustrydemo.exe"]) {
+			try {
+				const gamePath = path.join(dir, name);
+				if (fs.existsSync(gamePath)) {
+					foundAny = true;
+					break;
+				}
+			} catch (e) {}
+		}
+		if (!foundAny) return null;
+
 		const asarPath = path.join(dir, "resources", "app.asar");
 		if (!fs.existsSync(asarPath)) return null;
+
 		return asarPath;
 	}
 
@@ -1855,7 +1828,7 @@ function findValidGamePath() {
 		asarPath = findGameAsarInDirectory(fullGamePath);
 
 		if (!asarPath) {
-			logDebug(`Cannot find app.asar in configured directory: ${fullGamePath}`);
+			logDebug(`Cannot find games app.asar in configured directory: ${fullGamePath}`);
 			logDebug("Checking default steam directories...");
 
 			const checkPaths = {
@@ -1925,7 +1898,7 @@ function addFluxloaderPatches() {
 		);
 
 		// Add game.js to bundle.js, and dont start game until it is ready
-		const gameScriptPath = resolvePathRelativeToExecutable("game.js").replaceAll("\\", "/");
+		const gameScriptPath = resolvePathInsideFluxloader("game.js").replaceAll("\\", "/");
 		responseAsError(
 			gameFilesManager.setPatch("js/bundle.js", "fluxloader:preloadBundle", {
 				type: "replace",
@@ -1975,7 +1948,7 @@ function addFluxloaderPatches() {
 			);
 
 			// Add worker.js to each worker, and dont start until it is ready
-			const workerScriptPath = resolvePathRelativeToExecutable(`worker.js`).replaceAll("\\", "/");
+			const workerScriptPath = resolvePathInsideFluxloader(`worker.js`).replaceAll("\\", "/");
 			responseAsError(
 				gameFilesManager.setPatch(`js/${worker}.bundle.js`, "fluxloader:preloadBundle", {
 					type: "replace",
@@ -2245,8 +2218,9 @@ function startManager() {
 			return { action: "deny" };
 		});
 
+		const managerPath = resolvePathInsideFluxloader("manager/manager.html");
 		managerWindow.on("closed", closeManager);
-		managerWindow.loadFile("src/manager/manager.html");
+		managerWindow.loadFile(managerPath);
 		if (config.manager.openDevTools) managerWindow.openDevTools();
 	} catch (e) {
 		closeManager();
@@ -2274,8 +2248,6 @@ function closeManager() {
 
 async function startGame() {
 	if (isGameStarted) return errorResponse("Cannot start game, already running");
-
-	logInfo(JSON.stringify(process.env));
 
 	logInfo("Starting sandustry");
 	isGameStarted = true;
@@ -2357,7 +2329,7 @@ async function startApp() {
 	loadFluxloaderConfig();
 	setupFluxloaderEvents();
 
-	let res = findValidGamePath();
+	let res = responseAsError(findValidGamePath());
 	const { fullGamePath, asarPath } = res.data;
 
 	gameFilesManager = new GameFilesManager(fullGamePath, asarPath);
