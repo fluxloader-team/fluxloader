@@ -149,15 +149,15 @@ release-job:
   tags:
     - linux
   needs:
+    - job: build-linux-x64
+      artifacts: true
+    - job: build-linux-arm64
+      artifacts: true
     - job: build-windows-x64
       artifacts: true
     - job: build-windows-arm64
       artifacts: true
     - job: build-windows-legacy-x64
-      artifacts: true
-    - job: build-linux-x64
-      artifacts: true
-    - job: build-linux-arm64
       artifacts: true
     - job: build-macos-x64
       artifacts: true
