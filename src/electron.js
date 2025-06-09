@@ -161,7 +161,7 @@ function ensureDirectoryExists(dirPath) {
 // =================== MAIN ===================
 
 class ElectronFluxloaderAPI {
-	static allEvents = ["fl:mod-loaded", "fl:mod-unloaded", "fl:all-mods-loaded", "fl:game-started", "fl:game-closed", "fl:page-redirect", "fl:config-changed"];
+	static allEvents = ["fl:mod-loaded", "fl:mod-unloaded", "fl:all-mods-loaded", "fl:game-started", "fl:game-closed", "fl:page-redirect", "fl:config-changed", "fl:mod-config-changed"];
 	events = undefined;
 	modConfig = undefined;
 	fileManager = gameFilesManager;
@@ -299,6 +299,9 @@ class ElectronModConfigAPI {
 
 		// If this fails treat it as catastrophic for now
 		fs.writeFileSync(modConfigPath, JSON.stringify(_config, null, 4), "utf8");
+
+		fluxloaderAPI.events?.tryTrigger("fl:mod-config-changed", { modID, config: _config });
+
 		return true;
 	}
 
@@ -417,7 +420,6 @@ class GameFilesManager {
 		}
 
 		if (!this.fileData[file].patches.has(tag)) {
-			logWarn(`Patch '${tag}' does not exist for file: ${file}`);
 			return successResponse(`Patch '${tag}' does not exist for file: ${file}`);
 		}
 
@@ -493,6 +495,9 @@ class GameFilesManager {
 				save: (id, name, data)`
 			);
 
+			// Hook into the debugger
+			replaceAllMain("fluxloader:attach-debugger", "globalThis.gameWindow.loadFile", "globalThis.attachDebuggerToGameWindow(globalThis.gameWindow);globalThis.gameWindow.loadFile");
+
 			gameFilesManager._repatchFile("main.js");
 			gameFilesManager._repatchFile("preload.js");
 		} catch (e) {
@@ -560,6 +565,28 @@ class GameFilesManager {
 		} else {
 			return successResponse("Game files deleted successfully");
 		}
+	}
+
+	ensureFilePatchesUpToDate(file) {
+		if (!this.isGameExtracted) return errorResponse("Game files not extracted yet cannot ensure file patches up to date");
+
+		file = file.replace(/\\/g, "/");
+
+		if (!this.fileData[file]) return;
+
+		if (this.fileData[file].usingLatestPatches) {
+			logDebug(`File '${file}' is already using the latest patches`);
+			return successResponse(`File '${file}' is already using the latest patches`);
+		}
+
+		try {
+			this._repatchFile(file);
+		} catch (e) {
+			return errorResponse(`Failed to ensure file patches up to date for '${file}': ${e.stack}`);
+		}
+
+		logDebug(`File '${file}' re-patched to the latest patches`);
+		return successResponse(`File '${file}' re-patched to the latest patches`);
 	}
 
 	static deleteOldTempDirectories() {
@@ -651,12 +678,12 @@ class GameFilesManager {
 	}
 
 	_resetFileToBase(file) {
-		logDebug(`Resetting file: ${file}`);
-
 		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot reset file");
 		if (!this.isGameModified) return;
 		if (!this.fileData[file]) throw new Error(`File not initialized ${file} cannot reset`);
 		if (!this.fileData[file].isModified) return;
+
+		logDebug(`Resetting file: ${file}`);
 
 		try {
 			// Delete existing file
@@ -886,7 +913,7 @@ class ModsManager {
 
 		// Setup the context for the mods and expose whatever they need to access
 		try {
-			this.modContext = vm.createContext({ fluxloaderAPI, log, fs, path, randomUUID, url, process });
+			this.modContext = vm.createContext({ fluxloaderAPI, log, fs, path, randomUUID, url, process, setTimeout, setInterval, clearTimeout, clearInterval });
 		} catch (e) {
 			return errorResponse(`Failed to create mod context: ${e.stack}`);
 		}
@@ -1302,7 +1329,7 @@ class ModsManager {
 
 			// Remove it from the installed mods list
 			delete this.installedMods[modID];
-			
+
 			logDebug(`Mod '${modID}' uninstalled successfully`);
 			return successResponse(`Mod '${modID}' uninstalled successfully`);
 		};
@@ -2127,6 +2154,34 @@ function trySendManagerEvent(eventName, args) {
 
 // =================== ELECTRON  ===================
 
+globalThis.attachDebuggerToGameWindow = function (window) {
+	// Attach the debugger so we can intercept requests
+	window.webContents.debugger.attach("1.3");
+
+	window.webContents.debugger.sendCommand("Fetch.enable", {
+		patterns: [{ urlPattern: "*", requestStage: "Request" }],
+	});
+
+	window.webContents.debugger.on("message", async (event, method, params) => {
+		if (method === "Fetch.requestPaused") {
+			const { requestId, request } = params;
+
+			// We only care about files inside the gameFilesManager.tempExtractedPath
+			if (request.url.startsWith("file://")) {
+				const filePath = url.fileURLToPath(request.url);
+				if (filePath.startsWith(gameFilesManager.tempExtractedPath)) {
+					const relativePath = filePath.replace(gameFilesManager.tempExtractedPath + "\\", "");
+					logDebug(`Request for file: ${relativePath} intercepted`);
+					gameFilesManager.ensureFilePatchesUpToDate(relativePath);
+				}
+			}
+
+			// Allow non-file requests to continue
+			window.webContents.debugger.sendCommand("Fetch.continueRequest", { requestId });
+		}
+	});
+};
+
 function handleUncaughtErrors() {
 	process.on("uncaughtException", (err) => {
 		logError(`Uncaught exception: ${err.stack}`);
@@ -2181,7 +2236,9 @@ function setupElectronIPC() {
 
 	for (const [endpoint, handler] of Object.entries(simpleEndpoints)) {
 		ipcMain.handle(endpoint, (_, args) => {
-			logDebug(`Received ${endpoint}`);
+			if (!["fl:forward-log-to-manager"].includes(endpoint)) {
+				logDebug(`Received ${endpoint}`);
+			}
 			try {
 				return handler(args);
 			} catch (e) {
@@ -2276,27 +2333,6 @@ function closeManager() {
 	}
 	isManagerStarted = false;
 }
-
-globalThis.attachDebuggerToGameWindow = function (window) {
-	// Attach the debugger so we can intercept requests
-	window.webContents.debugger.attach("1.3");
-	window.webContents.debugger.sendCommand("Fetch.enable", {
-		patterns: [{ urlPattern: "*", requestStage: "Request" }],
-	});
-	window.webContents.debugger.on("message", async (event, method, params) => {
-		if (method === "Fetch.requestPaused") {
-			const { requestId, request } = params;
-
-			logDebug(`Fetch request paused: ${requestId} - ${request.url}`);
-
-			if (request.url.startsWith("file://")) {
-			}
-
-			// Allow non-file requests to continue
-			window.webContents.debugger.sendCommand("Fetch.continueRequest", { requestId });
-		}
-	});
-};
 
 async function startGame() {
 	if (isGameStarted) return errorResponse("Cannot start game, already running");
