@@ -1,125 +1,81 @@
-console.log("Debug: starting")
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, screen, shell } from "electron";
 import path from "path";
 import fs from "fs";
 import process from "process";
 import os from "os";
 import asar from "asar";
-import { EventBus, ConfigTemplateHandler } from "./common.js";
+import url from "url";
+import vm from "vm";
 import { randomUUID } from "crypto";
-import { fileURLToPath } from "url";
+import { marked } from "marked";
+import { EventBus, SchemaValidation, Logging } from "./common.js";
+import semver from "semver";
+import AdmZip from "adm-zip";
+import Module from "module";
 
-// ------------- MODDING DOCUMENTATION -------------
+// ---- General architecture ----
+//
+// Top level functions of classes / the fluxloader should not throw errors in cases where it is not catastrophic
+// Instead use successResponse() or errorResponse() to return a response object
+//
+// - Low level file operations (like reading a file) can throw errors, but they should be caught and handled
+// - Similarly, internal functions can throw errors as long as the interface functions catch and handle them
+//
+// Uncaught errors are caught and windows closed and cleaned up
+// Its important to note more errors can occur afterwards so be wary with the cleanup code
 
-// NOTE: This file and branch is WIP, at no specific commit does it reflect the planned expected behaviour.
+// =================== VARIABLES ===================
 
-// Mods are defined in /mods/<modname> and require a 'modinfo.json' file.
-
-// Mods are ran inside the (electron), (browser) and (worker) environment with their entrypoints files.
-
-// Be aware that the following error is related to an experimental feature in the devtools that is not supported by electron.
-// - "Request Autofill.enable failed. {"code":-32601,"message":"'Autofill.enable' wasn't found"}", source: devtools://devtools/bundled/core/protocol_client/protocol_client.js (1)
-// Is deemed not worthy to fix by the electron team and is not a bug in the modloader:
-// - https://github.com/electron/electron/issues/41614#issuecomment-2006678760
-
-// Before any modding occurs we patch the games electron main.js
-// - Disable any immediately ran functions
-// - Make the useful functions global so we can call them
-// - Ensure the app thinks it is still running inside the app.asar
-// These are all potentially flaky but is needed if we want to run the game as the original does
-
-// ------------- VARIABLES -------------
-
-globalThis.modloaderVersion = "2.0.0";
-globalThis.modloaderAPI = undefined;
+globalThis.fluxloaderVersion = "2.0.0";
+globalThis.fluxloaderAPI = undefined;
 globalThis.gameElectronFuncs = undefined;
 globalThis.gameWindow = undefined;
 
 let logLevels = ["debug", "info", "warn", "error"];
+let preConfigLogLevel = "debug";
+let configPath = "fluxloader-config.json";
+let configSchemaPath = "schema.fluxloader-config.json";
+let modInfoSchemaPath = "schema.mod-info.json";
 let logFilePath = undefined;
-let preConfigLogLevel = "info";
-let configPath = "modloader-config.json";
 let config = undefined;
+let configSchema = undefined;
+let configLoaded = false;
 let modsManager = undefined;
-let gameFileManager = undefined;
-let modloaderWindow = undefined;
-let hasRanOnce = false;
+let gameFilesManager = undefined;
+let managerWindow = undefined;
+let fluxloaderEvents = undefined;
+let logsForManager = [];
+let isGameStarted = false;
+let isManagerStarted = false;
 
-let modloaderConfigSchema = {
-	gamePath: ".",
-	modsPath: "./mods",
-	logging: {
-		logToFile: true,
-		logToConsole: true,
-		consoleLogLevel: "info",
-		fileLogLevel: "debug",
-		logFilePath: "modloader.log",
-	},
-	application: {
-		loadIntoModloader: true,
-	},
-	debug: {
-		enableDebugMenu: false,
-		debugMenuZoom: 0.8,
-		openDevTools: false,
-	},
-};
+// =================== LOGGING ===================
 
-// ------------- UTILTY -------------
-
-function colourText(text, colour) {
-	const COLOUR_MAP = {
-		red: "\x1b[31m",
-		green: "\x1b[32m",
-		yellow: "\x1b[33m",
-		blue: "\x1b[34m",
-		magenta: "\x1b[35m",
-		cyan: "\x1b[36m",
-		white: "\x1b[37m",
-		grey: "\x1b[90m",
-		black: "\x1b[30m",
-		brightRed: "\x1b[91m",
-		brightGreen: "\x1b[92m",
-		brightYellow: "\x1b[93m",
-		brightBlue: "\x1b[94m",
-		brightMagenta: "\x1b[95m",
-		brightCyan: "\x1b[96m",
-		brightWhite: "\x1b[97m",
-		reset: "\x1b[0m",
-	};
-	return `${COLOUR_MAP[colour]}${text}\x1b[0m`;
+function setupLogFile() {
+	if (!configLoaded) return;
+	if (logFilePath) return;
+	logFilePath = resolvePathRelativeToExecutable(config.logging.logFilePath);
+	try {
+		fs.appendFileSync(logFilePath, new Date().toISOString() + "\n");
+	} catch (e) {
+		throw new Error(`Error writing to log file: ${e.stack}`); // Config loading error is catastrophic for now
+	}
+	const stat = fs.statSync(logFilePath);
+	const fileSize = stat.size / 1024 / 1024;
+	if (fileSize > 2) {
+		logWarn(`Log file is over 2MB: ${logFilePath} (${fileSize.toFixed(2)}MB)`);
+	}
+	logDebug(`Fluxloader log path: ${logFilePath}`);
 }
 
 globalThis.log = function (level, tag, message) {
-	function setupLogFile() {
-		if (logFilePath) return;
-		logFilePath = resolvePathRelativeToModloader(config.logging.logFilePath);
-		try {
-			fs.appendFileSync(logFilePath, new Date().toISOString() + "\n");
-		} catch (e) {
-			throw new Error(`Error writing to log file: ${e.stack}`);
-		}
-		const stat = fs.statSync(logFilePath);
-		const fileSize = stat.size / 1024 / 1024;
-		if (fileSize > 2) {
-			logWarn(`Log file is over 2MB: ${logFilePath} (${fileSize.toFixed(2)}MB)`);
-		}
-		logDebug(`Modloader log path: ${logFilePath}`);
-	}
-
-	// Back out early if given wrong log level
-	if (!logLevels.includes(level)) {
-		throw new Error(`Invalid log level: ${level}`);
-	}
-
+	if (!logLevels.includes(level)) throw new Error(`Invalid log level: ${level}`);
+	const timestamp = new Date();
+	const header = Logging.logHead(timestamp, level, tag);
+	const headerColoured = Logging.logHead(timestamp, level, tag, true);
 	const levelIndex = logLevels.indexOf(level);
-	const timestamp = new Date().toISOString().split("T")[1].split("Z")[0];
-	const levelText = level.toUpperCase(); //.padEnd(5, " ");
-	let header = `[${tag ? tag + " " : ""}${levelText} ${timestamp}]`;
-	let headerColoured = colourText("[", "grey") + colourText(tag ? `${tag} ` : "", "blue") + colourText(`${levelText} ${timestamp}]`, "grey");
 
 	// Only log to file if defined by the config and level is allowed
-	if (config && config.logging.logToFile) {
+	if (configLoaded && config.logging.logToFile) {
 		if (levelIndex >= logLevels.indexOf(config.logging.fileLogLevel)) {
 			if (!logFilePath) setupLogFile();
 			fs.appendFileSync(logFilePath, `${header} ${message}\n`);
@@ -129,10 +85,11 @@ globalThis.log = function (level, tag, message) {
 	// If config is not loaded then use the pre-config log level as the filter
 	// Otherwise only log to console based on config level and console log flag
 	let consoleLevelLimit = preConfigLogLevel;
-	if (config) consoleLevelLimit = config.logging.consoleLogLevel;
-	if (!config || config.logging.logToConsole) {
+	if (configLoaded) consoleLevelLimit = config.logging.consoleLogLevel;
+	if (!configLoaded || config.logging.logToConsole) {
 		if (levelIndex >= logLevels.indexOf(consoleLevelLimit)) {
 			console.log(`${headerColoured} ${message}`);
+			forwardLogToManager({ source: "electron", timestamp, level, tag, message });
 		}
 	}
 };
@@ -142,196 +99,215 @@ globalThis.logInfo = (...args) => log("info", "", args.join(" "));
 globalThis.logWarn = (...args) => log("warn", "", args.join(" "));
 globalThis.logError = (...args) => log("error", "", args.join(" "));
 
-function resolvePathRelativeToModloader(name) {
+function forwardLogToManager(log) {
+	logsForManager.push(log);
+	trySendManagerEvent("fl:forward-log", log);
+}
+
+// =================== UTILTY ===================
+
+function errorResponse(message, data = null, log = true) {
+	if (log) logError(message);
+	return { success: false, message, data };
+}
+
+function successResponse(message, data = null) {
+	return { success: true, message, data };
+}
+
+function responseAsError(response) {
+	if (!response) throw new Error("Response is undefined");
+	if (!response.success) throw new Error(response.message);
+	return response;
+}
+
+function resolvePathRelativeToExecutable(name) {
 	// If absolute then return the path as is
 	if (path.isAbsolute(name)) return name;
 
-	// Otherwise relative to mod-loader.exe
-	const __filename = fileURLToPath(import.meta.url);
-	const __dirname = path.dirname(__filename);
-	return path.join(__dirname, name);
+	if (app.isPackaged) {
+		// PORTABLE_EXECUTABLE_DIR is only defined in a portable build
+		if (process.env.PORTABLE_EXECUTABLE_DIR) {
+			return path.join(process.env.PORTABLE_EXECUTABLE_DIR, name);
+		}
+		// Otherwise it must be standard electron-builder
+		else {
+			return path.join(path.dirname(process.execPath), name);
+		}
+	}
+	// Running through electron
+	else {
+		return path.join(path.dirname(url.fileURLToPath(import.meta.url)), name);
+	}
+}
+
+function resolvePathInsideFluxloader(name) {
+	// If absolute then return the path as is
+	if (path.isAbsolute(name)) return name;
+
+	const moduleFilePath = url.fileURLToPath(import.meta.url);
+	const fileDir = path.dirname(moduleFilePath);
+	return path.join(fileDir, name);
 }
 
 function ensureDirectoryExists(dirPath) {
+	// If this errors it is catastrophic
 	if (!fs.existsSync(dirPath)) {
 		fs.mkdirSync(dirPath, { recursive: true });
 		logDebug(`Directory created: ${dirPath}`);
 	}
 }
 
-function catchUnexpectedExits() {
-	process.on("uncaughtException", (err) => {
-		logError(`Uncaught exception: ${err.stack}`);
-		cleanupApp();
-		process.exit(1);
-	});
-	process.on("unhandledRejection", (err) => {
-		logError(`Unhandled rejection: ${err.stack}`);
-		cleanupApp();
-		process.exit(1);
-	});
-	process.on("SIGINT", () => {
-		logInfo("SIGINT received, exiting...");
-		cleanupApp();
-		process.exit(0);
-	});
-	process.on("SIGTERM", () => {
-		logInfo("SIGTERM received, exiting...");
-		cleanupApp();
-		process.exit(0);
-	});
-}
+// =================== MAIN ===================
 
-function stringToHash(string) {
-	let hash = 0;
-	if (string.length == 0) return hash;
-	for (let i = 0; i < string.length; i++) {
-		const char = string.charCodeAt(i);
-		hash = (hash << 5) - hash + char;
-		hash = hash & hash;
-	}
-	return hash;
-}
-
-function updateObjectWithDefaults(defaultValues, target) {
-	let modified = false;
-	// If target doesn't have a property in the defaults then add it
-	for (const key in defaultValues) {
-		if (typeof defaultValues[key] === "object" && defaultValues[key] !== null) {
-			if (!Object.hasOwn(target, key)) {
-				target[key] = {};
-				modified = true;
-			}
-			updateObjectWithDefaults(defaultValues[key], target[key]);
-		} else {
-			if (!Object.hasOwn(target, key)) {
-				target[key] = defaultValues[key];
-				modified = true;
-			}
-		}
-	}
-	// If target has a property source doesn't have, then remove it
-	for (const key in target) {
-		if (!Object.hasOwn(defaultValues, key)) {
-			delete target[key];
-			modified = true;
-		}
-	}
-	return modified;
-}
-
-// ------------- MAIN -------------
-
-class ElectronModloaderAPI {
-	static allEvents = ["ml:onModLoaded", "ml:onModUnloaded", "ml:onAllModsLoaded", "ml:onAllModsUnloaded", "ml:onGameStarted", "ml:onGameClosed", "ml:onModloaderClosed"];
+class ElectronFluxloaderAPI {
+	static allEvents = ["fl:mod-loaded", "fl:mod-unloaded", "fl:all-mods-loaded", "fl:game-started", "fl:game-closed", "fl:page-redirect", "fl:config-changed"];
 	events = undefined;
-	config = undefined;
-	fileManager = gameFileManager;
+	modConfig = undefined;
+	fileManager = gameFilesManager;
 
 	constructor() {
 		this.events = new EventBus();
-		this.config = new ElectronModConfigAPI();
-
-		for (const event of ElectronModloaderAPI.allEvents) {
-			this.events.registerEvent(event);
-		}
+		this.modConfig = new ElectronModConfigAPI();
 	}
 
 	addPatch(file, patch) {
 		const tag = randomUUID();
-		gameFileManager.setPatch(file, tag, patch);
+		gameFilesManager.setPatch(file, tag, patch);
 		return tag;
 	}
 
 	setPatch(file, tag, patch) {
-		gameFileManager.setPatch(file, tag, patch);
+		gameFilesManager.setPatch(file, tag, patch);
+	}
+
+	addMappedPatch(fileMap, mapFunction) {
+		const tag = randomUUID();
+		gameFilesManager.setMappedPatch(fileMap, tag, mapFunction);
+		return tag;
+	}
+
+	setMappedPatch(fileMap, tag, mapFunction) {
+		gameFilesManager.setMappedPatch(fileMap, tag, mapFunction);
+	}
+
+	patchExists(file, tag) {
+		gameFilesManager.patchExists(file, tag);
 	}
 
 	removePatch(file, tag) {
-		gameFileManager.removePatch(file, tag);
+		gameFilesManager.removePatch(file, tag);
 	}
 
 	repatchAllFiles() {
-		gameFileManager.repatchAllFiles();
+		gameFilesManager.repatchAllFiles();
+	}
+
+	repatchFile(file) {
+		gameFilesManager._repatchFile(file);
+	}
+
+	getGameBasePatch() {
+		return gameFilesManager.gameBasePath;
+	}
+
+	getGameAsarPath() {
+		return gameFilesManager.gameAsarPath;
+	}
+
+	getTempBasePath() {
+		return gameFilesManager.tempBasePath;
+	}
+
+	getTempExtractedPath() {
+		return gameFilesManager.tempExtractedPath;
 	}
 
 	handleBrowserIPC(channel, handler) {
-		ipcMain.handle(`ml-mod:${channel}`, handler);
+		const fullChannel = `fl-mod:${channel}`;
+		this._modIPCHandlers.push({ channel: fullChannel, handler });
+		ipcMain.handle(fullChannel, handler);
+	}
+
+	getInstalledMods() {
+		return modsManager.getInstalledMods();
+	}
+
+	getLoadedMods() {
+		return modsManager.getLoadedMods();
+	}
+
+	getEnabledMods() {
+		return modsManager.getEnabledMods();
+	}
+
+	// ------------ INTERNAL ------------
+
+	_modIPCHandlers = [];
+
+	_clearModIPCHandlers() {
+		for (const handler of this._modIPCHandlers) {
+			logDebug(`Removing IPC handler for channel: ${handler.channel}`);
+			ipcMain.removeHandler(handler.channel);
+		}
+		this._modIPCHandlers = [];
+	}
+
+	_initializeEvents() {
+		for (const event of ElectronFluxloaderAPI.allEvents) {
+			this.events.registerEvent(event);
+		}
 	}
 }
 
 class ElectronModConfigAPI {
 	constructor() {
-		ipcMain.handle("ml-config:get-config", (event, modName) => {
-			logDebug(`Getting mod config remotely for ${modName}`);
-			return this.get(modName);
+		ipcMain.handle("fl-mod-config:get", (_, modID) => {
+			logDebug(`Getting mod config remotely for ${modID}`);
+			return this.get(modID);
 		});
-		ipcMain.handle("ml-config:set-config", (event, modName, config) => {
-			logDebug(`Setting mod config remotely for ${modName}`);
-			return this.set(modName, config);
+
+		ipcMain.handle("fl-mod-config:set", (_, modID, config) => {
+			logDebug(`Setting mod config remotely for ${modID}`);
+			return this.set(modID, config);
 		});
 	}
 
-	get(modName) {
-		const modNamePath = this.sanitizeModNamePath(modName);
-		const baseModsPath = resolvePathRelativeToModloader(config.modsPath);
+	get(modID) {
+		const modIDPath = this.sanitizeModIDPath(modID);
+		const baseModsPath = resolvePathRelativeToExecutable(config.modsPath);
 		const modsConfigPath = path.join(baseModsPath, "config");
 		ensureDirectoryExists(modsConfigPath);
-		const modConfigPath = path.join(modsConfigPath, `${modNamePath}.json`);
-		logDebug(`Getting mod config: ${modNamePath} -> ${modConfigPath}`);
-		try {
-			if (fs.existsSync(modConfigPath)) {
-				return JSON.parse(fs.readFileSync(modConfigPath, "utf8"));
-			}
-		} catch (e) {
-			logWarn(`Error while parsing mod config: ${e.stack}`);
-		}
-		return {};
-	}
+		const modConfigPath = path.join(modsConfigPath, `${modIDPath}.json`);
+		logDebug(`Getting mod config: ${modIDPath} -> ${modConfigPath}`);
 
-	set(modName, _config) {
-		const modNamePath = this.sanitizeModNamePath(modName);
-		const baseModsPath = resolvePathRelativeToModloader(config.modsPath);
-		const modsConfigPath = path.join(baseModsPath, "config");
-		ensureDirectoryExists(modsConfigPath);
-		const modConfigPath = path.join(modsConfigPath, `${modNamePath}.json`);
-		logDebug(`Setting mod config: ${modNamePath} -> ${modConfigPath}`);
-
-		try {
-			fs.writeFileSync(modConfigPath, JSON.stringify(_config, null, 4), "utf8");
-			return true;
-		} catch (e) {
-			logWarn(`Error while writing mod config: ${e.stack}`);
-		}
-
-		return false;
-	}
-
-	defineDefaults(modName, configSchema) {
-		logDebug(`Defining default config for mod: ${modName}`);
-		let existingConfig = this.get(modName);
-
-		// If existingConfig is {} and configSchema is not {}
-		if (Object.keys(existingConfig).length === 0 && Object.keys(configSchema).length > 0) {
-			logDebug(`No existing config found for mod so initializing to defaults: ${modName}`);
-			this.set(modName, configSchema);
+		// If this fails treat it as catastrophic for now
+		if (fs.existsSync(modConfigPath)) {
+			return JSON.parse(fs.readFileSync(modConfigPath, "utf8"));
 		} else {
-			const modified = updateObjectWithDefaults(configSchema, existingConfig);
-			if (!modified) {
-				logDebug(`Mod config is up-to-date: ${modName}`);
-			} else {
-				this.set(modName, existingConfig);
-				logDebug(`Mod config updated to defaults successfully: ${modName}`);
-			}
+			return {};
 		}
 	}
 
-	sanitizeModNamePath(modName) {
-		return modName;
+	set(modID, _config) {
+		const modIDPath = this.sanitizeModIDPath(modID);
+		const baseModsPath = resolvePathRelativeToExecutable(config.modsPath);
+		const modsConfigPath = path.join(baseModsPath, "config");
+		ensureDirectoryExists(modsConfigPath);
+		const modConfigPath = path.join(modsConfigPath, `${modIDPath}.json`);
+		logDebug(`Setting mod config: ${modIDPath} -> ${modConfigPath}`);
+
+		// If this fails treat it as catastrophic for now
+		fs.writeFileSync(modConfigPath, JSON.stringify(_config, null, 4), "utf8");
+		return true;
+	}
+
+	sanitizeModIDPath(modID) {
+		return modID;
 	}
 }
 
-class GameFileManager {
+class GameFilesManager {
 	gameBasePath = undefined;
 	gameAsarPath = undefined;
 	tempBasePath = undefined;
@@ -351,164 +327,235 @@ class GameFileManager {
 		logDebug("Resetting game files to unmodified state using app.asar");
 
 		// Do not need to reset if we are extracted and not modified
-		if (this.isGameExtracted && !this.isGameModified) return;
+		if (this.isGameExtracted && !this.isGameModified) return successResponse("Game files are already in unmodified state");
 
-		// Ensure we have a temp directory
-		if (!this.isTempInitialized) {
-			this._createTempDirectory();
-		}
-
-		// Ensure the game is extracted
-		if (!this.isGameExtracted) {
-			this._extractAllFiles();
-		}
-
-		// If the files are modified then reset them to the original
-		else if (this.isGameModified) {
-			for (const file in this.fileData) {
-				this._resetFile(file);
+		try {
+			// Ensure we have a temp directory
+			if (!this.isTempInitialized) {
+				this._createTempDirectory();
 			}
+
+			// Ensure the game is extracted
+			if (!this.isGameExtracted) {
+				this._extractAllFiles();
+			}
+
+			// If the files are modified then reset them to the original
+			else if (this.isGameModified) {
+				for (const file in this.fileData) {
+					this._resetFile(file);
+				}
+			}
+		} catch (e) {
+			return errorResponse(`Failed to reset game files to unmodified state: ${e.stack}`);
 		}
 
 		logDebug("Extracted app.asar set to default successfully");
+		return successResponse("Game files reset to unmodified state");
+	}
+
+	clearPatches() {
+		logDebug("Clearing all patches from game files");
+
+		// This is not modifying the files, just clearing the in-memory patches
+		for (const file in this.fileData) {
+			this.fileData[file].patches.clear();
+		}
 	}
 
 	setPatch(file, tag, patch) {
-		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot add patch");
+		if (!this.isGameExtracted) return errorResponse("Game files not extracted yet cannot set patch");
 
-		if (!this.fileData[file]) this._initializeFileData(file);
+		if (!this.fileData[file]) {
+			try {
+				this._initializeFileData(file);
+			} catch (e) {
+				return errorResponse(`Failed to initialize file data for '${file}' when setting patch '${tag}'`);
+			}
+		}
 
 		logDebug(`Setting patch '${tag}' in file: ${file}`);
 		this.fileData[file].patches.set(tag, patch);
+		return successResponse(`Patch '${tag}' set in file: ${file}`);
+	}
+
+	setMappedPatch(fileMap, tag, mapFunction) {
+		if (!this.isGameExtracted) return errorResponse("Game files not extracted yet cannot set mapped patch");
+
+		logDebug(`Setting mapped patch '${tag}' in file(s): ${Object.keys(fileMap)}`);
+		for (const [file, variables] of Object.entries(fileMap)) {
+			if (!this.fileData[file]) {
+				try {
+					this._initializeFileData(file);
+				} catch (e) {
+					return errorResponse(`Failed to initialize file data for '${file}' when setting mapped patch '${tag}'`);
+				}
+			}
+			this.fileData[file].patches.set(tag, mapFunction(...variables));
+		}
+		return successResponse(`Mapped patch '${tag}' set in file(s): ${Object.keys(fileMap)}`);
+	}
+
+	patchExists(file, tag) {
+		if (!this.isGameExtracted) return false;
+		if (!this.fileData[file]) return false;
+		return this.fileData[file].patches.has(tag);
 	}
 
 	removePatch(file, tag) {
-		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot remove patch");
+		if (!this.isGameExtracted) return errorResponse("Game files not extracted yet cannot remove patch");
 
-		if (!this.fileData[file]) this._initializeFileData(file);
+		if (!this.fileData[file]) {
+			try {
+				this._initializeFileData(file);
+			} catch (e) {
+				return errorResponse(`Failed to initialize file data for '${file}' when removing patch '${tag}': ${e.stack}`);
+			}
+		}
 
-		if (!this.fileData[file].patches.has(tag)) throw new Error(`Patch '${tag}' does not exist for file: ${file}`);
+		if (!this.fileData[file].patches.has(tag)) {
+			logWarn(`Patch '${tag}' does not exist for file: ${file}`);
+			return successResponse(`Patch '${tag}' does not exist for file: ${file}`);
+		}
 
 		logDebug(`Removing patch '${tag}' from file: ${file}`);
 		this.fileData[file].patches.delete(tag);
+		return successResponse(`Patch '${tag}' removed from file: ${file}`);
 	}
 
 	repatchAllFiles() {
-		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot repatch all");
-
+		if (!this.isGameExtracted) return errorResponse("Game files not extracted yet cannot repatch all");
 		logDebug("Repatching all files...");
-		for (const file in this.fileData) this._repatchFile(file);
+		for (const file in this.fileData) {
+			try {
+				this._repatchFile(file);
+			} catch (e) {
+				logError(`Failed to repatch file '${file}': ${e.stack}`);
+				return errorResponse(`Failed to repatch file '${file}': ${e.message}`);
+			}
+		}
+		return successResponse("All game files repatched successfully");
 	}
 
 	async patchAndRunGameElectron() {
-		if (!this.isGameExtracted) throw new Error("Game files not extracted cannot process game app");
+		if (!this.isGameExtracted) return errorResponse("Game files not extracted cannot process game app");
 
-		// TODO: Once we have CJS in use again we want to shut down the main.js execution after we close the game
-		// Currently if you try and run it again it won't work as expected as the main.js is cached
-		if (hasRanOnce) return;
-
-		gameElectronFuncs = {};
-
-		// Here we basically want to isolate createWindow(), setupIpcHandlers(), and loadSettingsSync()
+		// Here we basically want to isolate createWinow(), setupIpcHandlers(), and loadSettingsSync()
 		// This is potentially very brittle and may need fixing in the future if main.js changes
 		// We need to disable the default app listeners (so they're not ran when we run eval(...))
 		// The main point is we want to ensure we open the game the same way the game does
 
-		const replaceAllMain = (tag, from, to) => {
-			gameFileManager.setPatch("main.js", tag, { type: "replace", from, to, expectedMatches: -1 });
-		};
-		const replaceAllPreload = (tag, from, to) => {
-			gameFileManager.setPatch("preload.js", tag, { type: "replace", from, to, expectedMatches: -1 });
-		};
-
-		// Rename and expose the games main electron functions
-		replaceAllMain("modloader:electron-globalize-main", "function createWindow ()", "globalThis.gameElectronFuncs.createWindow = function()");
-		replaceAllMain("modloader:electron-globalize-ipc", "function setupIpcHandlers()", "globalThis.gameElectronFuncs.setupIpcHandlers = function()");
-		replaceAllMain("modloader:electron-globalize-settings", "function loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync = function()");
-		replaceAllMain("modloader:electron-globalize-settings-calls", "loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync()");
-
-		// Block the automatic app listeners so we control when things happen
-		replaceAllMain("modloader:electron-block-execution-1", "app.whenReady().then(() => {", "var _ = (() => {");
-		replaceAllMain("modloader:electron-block-execution-2", "app.on('window-all-closed', function () {", "var _ = (() => {");
-
-		// Ensure that the app thinks it is still running inside the app.asar
-		// - Fix the userData path to be 'sandustrydemo' instead of 'mod-loader'
-		// - Override relative "preload.js" to absolute
-		// - Override relative "index.html" to absolute
-		replaceAllMain("modloader:electron-fix-paths-1", 'getPath("userData")', 'getPath("userData").replace("mod-loader", "sandustrydemo")');
-		replaceAllMain("modloader:electron-fix-paths-2", "path.join(__dirname, 'preload.js')", `'${path.join(this.tempExtractedPath, "preload.js").replaceAll("\\", "/")}'`);
-		replaceAllMain("modloader:electron-fix-paths-3", "loadFile('index.html')", `loadFile('${path.join(this.tempExtractedPath, "index.html").replaceAll("\\", "/")}')`);
-
-		// Expose the games main window to be global
-		replaceAllMain("modloader:electron-globalize-window", "const mainWindow", "globalThis.gameWindow");
-		replaceAllMain("modloader:electron-globalize-window-calls", "mainWindow", "globalThis.gameWindow");
-
-		// Make the menu bar visible
-		// replaceAllMain("autoHideMenuBar: true,", "autoHideMenuBar: false,");
-
-		// We're also gonna expose the ipcMain in preload.js
-		replaceAllPreload(
-			"modloader:exposeIPC",
-			"save: (id, name, data)",
-			`invoke: (msg, ...args) => ipcRenderer.invoke(msg, ...args),
-			handle: (msg, func) => ipcRenderer.handle(msg, func),
-			save: (id, name, data)`
-		);
-
-		gameFileManager._repatchFile("main.js");
-		gameFileManager._repatchFile("preload.js");
-
-		// Run the code to register their functions
-		const mainPath = path.join(this.tempExtractedPath, "main.js");
-		gameElectronFuncs = {};
-		logDebug(`Executing modified games electron main.js`);
 		try {
-			await import(`file://${mainPath}`);
+			const replaceAllMain = (tag, from, to, matches = 1) => {
+				const res = gameFilesManager.setPatch("main.js", tag, { type: "replace", from, to, expectedMatches: matches });
+				if (!res.success) throw new Error(`Failed to set patch for main.js: ${res.message}`);
+			};
+			const replaceAllPreload = (tag, from, to, matches = 1) => {
+				const res = gameFilesManager.setPatch("preload.js", tag, { type: "replace", from, to, expectedMatches: matches });
+				if (!res.success) throw new Error(`Failed to set patch for main.js: ${res.message}`);
+			};
+
+			// Rename and expose the games main electron functions
+			replaceAllMain("fluxloader:electron-globalize-main", "function createWindow ()", "globalThis.gameElectronFuncs.createWindow = function()");
+			replaceAllMain("fluxloader:electron-globalize-ipc", "function setupIpcHandlers()", "globalThis.gameElectronFuncs.setupIpcHandlers = function()");
+			replaceAllMain("fluxloader:electron-globalize-settings", "function loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync = function()");
+			replaceAllMain("fluxloader:electron-globalize-settings-calls", "loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync()");
+
+			// Block the automatic app listeners so we control when things happen
+			replaceAllMain("fluxloader:electron-block-execution-1", "app.whenReady().then(() => {", "var _ = (() => {");
+			replaceAllMain("fluxloader:electron-block-execution-2", "app.on('window-all-closed', function () {", "var _ = (() => {");
+
+			// Ensure that the app thinks it is still running inside the app.asar
+			// - Fix the userData path to be 'sandustrydemo' instead of 'sandustry-fluxloader'
+			// - Override relative "preload.js" to absolute
+			// - Override relative "index.html" to absolute
+			replaceAllMain("fluxloader:electron-fix-paths-1", 'getPath("userData")', 'getPath("userData").replace("sandustry-fluxloader", "sandustrydemo")', 3);
+			replaceAllMain("fluxloader:electron-fix-paths-2", "path.join(__dirname, 'preload.js')", `'${path.join(this.tempExtractedPath, "preload.js").replaceAll("\\", "/")}'`);
+			replaceAllMain("fluxloader:electron-fix-paths-3", "loadFile('index.html')", `loadFile('${path.join(this.tempExtractedPath, "index.html").replaceAll("\\", "/")}')`);
+
+			// Expose the games main window to be global
+			replaceAllMain("fluxloader:electron-globalize-window", "const mainWindow", "globalThis.gameWindow", 1);
+			replaceAllMain("fluxloader:electron-globalize-window-calls", "mainWindow", "globalThis.gameWindow", 4);
+
+			// Make the menu bar visible
+			// replaceAllMain("autoHideMenuBar: true,", "autoHideMenuBar: false,");
+
+			// We're also gonna expose the ipcMain in preload.js
+			replaceAllPreload(
+				"fluxloader:exposeIPC",
+				"save: (id, name, data)",
+				`invoke: (msg, ...args) => ipcRenderer.invoke(msg, ...args),
+				handle: (msg, func) => ipcRenderer.handle(msg, func),
+				save: (id, name, data)`
+			);
+
+			gameFilesManager._repatchFile("main.js");
+			gameFilesManager._repatchFile("preload.js");
 		} catch (e) {
-			throw new Error(`Error evaluating game main.js: ${e.stack}`);
+			return errorResponse(`Failed to patch game electron files: ${e.message}`);
 		}
 
-		// Now we need to run the setupIpcHandlers() function to register the ipcMain handlers
+		// We want to run the patches main.js everytime here to register the functions to the global gameElectronFuncs object
+		// Currently this does not work well due to dynamic import() query string cache invalidation not working on files that have require() inside of them
+		// Therefore main.js will only be evaluated once on the first run and not again after that due to nodes aggressive caching
+		// This means if mods try and change main.js (which they shouldn't) and that changes between executions of the game it will not work
+		const hasAlreadyRan = gameElectronFuncs && Object.keys(gameElectronFuncs).length > 0;
+		if (hasAlreadyRan) {
+			logDebug("Game electron functions already initialized");
+			return successResponse("Game electron functions already initialized");
+		}
+
+		// Assuming this is the first time, run the modified main.js to register the functions
+		gameElectronFuncs = {};
+		try {
+			const mainPath = path.join(this.tempExtractedPath, "main.js");
+			const gameElectronURL = `file://${mainPath}`;
+			logInfo(`Executing modified games electron main.js: ${gameElectronURL}`);
+			await import(gameElectronURL);
+		} catch (e) {
+			return errorResponse(`Error evaluating game main.js: ${e.stack}`);
+		}
+
+		// Ensure it worked correctly
+		let requiredFunctions = ["createWindow", "setupIpcHandlers", "loadSettingsSync"];
+		for (const func of requiredFunctions) {
+			if (!Object.hasOwn(gameElectronFuncs, func)) {
+				return errorResponse(`Game electron function '${func}' is not defined after evaluation`);
+			}
+		}
+
+		// Now run the setupIpcHandlers() function to register the ipcMain handlers
+		// Again, we should only do this once, so this code relies on that fact otherwise the handlers will be registered multiple times and error
 		try {
 			logDebug("Calling games electron setupIpcHandlers()");
 			gameElectronFuncs.setupIpcHandlers();
 		} catch (e) {
-			throw new Error(`Error during setup of games electron setupIpcHandlers(), see patchAndRunGameElectron(): ${e.stack}`);
+			return errorResponse(`Error calling game electron setupIpcHandlers(): ${e.stack}`);
 		}
+
+		logDebug("Game electron functions initialized successfully");
+		return successResponse("Game electron functions initialized successfully");
 	}
 
 	deleteFiles() {
 		logDebug("Deleting game files...");
-		this._deleteTempDirectory();
+		let success = true;
+		try {
+			this._deleteTempDirectory();
+		} catch (e) {
+			success = false;
+		}
 		this.fileData = {};
 		this.tempBasePath = undefined;
 		this.tempExtractedPath = undefined;
 		this.isTempInitialized = false;
 		this.isGameExtracted = false;
 		this.isGameModified = false;
-	}
-
-	logContents() {
-		let outputString = "GameFileManager Content\n\n";
-		outputString += `  |  Variables\n`;
-		outputString += `  |  |  Game Base Path: ${this.gameBasePath}\n`;
-		outputString += `  |  |  Game Asar Path: ${this.gameAsarPath}\n`;
-		outputString += `  |  |  Temp Base Path: ${this.tempBasePath}\n`;
-		outputString += `  |  |  Temp Extracted Path: ${this.tempExtractedPath}\n`;
-		outputString += `  |  |  Is Temp Initialized: ${this.isTempInitialized}\n`;
-		outputString += `  |  |  Is Game Extracted: ${this.isGameExtracted}\n`;
-		outputString += `  |  |  Is Game Modified: ${this.isGameModified}\n`;
-
-		outputString += `  |  \n`;
-		outputString += `  |  File Data (${Object.keys(this.fileData).length})\n`;
-		const patchCount = Object.values(this.fileData).reduce((acc, file) => acc + file.patches.size, 0);
-		for (const file in this.fileData) {
-			outputString += `  |  |  '${file}': ${this.fileData[file].isModified ? "MODIFIED" : "UNMODIFIED"}, patches (${patchCount})\n`;
-			for (const patch of this.fileData[file].patches.values()) {
-				outputString += `  |  |  |  ${JSON.stringify(patch)}\n`;
-			}
+		if (!success) {
+			return errorResponse(`Failed to delete game files: ${e.stack}`);
+		} else {
+			return successResponse("Game files deleted successfully");
 		}
-		logDebug(outputString);
 	}
 
 	static deleteOldTempDirectories() {
@@ -519,19 +566,20 @@ class GameFileManager {
 			basePath = os.tmpdir();
 			files = fs.readdirSync(basePath);
 		} catch (e) {
-			throw new Error(`Error reading temp directory: ${e.stack}`);
+			return errorResponse(`Error reading temp directory: ${e.stack}`);
 		}
 		for (const file of files) {
 			try {
-				if (file.startsWith("sandustry-modloader-")) {
+				if (file.startsWith("sandustry-fluxloader-")) {
 					const fullPath = path.join(basePath, file);
 					logDebug(`Deleting old temp directory: ${fullPath}`);
 					fs.rmSync(fullPath, { recursive: true });
 				}
 			} catch (e) {
-				logWarn(`Error deleting old temp directory: ${e.stack}`);
+				return errorResponse(`Error deleting old temp directory: ${e.stack}`);
 			}
 		}
+		return successResponse("Old temp directories deleted successfully");
 	}
 
 	// ------------ INTERNAL ------------
@@ -539,7 +587,7 @@ class GameFileManager {
 	_createTempDirectory() {
 		if (this.isTempInitialized) throw new Error("Temp directory already initialized");
 
-		const newTempBasePath = path.join(os.tmpdir(), `sandustry-modloader-${Date.now()}`);
+		const newTempBasePath = path.join(os.tmpdir(), `sandustry-fluxloader-${Date.now()}`);
 		logDebug(`Creating game files temp directory: ${newTempBasePath}`);
 		ensureDirectoryExists(newTempBasePath);
 		this.tempBasePath = newTempBasePath;
@@ -593,19 +641,19 @@ class GameFileManager {
 	_repatchFile(file) {
 		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot repatch");
 		if (!this.fileData[file]) throw new Error(`File not initialized: ${file}`);
-
 		logDebug(`Repatching file: ${file}`);
 		this._resetFile(file);
 		this._patchFile(file);
 	}
 
 	_resetFile(file) {
+		logDebug(`Resetting file: ${file}`);
+
 		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot reset file");
 		if (!this.isGameModified) return;
 		if (!this.fileData[file]) throw new Error(`File not initialized ${file} cannot reset`);
 		if (!this.fileData[file].isModified) return;
 
-		logDebug(`Resetting file: ${file}`);
 		try {
 			// Delete existing file
 			const fullPath = this.fileData[file].fullPath;
@@ -619,6 +667,7 @@ class GameFileManager {
 		} catch (e) {
 			throw new Error(`Error resetting file: ${e.stack}`);
 		}
+
 		this.fileData[file].isModified = false;
 		this.isGameModified = Object.values(this.fileData).some((f) => f.isModified);
 	}
@@ -628,8 +677,14 @@ class GameFileManager {
 		if (!this.fileData[file]) throw new Error(`File not initialized ${file} cannot apply patches`);
 		if (this.fileData[file].isModified) throw new Error(`File already modified: ${file}`);
 
+		if (this.fileData[file].patches.size === 0) {
+			logDebug(`No patches to apply for file: ${file}`);
+			return;
+		}
+
 		const fullPath = this.fileData[file].fullPath;
 		logDebug(`Applying ${this.fileData[file].patches.size} patches to file: ${fullPath}`);
+
 		let fileContent;
 		try {
 			fileContent = fs.readFileSync(fullPath, "utf8");
@@ -640,12 +695,15 @@ class GameFileManager {
 		for (const patch of this.fileData[file].patches.values()) {
 			fileContent = this._applyPatchToContent(fileContent, patch);
 		}
+
 		logDebug(`Writing patched content back to file: ${fullPath}`);
+
 		try {
 			fs.writeFileSync(fullPath, fileContent, "utf8");
 		} catch (e) {
 			throw new Error(`Error writing patched content to file: ${fullPath}`);
 		}
+
 		this.fileData[file].isModified = true;
 		this.isGameModified = true;
 	}
@@ -678,23 +736,40 @@ class GameFileManager {
 				break;
 			}
 
+			case "overwrite": {
+				if (!patch.contents && !patch.file) throw new Error("Failed to apply overwrite patch. Missing 'contents' or 'file' field.");
+				fileContent = patch.contents || fs.readFileSync(patch.file);
+				break;
+			}
+
 			// Replace all instances of the string with the replacement string
 			case "replace": {
 				if (!Object.hasOwn(patch, "from") || !Object.hasOwn(patch, "to")) {
 					throw new Error(`Failed to apply replace patch. Missing "from" or "to" field.`);
 				}
-				let index = fileContent.indexOf(patch.from);
+				let to = patch.to;
+				if (Object.hasOwn(patch, "token")) {
+					if (!to.includes(patch.token)) {
+						logWarn(`Patch 'to' string does not include the specified token '${patch.token}'`);
+					}
+					to = to.replaceAll(patch.token, patch.from);
+				}
 				let actualMatches = 0;
-				while (index !== -1) {
+				let searchIndex = 0;
+				while (true) {
+					const index = fileContent.indexOf(patch.from, searchIndex);
+					if (index === -1) break;
 					actualMatches++;
-					fileContent = fileContent.slice(0, index) + patch.to + fileContent.slice(index + patch.from.length);
-					index = fileContent.indexOf(patch.from, index + patch.to.length);
+					searchIndex = index + patch.from.length;
 				}
 				let expectedMatches = patch.expectedMatches || 1;
 				if (expectedMatches > 0) {
 					if (actualMatches != expectedMatches) {
 						throw new Error(`Failed to apply replace patch: "${patch.from}" -> "${patch.to}", ${actualMatches} != ${expectedMatches} match(s).`);
 					}
+				}
+				if (actualMatches > 0) {
+					fileContent = fileContent.split(patch.from).join(to);
 				}
 				break;
 			}
@@ -706,17 +781,37 @@ class GameFileManager {
 
 class ModsManager {
 	baseModsPath = undefined;
-	mods = {};
+	modInfoSchema = undefined;
+	installedMods = {};
 	loadOrder = [];
+	areModsLoaded = false;
+	modContext = undefined;
+	isPerformingActions = false;
 	loadedModCount = 0;
+	modScriptsImport = {};
+	modElectronModules = {};
+	fetchedModCache = {};
 
-	async refreshMods() {
-		this.mods = {};
+	// ------------ MAIN ------------
+
+	async reloadInstalledMods() {
+		if (this.isPerformingActions) return errorResponse("Cannot find installed mods while performing actions");
+
+		this.installedMods = {};
 		this.loadOrder = [];
 		this.loadedModCount = 0;
 
-		this.baseModsPath = resolvePathRelativeToModloader(config.modsPath);
-		ensureDirectoryExists(this.baseModsPath);
+		// We also want to reset the mod dependencies
+		this.fetchedModCache = {};
+
+		this.baseModsPath = resolvePathRelativeToExecutable(config.modsPath);
+		try {
+			ensureDirectoryExists(this.baseModsPath);
+		} catch (e) {
+			return errorResponse(`Failed to ensure mods directory exists: ${e.stack}`);
+		}
+
+		// Find all the folders in the back directory and treat each as a mod
 		let modPaths = fs.readdirSync(this.baseModsPath);
 		modPaths = modPaths.filter((p) => p !== "config");
 		modPaths = modPaths.map((p) => path.join(this.baseModsPath, p));
@@ -726,495 +821,1471 @@ class ModsManager {
 
 		for (const modPath of modPaths) {
 			try {
-				const mod = await this._initializeMod(modPath);
-				// Check for dependents of this mod and place this mod before them in the load order
-				let lowestIndex = this.loadOrder.length;
-				const mods = Object.values(this.mods);
-				for (const modIndex in mods) {
-					// Check if mod depends on mod being loaded
-					if (mods[modIndex].info.dependencies && Object.keys(mods[modIndex].info.dependencies).includes(mod.info.name)) {
-						// Check if mod that is dependent on mod being loaded is lower in the loadOrder
-						// if so, move lowest index so mod being loaded will load before them
-						if (modIndex < lowestIndex) {
-							lowestIndex = modIndex;
-						}
-					}
+				// Try and initialize the mod and its scripts
+				const res = await this._initializeMod(modPath);
+				if (!res.success) {
+					logError(`Failed to initialize mod at path ${modPath}: ${res.message}, ignoring...`);
+					continue;
 				}
-				this.mods[mod.info.name] = mod;
-				this.loadOrder.splice(lowestIndex, 0, mod.info.name);
+
+				const { scripts, mod } = res.data;
+				this.installedMods[mod.info.modID] = mod;
+				this.modScriptsImport[mod.info.modID] = scripts;
+
+				// Check if the mod is disabled in the config
+				mod.isEnabled = true;
+				if (Object.hasOwn(config.modsEnabled, mod.info.modID) && !config.modsEnabled[mod.info.modID]) {
+					logDebug(`Mod '${mod.info.modID}' is disabled in the config`);
+					mod.isEnabled = false;
+				}
 			} catch (e) {
-				logWarn(`Error initializing mod at path ${modPath}: ${e.stack}`);
+				logError(`Error when initializing mod at path ${modPath}: ${e.stack}, this should have already been caught`);
+				continue;
 			}
 		}
 
-		const modCount = Object.keys(this.mods).length;
-		logInfo(`Successfully initialized ${modCount} mod${modCount == 1 ? "" : "s"}`);
+		const res = this._calculateLoadOrder();
+		if (!res.success) return errorResponse(`Failed to calculate load order: ${res.message}`);
+		this.loadOrder = res.data;
+
+		this._applyModsScriptModifySchema();
+
+		// Final report of installed mods
+		const modCount = Object.keys(this.installedMods).length;
+		const modListMessage = Object.values(this.installedMods)
+			.map((mod) => `${!mod.isEnabled ? "(DISABLED) " : ""}${mod.info.modID} (v${mod.info.version})`)
+			.join(", ");
+		logInfo(`Successfully initialized ${modCount} mod${modCount == 1 ? "" : "s"}: [${modListMessage}]`);
 		logInfo(`Mod load order: [ ${this.loadOrder.join(", ")} ]`);
+
+		return successResponse(`Found ${modCount} mod${modCount == 1 ? "" : "s"}`);
 	}
 
 	async loadAllMods() {
-		if (this.loadedModCount > 0) throw new Error("Cannot load mods, some mods are already loaded");
+		if (this.isPerformingActions) return errorResponse("Cannot load all mods while performing actions");
+		if (this.areModsLoaded) return errorResponse("Cannot load mods, some mods are already loaded");
 
-		const enabledCount = this.loadOrder.filter((modName) => this.mods[modName].isEnabled).length;
+		this._applyModsScriptModifySchema();
+
+		const enabledCount = this.loadOrder.filter((modID) => this.installedMods[modID].isEnabled).length;
 		if (enabledCount == this.loadOrder.length) {
 			logDebug(`Loading ${this.loadOrder.length} mods...`);
 		} else {
 			logDebug(`Loading ${enabledCount} / ${this.loadOrder.length} mods...`);
 		}
 
-		for (const modName of this.loadOrder) {
-			if (this.mods[modName].isEnabled) {
-				await this._loadMod(this.mods[modName]);
+		// Verify dependencies of all mods before starting to load them
+		const res = this._verifyDependencies();
+		if (!res.success) return errorResponse(`Failed to verify dependencies`);
+
+		// Setup the context for the mods and expose whatever they need to access
+		try {
+			this.modContext = vm.createContext({ fluxloaderAPI, log, fs, path, randomUUID, url, process });
+		} catch (e) {
+			return errorResponse(`Failed to create mod context: ${e.stack}`);
+		}
+
+		for (const modID of this.loadOrder) {
+			if (this.installedMods[modID].isEnabled) {
+				const res = await this._loadMod(this.installedMods[modID]);
+				if (!res.success) return errorResponse(`Failed to load mod ${modID}: ${res.message}`);
 			}
 		}
 
-		modloaderAPI.events.trigger("ml:onAllModsLoaded");
+		this.areModsLoaded = true;
+		fluxloaderAPI.events.trigger("fl:all-mods-loaded");
 		logDebug(`All mods loaded successfully`);
+		return successResponse(`Loaded ${this.loadedModCount} mod${this.loadedModCount == 1 ? "" : "s"}`);
 	}
 
 	unloadAllMods() {
-		if (this.loadedModCount === 0) return;
+		if (this.isPerformingActions) return errorResponse("Cannot unload all mods while performing actions");
+		if (!this.areModsLoaded) {
+			logWarn("No mods are currently loaded, nothing to unload");
+			return successResponse("No mods are currently loaded, nothing to unload");
+		}
 
 		logDebug("Unloading all mods...");
-
-		for (const modName of this.loadOrder) {
-			if (this.mods[modName].isLoaded) {
-				this._unloadMod(this.mods[modName]);
+		for (const modID of this.loadOrder) {
+			if (this.installedMods[modID].isLoaded) {
+				this._unloadMod(this.installedMods[modID]);
 			}
 		}
 
-		modloaderAPI.events.trigger("ml:onAllModsUnloaded");
+		this.areModsLoaded = false;
+		this.modContext = undefined;
+		this.loadedModCount = 0;
+		this.modScriptsImport = {};
+		this.modElectronModules = {};
+
+		// Mods also have side effects on game files, IPC handlers, and events
+		gameFilesManager.clearPatches();
+		fluxloaderAPI._clearModIPCHandlers();
+		fluxloaderAPI.events.clear();
 		logDebug("All mods unloaded successfully");
+		return successResponse("All mods unloaded successfully");
 	}
 
-	changeLoadOrder(newLoadOrder) {
-		logDebug("Reordering mod load order...");
+	async fetchRemoteMods(config) {
+		// Construct request for search, page, and size
+		const query = { "modData.name": { $regex: "", $options: "i" } };
+		const encodedQuery = encodeURIComponent(JSON.stringify(query));
+		const url = `https://fluxloader.app/api/mods?search=${encodedQuery}&verified=null&page=${config.page}&size=${config.pageSize}`;
 
-		if (newLoadOrder.length !== this.loadOrder.length) {
-			throw new Error(`Invalid new mod order length: ${newLoadOrder.length} vs ${this.loadOrder.length}`);
+		// Request the remote mods from the API
+		let responseData;
+		let timeTaken;
+		try {
+			logDebug(`Fetching remote mods from API: ${url}`);
+			const listStart = Date.now();
+			const response = await fetch(url);
+			responseData = await response.json();
+			const listEnd = Date.now();
+			timeTaken = listEnd - listStart;
+		} catch (e) {
+			return errorResponse(`Failed to fetch mods from the API: ${e.stack}`);
 		}
 
-		for (const modName of newLoadOrder) {
-			if (!this.hasMod(modName)) {
-				throw new Error(`Invalid mod name in new order: ${modName}`);
+		// Check it is a valid response
+		if (!responseData || !Object.hasOwn(responseData, "resultsCount")) return errorResponse("Invalid response from remote mods API");
+		logDebug(`Fetched ${responseData.mods.length} remote mods from API in ${timeTaken}ms`);
+
+		// Render the description of each mod if requested
+		if (config.rendered) {
+			const renderStart = Date.now();
+			for (const modEntry of responseData.mods) {
+				if (modEntry.modData && modEntry.modData.description) {
+					modEntry.renderedDescription = marked(modEntry.modData.description);
+				} else {
+					modEntry.renderedDescription = "";
+				}
+			}
+			const renderEnd = Date.now();
+			logDebug(`Rendered ${responseData.mods.length} descriptions for remote mods in ${renderEnd - renderStart}ms`);
+		}
+
+		// Cache the fetched mods
+		for (const mod of responseData.mods) this.fetchedModCache[mod.modID] = mod;
+
+		logDebug(`Returning ${responseData.mods.length} total mods for page ${config.page} of size ${config.pageSize} (${responseData.resultsCount} total)`);
+		return successResponse(`Fetched ${responseData.mods.length} remote mods`, responseData.mods);
+	}
+
+	async calculateModActions(mainActions) {
+		logDebug(`Calculating all mod actions for ${Object.keys(mainActions).length} main action(s)`);
+
+		// We need to convert the main actions into a big list of actions that we can perform
+		let allActions = [];
+		for (const modID in mainActions) {
+			const action = mainActions[modID];
+
+			// On an install action we want to recursively install all dependencies
+			// We track version dependencies for all mods because if we find a duplicate dependency we need to ensure they all match
+			if (action.type === "install") {
+				const versionDependencies = {};
+				const queue = [[modID, action.version]];
+				while (queue.length > 0) {
+					const [currentModID, depVersion] = queue.shift();
+					let isChangingVersion = false;
+					logDebug(`Processing 'install' for current mod '${currentModID}' version '${depVersion}'`);
+
+					// If we already have this mod in the actions we need to check the versions overlap with semver
+					if (versionDependencies[currentModID]) {
+						for (const existingDepVersion of versionDependencies[currentModID]) {
+							if (!semver.intersects(depVersion, existingDepVersion)) {
+								return errorResponse(`Cannot install mod '${action.modID}' as the dependency ${currentModID} has a version conflict: ${existingDepVersion} vs ${depVersion}`, {
+									allActions: allActions,
+									errorModID: currentModID,
+									errorReason: "version-conflict",
+								});
+							}
+						}
+						// TODO: This isn't quite true, we need to find a version that does overlap both
+						logDebug(`mod '${currentModID}' already in actions with compatible version(s) ${versionDependencies[currentModID].join(", ")}`);
+						continue;
+					}
+
+					// If it is already installed check if the version satisfies the dependency
+					if (this.installedMods[currentModID]) {
+						const modInfo = this.installedMods[currentModID].info;
+						if (!this._doesVersionSatisfyDependency(modInfo.version, depVersion)) {
+							logDebug(`mod '${currentModID}' is already installed with version ${modInfo.version} but does not satisfy dependency ${depVersion}, trying to change version...`);
+							isChangingVersion = true;
+						}
+						logDebug(`mod '${currentModID}' is already installed with compatible version ${modInfo.version}`);
+						continue;
+					}
+
+					// We need to install the mod, so first get all the available versions of the mod
+					let versions = null;
+
+					// - We have it installed or cached so use them versions
+					if (this.fetchedModCache[currentModID]) {
+						versions = this.fetchedModCache[currentModID].versionNumbers;
+						logDebug(`Using fetched cached versions for mod '${currentModID}' [ ${versions.join(", ")} ]`);
+					} else if (this.installedMods[currentModID]) {
+						versions = this.installedMods[currentModID].versions;
+						logDebug(`Using installed versions for mod '${currentModID}' [ ${versions.join(", ")} ]`);
+						console.log(versions); // TODO: Check this
+					}
+
+					// - Otherwise we need to fetch the versions from the API
+					else {
+						const versionsURL = `https://fluxloader.app/api/mods?option=versions&modid=${currentModID}`;
+						let versionsResData;
+						try {
+							logDebug(`Fetching available versions for mod '${currentModID}' from API: ${versionsURL}`);
+							const versionFetchStart = Date.now();
+							const res = await fetch(versionsURL);
+							versionsResData = await res.json();
+							const versionFetchEnd = Date.now();
+							logDebug(`Fetched available versions for mod '${currentModID}' in ${versionFetchEnd - versionFetchStart}ms`);
+						} catch (e) {
+							return errorResponse(`Failed to fetch available versions for mod '${currentModID}' with url ${versionsURL}: ${e.stack}`, {
+								allActions: allActions,
+								errorModID: currentModID,
+								errorReason: "version-fetch",
+							});
+						}
+						if (!versionsResData || !Object.hasOwn(versionsResData, "versions")) {
+							return errorResponse(`Invalid response for available versions of mod '${currentModID}' with url ${versionsURL}`, {
+								allActions: allActions,
+								errorModID: currentModID,
+								errorReason: "version-fetch",
+							});
+						}
+						versions = versionsResData.versions;
+					}
+
+					// Version info is not valid, we cannot proceed
+					if (!versions || !Array.isArray(versions)) {
+						logError(`No versions found for mod '${currentModID}'`);
+						return errorResponse(`No versions found for mod '${currentModID}'`, {
+							allActions: allActions,
+							errorModID: currentModID,
+							errorReason: "version-fetch",
+						});
+					}
+
+					// Find the first (latest) version that satisfies the dependency
+					let latestVersion = null;
+					for (const availableVersion of versions) {
+						if (this._doesVersionSatisfyDependency(availableVersion, depVersion)) {
+							latestVersion = availableVersion;
+							break;
+						}
+					}
+
+					// Did not find a version that satisfies the dependency
+					if (!latestVersion) {
+						logError(`No version found for mod '${currentModID}' that satisfies dependency '${depVersion}'`);
+						return errorResponse(`No version found for mod '${currentModID}' that satisfies dependency '${depVersion}'`, {
+							allActions: allActions,
+							errorModID: currentModID,
+							errorReason: "version-not-found",
+						});
+					}
+
+					// If we are changing the version we use a change action
+					if (isChangingVersion) {
+						logDebug(`Changing version for mod '${currentModID}' from '${this.installedMods[currentModID].info.version}' to '${latestVersion}'`);
+						allActions.push({ type: "change", modID: currentModID, version: latestVersion, parentAction: action.modID, derivedActions: [] });
+						if (!versionDependencies[currentModID]) versionDependencies[currentModID] = [];
+						versionDependencies[currentModID].push(depVersion);
+					}
+					// Otherwise we just add the install action
+					else {
+						logDebug(`Adding install action for mod '${currentModID}' with version '${latestVersion}'`);
+						allActions.push({ type: "install", modID: currentModID, version: latestVersion, parentAction: action.modID, derivedActions: [] });
+						if (!versionDependencies[currentModID]) versionDependencies[currentModID] = [];
+						versionDependencies[currentModID].push(depVersion);
+					}
+
+					// We now need the dependencies of this version of the mod
+					let dependencies = null;
+
+					// - If we have it installed or cached, use the dependencies from there
+					if (this.fetchedModCache[currentModID]) {
+						logDebug(`Using fetched cached dependencies for mod '${currentModID}' version '${latestVersion}'`);
+						dependencies = this.fetchedModCache[currentModID].modData.dependencies || {};
+					} else if (this.installedMods[currentModID]) {
+						logDebug(`Using installed dependencies for mod '${currentModID}' version '${latestVersion}'`);
+						dependencies = this.installedMods[currentModID].info.dependencies || {};
+					}
+
+					// - Otherwise we need to fetch the mod info from the API
+					else {
+						const modInfoURL = `https://fluxloader.app/api/mods?option=info&modid=${currentModID}&version=${latestVersion}`;
+						let infoResData;
+						try {
+							logDebug(`Fetching mod info for '${currentModID}' version ${latestVersion} from API: ${modInfoURL}`);
+							const modInfoFetchStart = Date.now();
+							const res = await fetch(modInfoURL);
+							infoResData = await res.json();
+							const modInfoFetchEnd = Date.now();
+							logDebug(`Fetched mod info for '${currentModID}' version ${latestVersion} in ${modInfoFetchEnd - modInfoFetchStart}ms`);
+						} catch (e) {
+							return errorResponse(`Failed to fetch mod info for ${currentModID} version ${latestVersion}: ${e.stack}`, {
+								allActions: allActions,
+								errorModID: currentModID,
+								errorReason: "version-info-fetch",
+							});
+						}
+						dependencies = infoResData.mod.modData.dependencies || {};
+					}
+
+					// Dependencies is not valid, we cannot proceed
+					if (!dependencies || typeof dependencies !== "object") {
+						return errorResponse(`Invalid response for mod info of ${currentModID} version ${latestVersion}`, {
+							allActions: allActions,
+							errorModID: currentModID,
+							errorReason: "version-info-fetch",
+						});
+					}
+
+					// Add each dependency of this mod to the queue
+					for (const depModID in dependencies) {
+						const depVersion = dependencies[depModID];
+						logDebug(`Adding dependency '${depModID}' with version '${depVersion}' for mod '${currentModID}'`);
+						queue.push([depModID, depVersion]);
+					}
+				}
+			}
+
+			// On an uninstall action we want to only remove the mod but then also check if other mods depend on it
+			else if (action.type === "uninstall") {
+				// If the mod is not installed, we can skip it
+				if (!this.installedMods[modID]) {
+					return errorResponse(`Cannot uninstall mod '${modID}' as it is not installed`, {
+						allActions: allActions,
+						errorModID: modID,
+						errorReason: "not-installed",
+					});
+				} else {
+					// Check if any other installed mods depend on this mod
+					const installedVersion = this.installedMods[modID].info.version;
+					let hasDependents = false;
+					for (const otherModID in this.installedMods) {
+						if (otherModID === modID) continue;
+						const otherModInfo = this.installedMods[otherModID].info;
+						if (otherModInfo.dependencies && otherModInfo.dependencies[modID]) {
+							const requiredVersion = otherModInfo.dependencies[modID];
+							if (this._isDependencyValid(requiredVersion, installedVersion)) {
+								hasDependents = true;
+								logDebug(`Mod '${otherModID}' depends on '${modID}' with version '${requiredVersion}'`);
+								break;
+							}
+						}
+					}
+
+					// Some other mod depends on this mod, we cannot uninstall it
+					if (hasDependents) {
+						return errorResponse(`Cannot uninstall mod '${modID}' as it is required by other mods`, {
+							allActions: allActions,
+							errorModID: modID,
+							errorReason: "has-dependents",
+						});
+					}
+
+					// Otherwise we can safely remove the mod
+					logDebug(`Mod '${modID}' has no dependents, can safely uninstall`);
+					allActions.push({ type: "uninstall", modID: action.modID, version: installedVersion, parentAction: null, derivedActions: [] });
+				}
 			}
 		}
 
-		this.loadOrder = newLoadOrder;
+		return successResponse(`Calculated mod actions`, mainActions);
 	}
 
-	hasMod(modName) {
-		return Object.hasOwn(this.mods, modName);
-	}
+	async performModActions(allActions) {
+		logDebug(`Performing ${Object.keys(allActions).length} mod action(s)`);
 
-	logContents() {
-		let outputString = "ModsManager Content\n\n";
-		outputString += `  |  Variables\n`;
-		outputString += `  |  |  Base Mods Path: ${this.baseModsPath}\n`;
-		outputString += `  |  |  Load Order: [ ${this.loadOrder.join(", ")} ]\n`;
+		if (this.isPerformingActions) return errorResponse("Already performing mod actions, cannot perform again");
+		this.isPerformingActions = true;
 
-		outputString += `  |  \n`;
-		outputString += `  |  Mods (${Object.keys(this.mods).length})\n`;
-		for (const modName of this.loadOrder) {
-			const mod = this.mods[modName];
-			outputString += `  |  |  '${modName}': ${mod.isLoaded ? "LOADED" : "UNLOADED"}, path: ${mod.path}\n`;
+		const install = async (modID, version) => {
+			// Last check if the mod is already installed
+			if (this.installedMods[modID]) {
+				const installedMod = this.installedMods[modID];
+				return errorResponse(`Mod '${modID}' is already installed with version '${installedMod.info.version}'`, {
+					performedActions: performedActions,
+					errorModID: modID,
+					errorReason: "already-installed",
+				});
+			}
+
+			// Fetch the mod version from the API
+			const versionURL = `https://fluxloader.app/api/mods?option=download&modid=${modID}&version=${version}`;
+			let versionRes;
+			try {
+				logDebug(`Fetching mod version '${version}' for '${modID}' from API: ${versionURL}`);
+				versionRes = await fetch(versionURL);
+			} catch (e) {
+				return errorResponse(`Failed to fetch mod version '${version}' for '${modID}': ${e.stack}`, {
+					performedActions: performedActions,
+					errorModID: modID,
+					errorReason: "version-fetch",
+				});
+			}
+
+			// Check the content type is correct
+			if (!versionRes.ok || !versionRes.headers.get("content-type")?.includes("application/zip")) {
+				return errorResponse(`Invalid response for mod version '${version}' of '${modID}': ${versionRes.status} ${versionRes.statusText}`, {
+					performedActions: performedActions,
+					errorModID: modID,
+					errorReason: "invalid-response",
+				});
+			}
+
+			// Try to get the folder name from the Content-Disposition header
+			let folderName = modID;
+			const contentDisposition = versionRes.headers.get("content-disposition");
+			if (contentDisposition) {
+				const match = contentDisposition.match(/filename="?([^"]+)\.zip"?/i);
+				if (match && match[1]) folderName = match[1];
+			}
+
+			// Extract the zip file to the mod path
+			try {
+				console.log(versionRes);
+				const buffer = Buffer.from(await versionRes.arrayBuffer(), "base64");
+				const zip = new AdmZip(buffer);
+				zip.extractAllTo(this.baseModsPath, false);
+			} catch (e) {
+				return errorResponse(`Failed to extract mod '${modID}' version '${version}': ${e.stack}`, {
+					performedActions: performedActions,
+					errorModID: modID,
+					errorReason: "extraction-failed",
+				});
+			}
+
+			logDebug(`Mod '${modID}' version '${version}' installed successfully`);
+			return successResponse(`Mod '${modID}' version '${version}' installed successfully`);
+		};
+
+		const uninstall = async (modID) => {
+			// If the mod is not installed, we can skip it
+			if (!this.installedMods[modID]) {
+				return errorResponse(`Cannot uninstall mod '${modID}' as it is not installed`, {
+					performedActions: performedActions,
+					errorModID: modID,
+					errorReason: "not-installed",
+				});
+			}
+
+			// Check the folder exists
+			const modPath = this.installedMods[modID].path;
+			if (!fs.existsSync(modPath)) {
+				return errorResponse(`Cannot uninstall mod '${modID}' as its folder does not exist: ${modPath}`, {
+					performedActions: performedActions,
+					errorModID: modID,
+					errorReason: "folder-not-found",
+				});
+			}
+
+			// Remove the mod folder
+			try {
+				logDebug(`Uninstalling mod '${modID}' from path: ${modPath}`);
+				fs.rmSync(modPath, { recursive: true, force: true });
+			} catch (e) {
+				return errorResponse(`Failed to uninstall mod '${modID}': ${e.stack}`, {
+					performedActions: performedActions,
+					errorModID: modID,
+					errorReason: "uninstall-failed",
+				});
+			}
+
+			logDebug(`Mod '${modID}' uninstalled successfully`);
+
+			// Remove it from the installed mods list
+			delete this.installedMods[modID];
+		};
+
+		// Go over each action in order and perform it
+		const performedActions = [];
+		for (const actionModID in allActions) {
+			const action = allActions[actionModID];
+			logDebug(`Performing action '${action.type}' for mod '${action.modID}' (version: '${action.version}')`);
+
+			// Install the mod from the server
+			if (action.type === "install") {
+				const res = await install(action.modID, action.version);
+				if (!res.success) return res;
+			}
+
+			// Remove the mod from the local files
+			else if (action.type === "uninstall") {
+				const res = await uninstall(action.modID);
+				if (!res.success) return res;
+			}
+
+			// Uninstall current version and install the new version
+			else if (action.type === "change") {
+				const uninstallRes = await uninstall(action.modID);
+				if (!uninstallRes.success) return uninstallRes;
+				const installRes = await install(action.modID, action.version);
+				if (!installRes.success) return installRes;
+			}
 		}
 
-		logDebug(outputString);
-	}
-
-	getLoadedMods() {
-		return this.loadOrder.map((modName) => this.mods[modName]).filter((mod) => mod.isLoaded);
-	}
-
-	getMods() {
-		return this.loadOrder.map((modName) => this.mods[modName]);
+		this.isPerformingActions = false;
+		return successResponse("Mod actions performed successfully");
 	}
 
 	// ------------ INTERNAL ------------
 
 	async _initializeMod(modPath) {
+		// Load the modInfo schema on first call to this function
+		if (!this.modInfoSchema) {
+			try {
+				const resolvedPath = resolvePathInsideFluxloader(modInfoSchemaPath);
+				this.modInfoSchema = JSON.parse(fs.readFileSync(resolvedPath, "utf8"));
+			} catch (e) {
+				return errorResponse(`Failed to load modInfo schema: ${e.stack}`);
+			}
+		}
+
 		// Try and read the modinfo.json
+		let modInfo;
 		const modInfoPath = path.join(modPath, "modinfo.json");
 		logDebug(`Initializing mod: ${modInfoPath}`);
-
-		if (!fs.existsSync(modInfoPath)) {
-			throw new Error(`modinfo.json not found: ${modInfoPath}`);
+		if (!fs.existsSync(modInfoPath)) return errorResponse(`Mod does not have a modinfo.json file: ${modPath}`);
+		try {
+			modInfo = JSON.parse(fs.readFileSync(modInfoPath, "utf8"));
+		} catch (e) {
+			return errorResponse(`Failed to parse modinfo.json: ${modInfoPath} - ${e.stack}`);
 		}
 
-		const modInfoContent = fs.readFileSync(modInfoPath, "utf8");
-		const modInfo = JSON.parse(modInfoContent);
-
-		// Ensure mod has required mod info
-		if (!modInfo || !modInfo.name || !modInfo.version || !modInfo.author || !modInfo.modloaderVersion) {
-			throw new Error(`Invalid modinfo.json found: ${modInfoPath}`);
+		// Validate it against the schema
+		if (!SchemaValidation.validate(modInfo, this.modInfoSchema, { unknownKeyMethod: "ignore" })) {
+			return errorResponse(`Modinfo schema validation failed for mod: ${modInfoPath} - ${SchemaValidation.getLastError()}`);
 		}
 
-		// Ensure mod name name is unique
-		if (this.hasMod(modInfo.name)) {
-			throw new Error(`Mod at path ${modPath} has the same name as another mod: ${modInfo.name}`);
+		// Store the base schema
+		try {
+			modInfo.configSchemaBase = JSON.parse(JSON.stringify(modInfo.configSchema));
+		} catch (e) {
+			return errorResponse(`Failed to clone mod config schema for mod: ${modInfoPath} - ${e.stack}`);
 		}
 
-		// If mod info defines entrypoints check they both exist
-		if (modInfo.electronEntrypoint && !fs.existsSync(path.join(modPath, modInfo.electronEntrypoint))) {
-			throw new Error(`Mod defines electron entrypoint ${modInfo.electronEntrypoint} but file not found: ${modPath}`);
-		}
-		if (modInfo.browserEntrypoint && !fs.existsSync(path.join(modPath, modInfo.browserEntrypoint))) {
-			throw new Error(`Mod defines browser entrypoint ${modInfo.browserEntrypoint} but file none found: ${modPath}`);
-		}
-		if (modInfo.workerEntrypoint && !fs.existsSync(path.join(modPath, modInfo.workerEntrypoint))) {
-			throw new Error(`Mod defines worker entrypoint ${modInfo.workerEntrypoint} but file none found: ${modPath}`);
+		// Validate each entrypoint
+		try {
+			const validateEntrypoint = (type) => {
+				const entrypointPath = modInfo[`${type}Entrypoint`];
+				if (entrypointPath && !fs.existsSync(path.join(modPath, entrypointPath))) {
+					throw new Error(`Mod '${modInfo.modID}' has an invalid ${type}Entrypoint: ${entrypointPath}`);
+				}
+			};
+			validateEntrypoint("electron");
+			validateEntrypoint("game");
+			validateEntrypoint("worker");
+		} catch (e) {
+			return errorResponse(`Mod '${modInfo.modID}' has an invalid entrypoint: ${e.message}`);
 		}
 
+		// Load the mod scripts if they exist
 		let scripts = null;
 		if (modInfo.scriptPath) {
-			const scriptPath = path.join(mod.path, modInfo.scriptPath);
-			logDebug(`Loading mod script: ${scriptPath}`);
-			scripts = await import(`file://${scriptPath}`);
+			try {
+				const scriptPath = path.join(modPath, modInfo.scriptPath);
+				logDebug(`Loading mod script: ${scriptPath}`);
+				scripts = await import(`file://${scriptPath}`);
+			} catch (e) {
+				return errorResponse(`Failed to load mod script: ${modInfo.scriptPath} - ${e.stack}`);
+			}
 		}
 
-		return { info: modInfo, path: modPath, scripts, isEnabled: true, isLoaded: false };
+		// Load README.md into description if it exists
+		try {
+			const readmePath = path.join(modPath, "README.md");
+			if (fs.existsSync(readmePath)) {
+				modInfo.description = fs.readFileSync(readmePath, "utf8");
+			}
+		} catch (e) {
+			logWarn(`Failed to read README.md for mod ${modInfo.modID}: ${e.stack}`);
+			modInfo.description = "";
+		}
+
+		// Ensure that the depencies are formatted correctly if they exist
+		// https://github.com/npm/node-semver
+		if (modInfo.dependencies) {
+			for (const modID in modInfo.dependencies) {
+				if (!this._isDependencyValid(modInfo.dependencies[modID])) {
+					return errorResponse(`Mod '${modInfo.modID}' has an invalid dependency version for ${modID}: ${modInfo.dependencies[modID]}`);
+				}
+				this.fetchedModCache[modInfo.modID] = this.fetchedModCache[modInfo.modID] || {};
+			}
+		} else modInfo.dependencies = {};
+
+		// Return scripts and mod data
+		return successResponse(`Successfully initialized mod: ${modInfo.modID}`, {
+			scripts: scripts,
+			mod: {
+				info: modInfo,
+				path: modPath,
+				isInstalled: true,
+				isEnabled: true,
+				isLoaded: false,
+			},
+		});
 	}
 
 	async _loadMod(mod) {
-		if (mod.isLoaded) throw new Error(`Mod already loaded: ${mod.info.name}`);
+		if (mod.isLoaded) return errorResponse(`Mod already loaded: ${mod.info.modID}`);
 
-		logDebug(`Loading mod: ${mod.info.name}`);
+		logDebug(`Loading mod: ${mod.info.modID}`);
 
-		if (mod.info.configSchema) {
-			modloaderAPI.config.defineDefaults(mod.info.name, mod.info.configSchema);
+		// if it defines a config schema then we need to validate it first
+		if (mod.info.configSchema && Object.keys(mod.info.configSchema).length > 0) {
+			logDebug(`Validating schema for mod: ${mod.info.modID}`);
+			let config = fluxloaderAPI.modConfig.get(mod.info.modID);
+			if (!SchemaValidation.validate(config, mod.info.configSchema)) {
+				return errorResponse(`Mod '${mod.info.modID}' config schema validation failed: ${e.message}`);
+			}
+			fluxloaderAPI.modConfig.set(mod.info.modID, config);
 		}
 
 		if (mod.info.electronEntrypoint) {
-			const electronEntrypoint = path.join(mod.path, mod.info.electronEntrypoint);
-			logDebug(`Loading electron entrypoint: ${electronEntrypoint}`);
-			await import(`file://${electronEntrypoint}`);
+			try {
+				const entrypointPath = path.join(mod.path, mod.info.electronEntrypoint);
+				const entrypointCode = fs.readFileSync(entrypointPath, "utf8");
+				const identifier = url.pathToFileURL(entrypointPath).href;
+				logDebug(`Loading electron entrypoint: ${identifier}`);
+
+				// Wrap the code so top level async works
+				const wrappedCode = `globalThis.fluxloaderTopLevel = async () => {${entrypointCode}\n}`;
+
+				// Load and start the electron entrypoint as a module in the context
+				const module = new vm.Script(wrappedCode, { filename: identifier });
+				this.modElectronModules[mod.info.modID] = module;
+
+				// Await the async top level asynchronously
+				(async () => {
+					try {
+						const customRequire = Module.createRequire(entrypointPath);
+						this.modContext.require = customRequire;
+						module.runInContext(this.modContext);
+						await this.modContext.fluxloaderTopLevel();
+						delete this.modContext.fluxloaderTopLevel;
+					} catch (e) {
+						catchModError(`Error evaluating mod electron entrypoint`, mod.info.modID, e);
+					}
+				})();
+			} catch (e) {
+				return errorResponse(`Error loading electron entrypoint for mod ${mod.info.modID}: ${e.stack}`);
+			}
 		}
 
 		mod.isLoaded = true;
 		this.loadedModCount++;
-
-		modloaderAPI.events.trigger("ml:onModLoaded", mod);
+		fluxloaderAPI.events.trigger("fl:mod-loaded", mod);
+		return successResponse(`Mod '${mod.info.modID}' loaded successfully`, mod);
 	}
 
 	_unloadMod(mod) {
-		if (!mod.isLoaded) throw new Error(`Mod already unloaded: ${mod.info.name}`);
-
-		logDebug(`Unloading mod: ${mod.info.name}`);
-
-		modloaderAPI.events.trigger("ml:onModUnloaded", mod);
-
+		if (!mod.isLoaded) logWarn(`Mod '${mod.info.modID}' is not loaded, cannot unload it`);
+		logDebug(`Unloading mod: ${mod.info.modID}`);
+		delete this.modScriptsImport[mod.info.modID];
+		delete this.modElectronModules[mod.info.modID];
+		fluxloaderAPI.events.trigger("fl:mod-unloaded", mod);
 		mod.isLoaded = false;
 		this.loadedModCount--;
 	}
-}
 
-function loadModloaderConfig() {
-	configPath = resolvePathRelativeToModloader(configPath);
-	logDebug(`Reading config from: ${configPath}`);
+	_calculateLoadOrder() {
+		// Recalculate the load order based on the mod dependencies
+		// Each mod needs to be before any mod that depends on it
+		// This is a topological sort of the mod dependency graph using DFS
+		let loadOrder = [];
 
-	// If config file doesnt exist then create it with the defaults
-	if (!fs.existsSync(configPath)) {
-		fs.writeFileSync(configPath, JSON.stringify(modloaderConfigSchema, null, 4));
-		config = modloaderConfigSchema;
-		logDebug(`No config found at '${configPath}', set to default`);
+		// Convert mod dependencies graph into a Map
+		const modDependencies = new Map();
+		for (const modID in this.installedMods) {
+			modDependencies.set(modID, this.installedMods[modID].info.dependencies ? Object.keys(this.installedMods[modID].info.dependencies) : {});
+		}
+
+		// Track the nodes visited to avoid cycles and to avoid re-visiting nodes
+		const totalVisited = new Set();
+		const currentVisited = new Set();
+		const visitModID = (modID) => {
+			if (totalVisited.has(modID)) return;
+			if (currentVisited.has(modID)) return errorResponse(`Cyclic dependency at ${modID}`);
+			currentVisited.add(modID);
+			if (modDependencies.has(modID)) {
+				for (const depModID of modDependencies.get(modID)) {
+					if (modDependencies.has(depModID)) visitModID(depModID);
+				}
+			}
+			currentVisited.delete(modID);
+			totalVisited.add(modID);
+			loadOrder.push(modID);
+		};
+
+		// Make sure every mod installed is visited and added to the load order
+		for (const modID in this.installedMods) visitModID(modID);
+
+		return successResponse(`Calculated load order for ${loadOrder.length} mod${loadOrder.length === 1 ? "" : "s"}`, loadOrder);
 	}
 
-	// If a config file exists compare it to the default
-	else {
-		config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-		let modified = updateObjectWithDefaults(modloaderConfigSchema, config);
-		if (!modified) {
-			logDebug(`Modloader config is up-to-date: ${configPath}`);
-		} else {
-			updateModloaderConfig();
+	_verifyDependencies() {
+		// Verify that all dependencies are installed and valid
+		for (const modID in this.installedMods) {
+			const mod = this.installedMods[modID];
+			if (mod.isEnabled && mod.info.dependencies) {
+				for (const depModID in mod.info.dependencies) {
+					const depVersion = mod.info.dependencies[depModID];
+					const modVersion = this.isModInstalled(depModID) ? this.installedMods[depModID].info.version : null;
+					if (!this._doesVersionSatisfyDependency(modVersion, depVersion)) {
+						return errorResponse(`Mod '${modID}' depends on '${depModID}' with version ${depVersion}, but installed version is ${modVersion}`);
+					}
+				}
+			}
+		}
+		logDebug("All mod dependencies verified successfully");
+		return successResponse("All mod dependencies are valid");
+	}
+
+	_isDependencyValid(depVersion) {
+		// If it is `param:version` then we validate param and version seperately
+		if (depVersion.includes(":")) {
+			const splitDepVersion = depVersion.split(":");
+			if (!splitDepVersion || splitDepVersion.length !== 2) return false;
+			const [param, semverDepVersion] = splitDepVersion;
+
+			// Must be one of the valid `param` values
+			const validParams = ["optional", "conflict"];
+			if (!validParams.includes(param)) {
+				logError(`Invalid dependency parameter: ${param}`);
+				return false;
+			}
+
+			// Must be a valid semver `version`
+			if (!semver.valid(semver.coerce(semverDepVersion))) {
+				logError(`Invalid semver dependency format: ${depVersion}`);
+				return false;
+			}
+
+			return true;
+		}
+
+		// Otherwise `version` should be a valid semver version.
+		if (!semver.valid(semver.coerce(depVersion))) {
+			logError(`Invalid semver dependency format: ${depVersion}`);
+			return false;
+		}
+
+		return true;
+	}
+
+	_doesVersionSatisfyDependency(version, depVersion) {
+		// If it is `param:version` then we use custom logic
+		if (depVersion.includes(":")) {
+			const splitDepVersion = depVersion.split(":");
+			const [param, semverDepVersion] = splitDepVersion;
+
+			// `optional:version` means the version should satisfy the dependency if it exists
+			if (param === "optional") {
+				// If the mod is not installed (and therefore version = null) we can skip this check
+				if (!version) return true;
+				else return semver.satisfies(version, semverDepVersion);
+			}
+
+			// `conflict:version` means the version should not satisfy the dependency
+			if (param === "conflict") {
+				return !semver.satisfies(version, semverDepVersion);
+			}
+		}
+
+		// Regular semver dependency check for `version`
+		return semver.satisfies(version, depVersion);
+	}
+
+	_applyModsScriptModifySchema() {
+		// Modify each mods schema
+		for (const modID in this.installedMods) {
+			const mod = this.installedMods[modID];
+			if (this.modScriptsImport[modID] && this.modScriptsImport[modID].modifySchema) {
+				logDebug(`Modifying schema for mod: ${modID}`);
+				mod.info.configSchema = JSON.parse(JSON.stringify(mod.info.configSchemaBase));
+				this.modScriptsImport[modID].modifySchema(mod.info.configSchema);
+				trySendManagerEvent("fl:mod-schema-updated", { modID, schema: mod.info.configSchema });
+			}
 		}
 	}
+
+	// ------------ GETTERS / SETTERS ------------
+
+	getInstalledMods(config = {}) {
+		const mods = this.loadOrder.map((modID) => this.installedMods[modID]);
+
+		if (config.rendered) {
+			const renderStart = Date.now();
+			for (const mod of mods) {
+				if (mod.info.description) {
+					mod.renderedDescription = marked(mod.info.description);
+				} else {
+					mod.renderedDescription = "";
+				}
+			}
+			const renderEnd = Date.now();
+			logDebug(`Rendered ${mods.length} descriptions for installed mods in ${renderEnd - renderStart}ms`);
+		}
+
+		return mods;
+	}
+
+	getLoadedMods() {
+		return this.getInstalledMods().filter((mod) => mod.isLoaded);
+	}
+
+	getEnabledMods() {
+		return this.getInstalledMods().filter((mod) => mod.isEnabled);
+	}
+
+	async getInstalledModsVersions() {
+		let modVersions = {};
+
+		if (this.loadOrder.length === 0) {
+			logDebug("No mods installed, returning empty versions");
+			return successResponse("No mods installed", modVersions);
+		}
+
+		try {
+			const modIDs = this.loadOrder.join(",");
+			const url = `https://fluxloader.app/api/mods?option=versions&modids=${encodeURIComponent(modIDs)}`;
+			logDebug(`Fetching mod versions from API: ${url}`);
+			const versionStart = Date.now();
+			const response = await fetch(url);
+			modVersions = await response.json();
+			const versionEnd = Date.now();
+			logDebug(`Fetched versions for ${this.loadOrder.length} installed mods in ${versionEnd - versionStart}ms`);
+		} catch (e) {
+			return errorResponse(`Failed to fetch mod versions from API: ${e.stack}`);
+		}
+
+		if (!modVersions || !Object.hasOwn(modVersions, "versions")) return errorResponse(`Invalid response from mod versions API: ${JSON.stringify(modVersions)}`);
+
+		return successResponse(`Fetched versions for ${this.loadOrder.length} installed mods`, modVersions.versions);
+	}
+
+	async getModVersion(args) {
+		// Fetch the mod version info from the API
+		let responseData = null;
+		try {
+			const url = `https://fluxloader.app/api/mods?option=info&modid=${encodeURIComponent(args.modID)}&version=${encodeURIComponent(args.version)}`;
+			logDebug(`Fetching mod version info from API: ${url}`);
+			const versionStart = Date.now();
+			const response = await fetch(url);
+			responseData = await response.json();
+			const versionEnd = Date.now();
+			logDebug(`Fetched version info for mod '${args.modID}' (v${args.version}) in ${versionEnd - versionStart}ms`);
+		} catch (e) {
+			return errorResponse(`Failed to fetch mod version info from API: ${e.stack}`);
+		}
+
+		// Check if the response is valid
+		if (!responseData || !Object.hasOwn(responseData, "mod")) return errorResponse(`Invalid response from mod version API: ${JSON.stringify(responseData)}`);
+
+		// Render the description if requested
+		if (args.rendered && responseData.mod.modData.description) {
+			const renderStart = Date.now();
+			responseData.mod.renderedDescription = marked(responseData.mod.modData.description);
+			const renderEnd = Date.now();
+			logDebug(`Rendered description for mod '${args.modID}' (v${args.version}) in ${renderEnd - renderStart}ms`);
+		}
+
+		return successResponse(`Fetched version info for mod '${args.modID}' (v${args.version})`, responseData.mod);
+	}
+
+	isModInstalled(modID) {
+		return Object.hasOwn(this.installedMods, modID);
+	}
+
+	setModEnabled(modID, enabled) {
+		// Ensure mod exists and should be toggled
+		if (!this.isModInstalled(modID)) return errorResponse(`Mod '${modID}' is not installed`);
+		if (this.installedMods[modID].isEnabled === enabled) return successResponse(`Mod '${modID}' is already in the desired state: ${enabled}`);
+
+		logDebug(`Setting mod '${modID}' enabled state to ${enabled}`);
+		this.installedMods[modID].isEnabled = enabled;
+
+		// Update mod schemas if needed
+		this._applyModsScriptModifySchema();
+
+		// Save this to the config file
+		config.modsEnabled[modID] = enabled;
+		const res = updateFluxloaderConfig();
+		if (!res.success) return errorResponse(`Failed to update config after setting mod '${modID}' enabled state: ${res.message}`);
+
+		return successResponse(`Mod '${modID}' enabled state set to ${enabled}`, this.installedMods[modID]);
+	}
 }
 
-function updateModloaderConfig() {
-	fs.writeFileSync(configPath, JSON.stringify(config, null, 4), "utf8");
-	logDebug(`Modloader config updated successfully: ${configPath}`);
+function setupFluxloaderEvents() {
+	logDebug("Setting up fluxloader events");
+	fluxloaderEvents = new EventBus();
+	fluxloaderEvents.registerEvent("game-cleanup");
+}
+
+function catchModError(msg, modID, err) {
+	let out = `Mod Error: ${msg}`;
+	if (modID) out += ` (Mod ID: ${modID})`;
+	if (err) {
+		if (err.stack) {
+			out += `\n${err.stack}`;
+		} else {
+			out += `\n${err}`;
+		}
+	}
+	logError(out);
+	closeGame();
+}
+
+function loadFluxloaderConfig() {
+	configSchema = {};
+	logDebug(`Reading config from: ${configPath}`);
+
+	// We must be able to read the config schema
+	try {
+		configSchemaPath = resolvePathInsideFluxloader(configSchemaPath);
+		configSchema = JSON.parse(fs.readFileSync(configSchemaPath, "utf8"));
+	} catch (e) {
+		throw new Error(`Failed to read config schema: ${e.stack}`);
+	}
+
+	// If we fail to read config just use {}
+	try {
+		configPath = resolvePathRelativeToExecutable(configPath);
+		config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+	} catch (e) {
+		logDebug(`Failed to read config file: ${e.message}`);
+		config = {};
+	}
+
+	// Validating against the schema will also set default values for any missing fields
+	let valid = SchemaValidation.validate(config, configSchema, { unknownKeyMethod: "delete" });
+
+	if (!valid) {
+		// Applying the schema to an empty {} will set the default values
+		logDebug(`Config file is invalid, resetting to default values: ${configPath}`);
+		config = {};
+		valid = SchemaValidation.validate(config, configSchema);
+		if (!valid) {
+			throw new Error(`Failed to validate empty config file: ${configPath}`);
+		}
+	}
+
+	updateFluxloaderConfig();
+	configLoaded = true;
+	logDebug(`Config loaded successfully: ${configPath}`);
+}
+
+function updateFluxloaderConfig() {
+	try {
+		fs.writeFileSync(configPath, JSON.stringify(config, null, 4), "utf8");
+	} catch (e) {
+		return errorResponse(`Failed to write config file: ${configPath} - ${e.stack}`);
+	}
+	logDebug(`Fluxloader config updated successfully: ${configPath}`);
+	if (fluxloaderAPI) {
+		fluxloaderAPI.events.tryTrigger("fl:fluxloader-config-updated", config);
+		trySendManagerEvent("fl:fluxloader-config-updated", config);
+	}
+	return successResponse(`Fluxloader config updated successfully: ${configPath}`);
 }
 
 function findValidGamePath() {
 	// First cleanup any old temp directories
-	GameFileManager.deleteOldTempDirectories();
+	const res = GameFilesManager.deleteOldTempDirectories();
+	if (!res.success) return errorResponse(`Failed to delete old temp directories: ${res.message}`);
 
 	function findGameAsarInDirectory(dir) {
 		if (!fs.existsSync(dir)) return null;
+
+		let foundAny = false;
+		for (let name of ["sandustrydemo", "sandustrydemo.exe"]) {
+			try {
+				const gamePath = path.join(dir, name);
+				if (fs.existsSync(gamePath)) {
+					foundAny = true;
+					break;
+				}
+			} catch (e) {}
+		}
+		if (!foundAny) return null;
+
 		const asarPath = path.join(dir, "resources", "app.asar");
 		if (!fs.existsSync(asarPath)) return null;
+
 		return asarPath;
 	}
 
 	// Look in the configured directory for the games app.asar
-	let fullGamePath = resolvePathRelativeToModloader(config.gamePath);
-	let asarPath = findGameAsarInDirectory(fullGamePath);
-	if (!asarPath) {
-		logDebug(`Cannot find app.asar in configured directory: ${fullGamePath}`);
+	let fullGamePath = null;
+	let asarPath = null;
+	try {
+		fullGamePath = resolvePathRelativeToExecutable(config.gamePath);
+		asarPath = findGameAsarInDirectory(fullGamePath);
 
-		logDebug("Checking default steam directories...");
-
-		const checkPaths = {
-			windows: [process.env["ProgramFiles(x86)"], "Steam", "steamapps", "common", "Sandustry Demo"],
-			linux: [process.env.HOME, ".local", "share", "Steam", "steamapps", "common", "Sandustry Demo"],
-			mac: [process.env.HOME, "Library", "Application Support", "Steam", "steamapps", "common", "Sandustry Demo"],
-		};
-
-		// Look in the default steam directory for the games app.asar
-		let steamGamePath;
-		for (const [OS, gamePath] of Object.entries(checkPaths)) {
-			try {
-				steamGamePath = path.join(...gamePath);
-			} catch {
-				logDebug(`Default steam path for ${OS} is invalid..`);
-				continue;
-			}
-			asarPath = findGameAsarInDirectory(steamGamePath);
-			if (asarPath) {
-				logDebug(`Found app.asar in default steam directory for ${OS}: ${steamGamePath}`);
-				break;
-			}
-			logDebug(`app.asar not found in ${OS} steam path: ${gamePath}..`);
-		}
 		if (!asarPath) {
-			throw new Error(`Cannot find app.asar in configured or any default steam directory: ${fullGamePath}`);
-		}
+			logDebug(`Cannot find games app.asar in configured directory: ${fullGamePath}`);
+			logDebug("Checking default steam directories...");
 
-		// Update the config if we found the game in the default steam directory
-		fullGamePath = steamGamePath;
-		config.gamePath = steamGamePath;
-		updateModloaderConfig();
+			const checkPaths = {
+				windows: [process.env["ProgramFiles(x86)"], "Steam", "steamapps", "common", "Sandustry Demo"],
+				linux: [process.env.HOME, ".local", "share", "Steam", "steamapps", "common", "Sandustry Demo"],
+				mac: [process.env.HOME, "Library", "Application Support", "Steam", "steamapps", "common", "Sandustry Demo"],
+			};
+
+			// Look in the default steam directory for the games app.asar
+			let steamGamePath;
+			for (const [OS, gamePath] of Object.entries(checkPaths)) {
+				try {
+					steamGamePath = path.join(...gamePath);
+				} catch {
+					logDebug(`Default steam path for ${OS} is invalid..`);
+					continue;
+				}
+				asarPath = findGameAsarInDirectory(steamGamePath);
+				if (asarPath) {
+					logDebug(`Found app.asar in default steam directory for ${OS}: ${steamGamePath}`);
+					break;
+				}
+				logDebug(`app.asar not found in ${OS} steam path: ${gamePath}..`);
+			}
+
+			if (!asarPath) {
+				return errorResponse(`Failed to find game app.asar in configured path: ${fullGamePath} or default steam directories.`);
+			}
+
+			// Update the config if we found the game in the default steam directory
+			fullGamePath = steamGamePath;
+			config.gamePath = steamGamePath;
+
+			const res = updateFluxloaderConfig();
+			if (!res.success) return errorResponse(`Failed to update config with new game path: ${steamGamePath} - ${res.message}`);
+		}
+	} catch (e) {
+		return errorResponse(`Failed to find game app.asar in configured path: ${config.gamePath} - ${e.stack}`);
 	}
 
 	logInfo(`Found game app.asar: ${asarPath}`);
-
-	return { fullGamePath, asarPath };
+	return successResponse(`Found game app.asar: ${asarPath}`, { fullGamePath, asarPath });
 }
 
-function addModloaderPatches() {
-	logDebug("Adding modloader patches to game files...");
+function addFluxloaderPatches() {
+	logDebug("Adding fluxloader patches to game files...");
 
-	// Enable the debug flag
-	gameFileManager.setPatch("js/bundle.js", "modloader:debugFlag", {
-		type: "replace",
-		from: "debug:{active:!1",
-		to: "debug:{active:1",
-	});
+	// All of these set patches are turned into errors so we can deal with them all in 1 go in the catch block
+	// All of these need to be applied successfully for the game to run properly
+	try {
+		// Enable the debug flag
+		responseAsError(
+			gameFilesManager.setPatch("js/bundle.js", "fluxloader:debugFlag", {
+				type: "replace",
+				from: "debug:{active:!1",
+				to: "debug:{active:1",
+			})
+		);
 
-	// Puts __debug into modloaderAPI.gameInstance
-	gameFileManager.setPatch("js/bundle.js", "modloader:loadGameInstance", {
-		type: "replace",
-		from: "}};var r={};",
-		to: "}};modloader_onGameInstanceInitialized(__debug);var r={};",
-	});
+		// Puts __debug into fluxloaderAPI.gameInstance
+		responseAsError(
+			gameFilesManager.setPatch("js/bundle.js", "fluxloader:loadGameInstance", {
+				type: "replace",
+				from: "}};var r={};",
+				to: "}};fluxloader_onGameInstanceInitialized(__debug);var r={};",
+			})
+		);
 
-	// Add browser.js to bundle.js, and dont start game until it is ready
-	const browserScriptPath = resolvePathRelativeToModloader("browser.js").replaceAll("\\", "/");
-	gameFileManager.setPatch("js/bundle.js", "modloader:preloadBundle", {
-		type: "replace",
-		from: `(()=>{var e,t,n={8916`,
-		to: `import "${browserScriptPath}";modloader_preloadBundle().then(()=>{var e,t,n={8916`,
-	});
-	gameFileManager.setPatch("js/bundle.js", "modloader:preloadBundleFinalize", {
-		type: "replace",
-		from: `)()})();`,
-		to: `)()});`,
-	});
+		// Add game.js to bundle.js, and dont start game until it is ready
+		const gameScriptPath = resolvePathInsideFluxloader("game.js").replaceAll("\\", "/");
+		responseAsError(
+			gameFilesManager.setPatch("js/bundle.js", "fluxloader:preloadBundle", {
+				type: "replace",
+				from: `(()=>{var e,t,n={8916`,
+				to: `import "${gameScriptPath}";fluxloader_preloadBundle().then$$`,
+				token: "$$",
+			})
+		);
+		responseAsError(
+			gameFilesManager.setPatch("js/bundle.js", "fluxloader:preloadBundleFinalize", {
+				type: "replace",
+				from: `)()})();`,
+				to: `)()});`,
+			})
+		);
 
-	// Expose the games world to bundle.js
-	gameFileManager.setPatch("js/bundle.js", "modloader:gameWorldInitialized", {
-		type: "replace",
-		from: `console.log("initializing workers"),`,
-		to: `console.log("initializing workers"),modloader_onGameWorldInitialized(s),`,
-	});
+		// Expose the games world to bundle.js
+		responseAsError(
+			gameFilesManager.setPatch("js/bundle.js", "fluxloader:gameWorldInitialized", {
+				type: "replace",
+				from: `console.log("initializing workers"),`,
+				to: `$$fluxloader_onGameWorldInitialized(s),`,
+				token: "$$",
+			})
+		);
 
-	// Listen for modloader worker messages in bundle.js
-	gameFileManager.setPatch("js/bundle.js", "modloader:onWorkerMessage", {
-		type: "replace",
-		from: "case f.InitFinished:",
-		to: "case 'modloaderMessage':modloader_onWorkerMessage(r);break;case f.InitFinished:",
-	});
+		// Listen for fluxloader worker messages in bundle.js
+		responseAsError(
+			gameFilesManager.setPatch("js/bundle.js", "fluxloader:onWorkerMessage", {
+				type: "replace",
+				from: "case f.InitFinished:",
+				to: "case 'fluxloaderMessage':fluxloader_onWorkerMessage(r);break;$$",
+				token: "$$",
+			})
+		);
 
-	const workers = ["546", "336"];
-	for (const worker of workers) {
-		// Listen for modloader worker messages in each worker
-		gameFileManager.setPatch(`js/${worker}.bundle.js`, "modloader:onWorkerMessage", {
-			type: "replace",
-			from: `case i.dD.Init:`,
-			to: `case 'modloaderMessage':modloader_onWorkerMessage(e);break;case i.dD.Init:`,
-		});
+		const workers = ["546", "336"];
+		for (const worker of workers) {
+			// Listen for fluxloader worker messages in each worker
+			responseAsError(
+				gameFilesManager.setPatch(`js/${worker}.bundle.js`, "fluxloader:onWorkerMessage", {
+					type: "replace",
+					from: `case i.dD.Init:`,
+					to: `case 'fluxloaderMessage':fluxloader_onWorkerMessage(e);break;$$`,
+					token: "$$",
+				})
+			);
 
-		// Add worker.js to each worker, and dont start until it is ready
-		const workerScriptPath = resolvePathRelativeToModloader(`worker.js`).replaceAll("\\", "/");
-		gameFileManager.setPatch(`js/${worker}.bundle.js`, "modloader:preloadBundle", {
-			type: "replace",
-			from: `(()=>{"use strict"`,
-			to: `importScripts("${workerScriptPath}");modloader_preloadBundle().then(()=>{"use strict"`,
-		});
-		gameFileManager.setPatch(`js/${worker}.bundle.js`, "modloader:preloadBundleFinalize", {
-			type: "replace",
-			from: `()})();`,
-			to: `()});`,
-		});
+			// Add worker.js to each worker, and dont start until it is ready
+			const workerScriptPath = resolvePathInsideFluxloader(`worker.js`).replaceAll("\\", "/");
+			responseAsError(
+				gameFilesManager.setPatch(`js/${worker}.bundle.js`, "fluxloader:preloadBundle", {
+					type: "replace",
+					from: `(()=>{"use strict"`,
+					to: `importScripts("${workerScriptPath}");fluxloader_preloadBundle().then$$`,
+					token: "$$",
+				})
+			);
+			responseAsError(
+				gameFilesManager.setPatch(`js/${worker}.bundle.js`, "fluxloader:preloadBundleFinalize", {
+					type: "replace",
+					from: `()})();`,
+					to: `()});`,
+				})
+			);
+		}
+
+		// Notify worker.js when the workers are ready
+		// These are different for each worker
+		responseAsError(
+			gameFilesManager.setPatch(`js/336.bundle.js`, "fluxloader:workerInitialized", {
+				type: "replace",
+				from: `W.environment.postMessage([i.dD.InitFinished]);`,
+				to: `fluxloader_onWorkerInitialized(W);$$`,
+				token: "$$",
+			})
+		);
+		responseAsError(
+			gameFilesManager.setPatch(`js/546.bundle.js`, "fluxloader:workerInitialized2", {
+				type: "replace",
+				from: `t(performance.now());break;`,
+				to: `t(performance.now());fluxloader_onWorkerInitialized(a);break;`,
+			})
+		);
+
+		// Add React to globalThis
+		responseAsError(
+			gameFilesManager.setPatch("js/bundle.js", "fluxloader:exposeReact", {
+				type: "replace",
+				from: `var Cl,kl=i(6540)`,
+				to: `globalThis.React=i(6540);var Cl,kl=React`,
+			})
+		);
+
+		if (config.game.enableDebugMenu) {
+			// Adds configrable zoom
+			responseAsError(
+				gameFilesManager.setPatch("js/bundle.js", "fluxloader:debugMenuZoom", {
+					type: "replace",
+					from: 'className:"fixed bottom-2 right-2 w-96 pt-12 text-white"',
+					to: `$$,style:{zoom:"${config.game.debugMenuZoom * 100}%"}`,
+					token: "$$",
+				})
+			);
+		} else {
+			// Disables the debug menu
+			responseAsError(
+				gameFilesManager.setPatch("js/bundle.js", "fluxloader:disableDebugMenu", {
+					type: "replace",
+					from: "function _m(t){",
+					to: "$$return;",
+					token: "$$",
+				})
+			);
+
+			// Disables the debug keybinds
+			responseAsError(
+				gameFilesManager.setPatch("js/bundle.js", "fluxloader:disableDebugKeybinds", {
+					type: "replace",
+					from: "spawnElements:function(n,r){",
+					to: "$$return false;",
+					token: "$$",
+				})
+			);
+
+			// Disables the pause camera keybind
+			responseAsError(
+				gameFilesManager.setPatch("js/bundle.js", "fluxloader:disablePauseCamera", {
+					type: "replace",
+					from: "e.debug.active&&(t.session.overrideCamera",
+					to: "return;$$",
+					token: "$$",
+				})
+			);
+
+			// Disables the pause keybind
+			responseAsError(
+				gameFilesManager.setPatch("js/bundle.js", "fluxloader:disablePause", {
+					type: "replace",
+					from: "e.debug.active&&(t.session.paused",
+					to: "return;$$",
+					token: "$$",
+				})
+			);
+		}
+
+		// When the game page redirects trigger the fluxloader event
+		responseAsError(
+			gameFilesManager.setPatch("js/bundle.js", "fluxloader:onPageRedirect", {
+				type: "replace",
+				from: 'window.history.replaceState({},"",n),',
+				to: "$$fluxloader_onPageRedirect(e),",
+				token: "$$",
+			})
+		);
+
+		// When the game page redirects trigger the fluxloader event
+		responseAsError(
+			gameFilesManager.setPatch("js/bundle.js", "fluxloader:electron-remove-error-require", {
+				type: "replace",
+				from: `try{(Hg=require("@emotion/is-prop-valid").default)&&(Vg=e=>e.startsWith("on")?!Gg(e):Hg(e))}catch(Cl){}`,
+				to: "",
+			})
+		);
+
+		if (!config.game.disableMenuSubtitle) {
+			// Pass in subtitle image path to game
+			let image = resolvePathInsideFluxloader("images/subtitle.png");
+			image = image.replaceAll("\\", "/");
+			responseAsError(
+				gameFilesManager.setPatch("js/bundle.js", "fluxloader:menuSubtitle", {
+					type: "regex",
+					pattern: "if\\(t\\.store\\.scene\\.active===x\\.MainMenu\\)(.+?)else",
+					// this relies on minified name "Od" which places blocks
+					// If this breaks search the code for "e" for placing blocks in debug
+					replace: `if(t.store.scene.active===x.MainMenu){globalThis.setupModdedSubtitle(Od,"${image}");$1}else`,
+				})
+			);
+		}
+	} catch (e) {
+		return errorResponse(`Failed to apply fluxloader patches: ${e.stack}`);
 	}
 
-	// Notify worker.js when the workers are ready
-	// These are different for each worker
-	gameFileManager.setPatch(`js/336.bundle.js`, "modloader:workerInitialized", {
-		type: "replace",
-		from: `W.environment.postMessage([i.dD.InitFinished]);`,
-		to: `modloader_onWorkerInitialized(W);W.environment.postMessage([i.dD.InitFinished]);`,
-	});
-	gameFileManager.setPatch(`js/546.bundle.js`, "modloader:workerInitialized2", {
-		type: "replace",
-		from: `t(performance.now());break;`,
-		to: `t(performance.now());modloader_onWorkerInitialized(a);break;`,
-	});
+	logDebug("Fluxloader patches applied successfully");
+	return successResponse("Fluxloader patches applied successfully");
+}
 
-	// Add React to globalThis
-	gameFileManager.setPatch("js/bundle.js", "modloader:exposeReact", {
-		type: "replace",
-		from: `var Cl,kl=i(6540)`,
-		to: `globalThis.React=i(6540);var Cl,kl=React`,
-	});
-
-	if (config.debug.enableDebugMenu) {
-		// Adds configrable zoom
-		gameFileManager.setPatch("js/bundle.js", "modloader:debugMenuZoom", {
-			type: "replace",
-			from: 'className:"fixed bottom-2 right-2 w-96 pt-12 text-white"',
-			to: `className:"fixed bottom-2 right-2 w-96 pt-12 text-white",style:{zoom:"${config.debug.debugMenuZoom * 100}%"}`,
-		});
-	} else {
-		// Disables the debug menu
-		gameFileManager.setPatch("js/bundle.js", "modloader:disableDebugMenu", {
-			type: "replace",
-			from: "function _m(t){",
-			to: "function _m(t){return;",
-		});
-
-		// Disables the debug keybinds
-		gameFileManager.setPatch("js/bundle.js", "modloader:disableDebugKeybinds", {
-			type: "replace",
-			from: "spawnElements:function(n,r){",
-			to: "spawnElements:function(n,r){return false;",
-		});
-
-		// Disables the pause camera keybind
-		gameFileManager.setPatch("js/bundle.js", "modloader:disablePauseCamera", {
-			type: "replace",
-			from: "e.debug.active&&(t.session.overrideCamera",
-			to: "return;e.debug.active&&(t.session.overrideCamera",
-		});
-
-		// Disables the pause keybind
-		gameFileManager.setPatch("js/bundle.js", "modloader:disablePause", {
-			type: "replace",
-			from: "e.debug.active&&(t.session.paused",
-			to: "return;e.debug.active&&(t.session.paused",
-		});
+function trySendManagerEvent(eventName, args) {
+	if (!managerWindow || managerWindow.isDestroyed()) return;
+	try {
+		if (eventName !== "fl:forward-log") logDebug(`Sending event ${eventName} to manager`);
+		managerWindow.webContents.send(eventName, args);
+	} catch (e) {
+		logError(`Failed to send event ${eventName} to manager window: ${e.stack}`);
 	}
 }
 
-// ------------ ELECTRON  ------------
+// =================== ELECTRON  ===================
+
+function handleUncaughtErrors() {
+	process.on("uncaughtException", (err) => {
+		logError(`Uncaught exception: ${err.stack}`);
+		if (!config.ignoreUnhandledExceptions) {
+			cleanupApp();
+			process.exit(1);
+		}
+	});
+	process.on("unhandledRejection", (err) => {
+		logError(`Unhandled rejection: ${err.stack}`);
+		if (!config.ignoreUnhandledExceptions) {
+			cleanupApp();
+			process.exit(1);
+		}
+	});
+	process.on("SIGINT", () => {
+		logInfo("SIGINT received, exiting...");
+		cleanupApp();
+		process.exit(0);
+	});
+	process.on("SIGTERM", () => {
+		logInfo("SIGTERM received, exiting...");
+		cleanupApp();
+		process.exit(0);
+	});
+}
 
 function setupElectronIPC() {
 	logDebug("Setting up electron IPC handlers");
 
 	ipcMain.removeAllListeners();
 
-	ipcMain.handle("ml-modloader:get-loaded-mods", (event, args) => {
-		logDebug("Received ml-modloader:get-loaded-mods");
-		return modsManager.getLoadedMods();
+	const simpleEndpoints = {
+		"fl:get-loaded-mods": (_) => modsManager.getLoadedMods(),
+		"fl:get-installed-mods": (args) => modsManager.getInstalledMods(args),
+		"fl:get-installed-mods-versions": (args) => modsManager.getInstalledModsVersions(args),
+		"fl:fetch-remote-mods": async (args) => await modsManager.fetchRemoteMods(args),
+		"fl:calculate-mod-actions": async (args) => await modsManager.calculateModActions(args),
+		"fl:perform-mod-actions": async (args) => await modsManager.performModActions(args),
+		"fl:get-mod-version": async (args) => await modsManager.getModVersion(args),
+		"fl:reload-installed-mods": async (_) => await modsManager.reloadInstalledMods(),
+		"fl:trigger-page-redirect": (args) => fluxloaderAPI.events.trigger("fl:page-redirect", args),
+		"fl:set-mod-enabled": async (args) => modsManager.setModEnabled(args.modID, args.enabled),
+		"fl:start-game": (_) => startGame(),
+		"fl:close-game": (_) => closeGame(),
+		"fl:get-fluxloader-config": (_) => config,
+		"fl:get-fluxloader-config-schema": (_) => configSchema,
+		"fl:get-fluxloader-version": (_) => fluxloaderVersion,
+		"fl:forward-log-to-manager": (args) => forwardLogToManager(args),
+		"fl:request-manager-logs": (_) => logsForManager,
+	};
+
+	for (const [endpoint, handler] of Object.entries(simpleEndpoints)) {
+		ipcMain.handle(endpoint, (_, args) => {
+			logDebug(`Received ${endpoint}`);
+			try {
+				return handler(args);
+			} catch (e) {
+				logError(`Error in IPC handler for ${endpoint}: ${e.stack}, this shouldn't happen and will be ignored`);
+				return null;
+			}
+		});
+	}
+
+	ipcMain.handle("fl:set-fluxloader-config", async (event, args) => {
+		logDebug(`Received fl:set-fluxloader-config with args: ${JSON.stringify(args)}`);
+		if (!configLoaded) {
+			return errorResponse("Config not loaded yet");
+		}
+		if (!SchemaValidation.validate(args, configSchema)) {
+			return errorResponse("Invalid config data provided");
+		}
+		config = args;
+		return updateFluxloaderConfig();
 	});
 
-	ipcMain.handle("ml-modloader:get-mods", (event, args) => {
-		logDebug("Received ml-modloader:get-mods");
-		return modsManager.getMods();
-	});
-
-	ipcMain.handle("ml-modloader:refresh-mods", async (event, args) => {
-		logDebug("Received ml-modloader:refresh-mods");
-		await modsManager.refreshMods();
-		return modsManager.getMods();
-	});
-
-	ipcMain.handle("ml-modloader:start-game", (event, args) => {
-		logDebug("Received ml-modloader:start-game");
-		startGameWindow();
-	});
-
-	ipcMain.handle("ml-modloader:stop-game", (event, args) => {
-		logDebug("Received ml-modloader:stop-game");
-		closeGameWindow();
+	ipcMain.handle("fl:ping-server", async (event, args) => {
+		logDebug(`Received fl:ping-server with args: ${JSON.stringify(args)}`);
+		try {
+			const url = `https://fluxloader.app/api`;
+			logDebug(`Pinging server at ${url}`);
+			const pingStart = Date.now();
+			const response = await fetch(url);
+			const data = await response.json();
+			const pingEnd = Date.now();
+			logDebug(`Pinged server in ${pingEnd - pingStart}ms`);
+			return successResponse("Server pinged successfully", { data, ping: pingEnd - pingStart });
+		} catch (e) {
+			return errorResponse(`Failed to ping server: ${e.message}`);
+		}
 	});
 }
 
-function startModloaderWindow() {
-	logDebug("Starting modloader window");
+function startManager() {
+	if (isManagerStarted) return errorResponse("Cannot start manager, already running");
+	logDebug("Starting manager");
+	isManagerStarted = true;
 
+	// Create the manager window
 	try {
-		modloaderWindow = new BrowserWindow({
-			width: 1700,
-			height: 850,
+		const primaryDisplay = screen.getPrimaryDisplay();
+		const { width, height } = primaryDisplay.workAreaSize;
+		let managerWindowWidth = 1200;
+		managerWindowWidth = Math.floor(width * 0.8);
+		let managerWindowHeight = managerWindowWidth * (height / width);
+
+		managerWindow = new BrowserWindow({
+			width: managerWindowWidth,
+			height: managerWindowHeight,
 			autoHideMenuBar: true,
 			webPreferences: {
-				preload: resolvePathRelativeToModloader("modloader/modloader-preload.js"),
+				preload: resolvePathInsideFluxloader("manager/manager-preload.js"),
 			},
 		});
-		modloaderWindow.on("closed", cleanupModloaderWindow);
-		modloaderWindow.loadFile("src/modloader/modloader.html");
+
+		managerWindow.webContents.setWindowOpenHandler(({ url }) => {
+			shell.openExternal(url);
+			return { action: "deny" };
+		});
+
+		const managerPath = resolvePathInsideFluxloader("manager/manager.html");
+		managerWindow.on("closed", closeManager);
+		managerWindow.loadFile(managerPath);
+		if (config.manager.openDevTools) managerWindow.openDevTools();
 	} catch (e) {
-		cleanupModloaderWindow();
-		throw new Error(`Error starting modloader window: ${e.stack}`);
+		closeManager();
+		return errorResponse(`Error starting manager window: ${e.stack}`);
 	}
+
+	logInfo(`Manager started successfully at ${new Date().toISOString()}`);
+	return successResponse("Manager started successfully");
 }
 
-function closeModloaderWindow() {
-	modloaderWindow.close();
-	cleanupModloaderWindow();
+function closeManager() {
+	if (!isManagerStarted) throw new Error("Cannot close manager, it is not started");
+	logDebug("Cleaning up manager window");
+	if (managerWindow && !managerWindow.isDestroyed()) {
+		managerWindow.off("closed", closeManager);
+		managerWindow.close();
+	}
+	managerWindow = null;
+	if (config.closeGameWithManager && gameWindow) {
+		logDebug("Closing game window with fluxloader window");
+		closeGame();
+	}
+	isManagerStarted = false;
 }
 
-function cleanupModloaderWindow() {
-	modloaderWindow = null;
-}
+async function startGame() {
+	if (isGameStarted) return errorResponse("Cannot start game, already running");
 
-async function startGameWindow() {
-	if (gameWindow != null) throw new Error("Cannot start game, already running");
+	logInfo("Starting sandustry");
+	isGameStarted = true;
 
-	logInfo("Starting game window");
-
-	gameFileManager.resetToBaseFiles();
-	await gameFileManager.patchAndRunGameElectron();
-	addModloaderPatches();
-	await modsManager.loadAllMods();
-	gameFileManager.repatchAllFiles();
-	modloaderAPI.events.trigger("ml:onGameStarted");
-
+	// Startup the events, files, and mods
 	try {
+		fluxloaderAPI._initializeEvents();
+		responseAsError(gameFilesManager.resetToBaseFiles());
+		responseAsError(await gameFilesManager.patchAndRunGameElectron());
+		responseAsError(addFluxloaderPatches());
+		responseAsError(await modsManager.loadAllMods());
+		responseAsError(gameFilesManager.repatchAllFiles());
 		gameElectronFuncs.createWindow();
-		gameWindow.on("closed", cleanupGameWindow);
-		if (config.debug.openDevTools) gameWindow.openDevTools();
-		hasRanOnce = true;
+		gameWindow.on("closed", closeGame);
+		if (config.game.openDevTools) gameWindow.openDevTools();
 	} catch (e) {
-		cleanupGameWindow();
-		throw new Error(`Error during games electron createWindow(), see patchAndRunGameElectron(): ${e.stack}`);
+		logError(`Error starting game window: ${e.stack}`);
+		closeGame();
+		return errorResponse(`Error starting game window`, null, false);
 	}
+
+	fluxloaderAPI.events.trigger("fl:game-started");
+	logInfo(`Game started successfully at ${new Date().toISOString()}`);
+	return successResponse("Game started successfully");
 }
 
-function closeGameWindow() {
-	if (!gameWindow) return;
-	gameWindow.close();
-	cleanupGameWindow();
-}
-
-function cleanupGameWindow() {
+function closeGame() {
+	if (!isGameStarted) return errorResponse("Cannot close game, it is not started");
+	logDebug("Closing game window");
+	if (gameWindow && !gameWindow.isDestroyed()) {
+		gameWindow.off("closed", closeGame);
+		gameWindow.close();
+	}
 	gameWindow = null;
+	fluxloaderAPI.events.trigger("fl:game-closed");
 	modsManager.unloadAllMods();
-	modloaderAPI.events.trigger("ml:onGameClosed");
-	modloaderAPI.events.reset();
+	trySendManagerEvent("fl:game-closed");
+	isGameStarted = false;
 }
 
 function closeApp() {
@@ -1224,11 +2295,9 @@ function closeApp() {
 
 function cleanupApp() {
 	try {
-		modloaderAPI.events.trigger("ml:onModloaderClosed");
-		if (modloaderWindow) closeModloaderWindow();
-		if (gameWindow) closeGameWindow();
-		gameFileManager.deleteFiles();
-		modsManager.unloadAllMods();
+		if (managerWindow) closeManager();
+		if (gameWindow) closeGame();
+		gameFilesManager.deleteFiles();
 	} catch (e) {
 		logError(`Error during cleanup: ${e.stack}`);
 	}
@@ -1236,13 +2305,18 @@ function cleanupApp() {
 }
 
 async function startApp() {
-	logInfo(`Starting electron modloader ${modloaderVersion}`);
+	logInfo(`Starting Electron Sandustry Fluxloader ${fluxloaderVersion}`);
 
-	// Wait for electron to be ready to go
+	// These are enabled for running the game
 	process.env["ELECTRON_DISABLE_SECURITY_WARNINGS"] = "true";
 	app.commandLine.appendSwitch("enable-features", "SharedArrayBuffer");
 	app.commandLine.appendSwitch("force_high_performance_gpu");
+	app.commandLine.appendSwitch("js-flags", "--experimental-vm-modules");
+
+	// Wait for electron to be ready to go
 	await app.whenReady();
+
+	// The electron app as a whole closed when all windows are closed
 	app.on("window-all-closed", () => {
 		logInfo("All windows closed, exiting...");
 		if (process.platform !== "darwin") {
@@ -1250,25 +2324,30 @@ async function startApp() {
 		}
 	});
 
-	// One-time modloader setup
-	catchUnexpectedExits();
-	loadModloaderConfig();
-	const { fullGamePath, asarPath } = findValidGamePath();
-	gameFileManager = new GameFileManager(fullGamePath, asarPath);
-	modloaderAPI = new ElectronModloaderAPI();
+	// One-time fluxloader setup
+	handleUncaughtErrors();
+	loadFluxloaderConfig();
+	setupFluxloaderEvents();
+
+	let res = responseAsError(findValidGamePath());
+	const { fullGamePath, asarPath } = res.data;
+
+	gameFilesManager = new GameFilesManager(fullGamePath, asarPath);
+	fluxloaderAPI = new ElectronFluxloaderAPI();
 	modsManager = new ModsManager();
-	await modsManager.refreshMods();
+
+	responseAsError(await modsManager.reloadInstalledMods());
 	setupElectronIPC();
 
-	// Start the windows now everything is setup
-	if (config.application.loadIntoModloader) {
-		startModloaderWindow();
+	// Start manager or game window based on config
+	if (config.loadIntoManager) {
+		responseAsError(startManager());
 	} else {
-		await startGameWindow();
+		responseAsError(await startGame());
 	}
 }
 
-// ------------ MAIN ------------
+// =================== MAIN ===================
 
 (async () => {
 	await startApp();

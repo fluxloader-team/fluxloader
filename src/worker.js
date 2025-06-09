@@ -1,7 +1,7 @@
 // ------------- VARIABLES -------------
 
-globalThis.modloaderVersion = "2.0.0";
-globalThis.modloaderAPI = undefined;
+globalThis.fluxloaderVersion = "2.0.0";
+globalThis.fluxloaderAPI = undefined;
 
 // ------------- UTILTY -------------
 
@@ -19,15 +19,15 @@ globalThis.logError = (...args) => log("error", "", args.join(" "));
 
 // ------------- MAIN -------------
 
-class WorkerModloaderAPI {
+class WorkerFluxloaderAPI {
 	workerWorld = undefined;
 	messageListeners = {};
 
-	async sendBrowserMessage(channel, ...args) {
-		self.postMessage(["modloaderMessage", channel, ...args]);
+	async sendGameMessage(channel, ...args) {
+		self.postMessage(["fluxloaderMessage", channel, ...args]);
 	}
 
-	listenBrowserMessage(channel, handler) {
+	listenGameMessage(channel, handler) {
 		if (this.messageListeners[channel]) throw new Error(`Message listener already exists for channel: ${channel}`);
 		this.messageListeners[channel] = handler;
 	}
@@ -39,7 +39,7 @@ class WorkerModloaderAPI {
 }
 
 async function loadAllMods() {
-	modloaderAPI.listenBrowserMessage("ml-modloader:get-loaded-mods:response", async (mods) => {
+	fluxloaderAPI.listenGameMessage("fl:get-loaded-mods:response", async (mods) => {
 		for (const mod of mods) {
 			if (!mod.info.workerEntrypoint) continue;
 			const entrypointPath = mod.path + "/" + mod.info.workerEntrypoint;
@@ -47,29 +47,28 @@ async function loadAllMods() {
 		}
 	});
 
-	modloaderAPI.sendBrowserMessage("ml-modloader:get-loaded-mods");
+	fluxloaderAPI.sendGameMessage("fl:get-loaded-mods");
 }
 
-globalThis.modloader_preloadBundle = async () => {
+globalThis.fluxloader_preloadBundle = async () => {
 	// This is guaranteed to happen before the workers bundle.js is loaded
-	logInfo(`Starting worker modloader ${modloaderVersion}`);
-	modloaderAPI = new WorkerModloaderAPI();
+	fluxloaderAPI = new WorkerFluxloaderAPI();
 };
 
-globalThis.modloader_onWorkerInitialized = (workerWorld) => {
+globalThis.fluxloader_onWorkerInitialized = (workerWorld) => {
 	// This is called after the workers Init event has been called
-	// We have to wait otherwise the browser-worker communication will not work
-	modloaderAPI.workerWorld = workerWorld;
+	// We have to wait otherwise the game-worker communication will not work
+	fluxloaderAPI.workerWorld = workerWorld;
 	if (workerWorld.environment.context === 2) {
-		logInfo(`Worker Init event complete, type=Worker, threadIndex=${workerWorld.environment.threadMeta.startingIndex}`);
+		logInfo(`Worker fluxloader ${fluxloaderVersion} initialized, type=Worker, threadIndex=${workerWorld.environment.threadMeta.startingIndex}`);
 	} else if (workerWorld.environment.context === 3) {
-		logInfo(`Worker Init event complete, type=Manager`);
+		logInfo(`Worker fluxloader ${fluxloaderVersion} initialized, type=Manager`);
 	}
 	loadAllMods();
 };
 
-globalThis.modloader_onWorkerMessage = (m) => {
+globalThis.fluxloader_onWorkerMessage = (m) => {
 	m.data.shift();
 	const channel = m.data.shift();
-	modloaderAPI._onWorkerMessage(channel, ...m.data);
+	fluxloaderAPI._onWorkerMessage(channel, ...m.data);
 };

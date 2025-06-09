@@ -1,21 +1,18 @@
-# v2.0.0 Design Notes
+# Design Notes
 
-## Notes / To-Do
+## Small changes
 
-Serialize load order
+-   Check that regex patches work with capture groups as expected (and naming scheme is good)
+-   Full sweep of info / debug logs make sure needed ones are available
 
-- Only in manual mode
+## Primary Requirements
 
-Serialize enabled mods
-
-Allow mods modinfo.json to have specific fields missing gracefully
-
-Modloader window site and IPC
-
-- [x] Start / stop game (IPC with backend)
-- [x] Resizable columns
-- [ ] Sortable columns
-- [ ] Enable / disable mods (IPC with backend)
-- [ ] Select mod and view info
-- [ ] Custom right click menu (uninstall, enable / disable?)
-- [ ] Search / filter mods
+-   Install / uninstall mods
+-   Mod info config GUI
+-   Custom right click menu (uninstall, enable / disable?)
+-   Read markdown file for locally installed mods
+-   swapping between versions
+-   previewing the action queue
+-   filtering on tags
+-   Load order GUI + saving
+-   CI / CD for packaging into electron

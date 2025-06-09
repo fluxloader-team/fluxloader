@@ -1,19 +1,21 @@
 {
-	"name": "mod-loader",
+	"name": "sandustry-fluxloader",
 	"version": "1.0.0",
 	"main": "src/electron.js",
 	"type": "module",
 	"scripts": {
-		"start": "electron ."
+		"start": "electron .",
+		"build": "electron-builder --win portable --x64"
 	},
 	"dependencies": {
 		"acorn": "^8.14.0",
+		"adm-zip": "^0.5.16",
 		"asar": "^3.2.0",
-		"escodegen": "^2.1.0",
-		"puppeteer-core": "^20.0.0"
+		"marked": "^15.0.11",
+		"semver": "^7.7.2"
 	},
 	"devDependencies":{
 		"electron": "^35.0.2",
-		"electron-builder": "latest"
+		"electron-builder": "^26.0.12"
 	}
 }

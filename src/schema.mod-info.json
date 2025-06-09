@@ -1,0 +1,54 @@
+{
+	"modID": {
+		"type": "string"
+	},
+	"name": {
+		"type": "string"
+	},
+	"version": {
+		"type": "string"
+	},
+	"author": {
+		"type": "string"
+	},
+	"fluxloaderVersion": {
+		"type": "string",
+		"default": ""
+	},
+	"shortDescription": {
+		"type": "string",
+		"default": ""
+	},
+	"description": {
+		"type": "string",
+		"default": ""
+	},
+	"dependencies": {
+		"type": "object",
+		"default": {}
+	},
+	"tags": {
+		"type": "array",
+		"default": []
+	},
+	"electronEntrypoint": {
+		"type": "string",
+		"default": ""
+	},
+	"gameEntrypoint": {
+		"type": "string",
+		"default": ""
+	},
+	"workerEntrypoint": {
+		"type": "string",
+		"default": ""
+	},
+	"scriptPath": {
+		"type": "string",
+		"default": ""
+	},
+	"configSchema": {
+		"type": "object",
+		"default": {}
+	}
+}
