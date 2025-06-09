@@ -66,6 +66,7 @@ build-macos-x64:
   extends: .build_template
   script:
     - !reference [.build_template, script]
+    - npm install --save-dev dmg-builder --legacy-peer-deps --no-audit
     - ./node_modules/.bin/electron-builder --mac dmg --x64 --config.buildVersion="$EFFECTIVE_BUILD_VERSION" --config.mac.identity=null
   artifacts:
     paths:
@@ -76,6 +77,7 @@ build-macos-arm64:
   extends: .build_template
   script:
     - !reference [.build_template, script]
+    - npm install --save-dev dmg-builder --legacy-peer-deps --no-audit
     - ./node_modules/.bin/electron-builder --mac dmg --arm64 --config.buildVersion="$EFFECTIVE_BUILD_VERSION" --config.mac.identity=null
   artifacts:
     paths:
