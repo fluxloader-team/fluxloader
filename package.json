@@ -1,7 +1,9 @@
 {
 	"name": "sandustry-fluxloader",
-	"author": "Fluxloader Team",
-	"email": "thomas.burniston@gmail.com",
+	"author": {
+		"name": "Fluxloader Team",
+		"email": "thomas.burniston@gmail.com"
+	},
 	"description": "A cross-platform modloader for Sandustry",
 	"version": "2.0.0",
 	"main": "src/electron.js",
