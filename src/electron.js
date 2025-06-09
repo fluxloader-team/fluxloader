@@ -10,6 +10,7 @@ import { randomUUID } from "crypto";
 import { marked } from "marked";
 import { EventBus, SchemaValidation, Logging } from "./common.js";
 import semver from "semver";
+import AdmZip from "adm-zip";
 
 // ---- General architecture ----
 //
@@ -51,7 +52,7 @@ let isManagerStarted = false;
 function setupLogFile() {
 	if (!configLoaded) return;
 	if (logFilePath) return;
-	logFilePath = resolvePathRelativeToFluxloader(config.logging.logFilePath);
+	logFilePath = resolvePathRelativeToExecutable(config.logging.logFilePath);
 	try {
 		fs.appendFileSync(logFilePath, new Date().toISOString() + "\n");
 	} catch (e) {
@@ -119,28 +120,22 @@ function responseAsError(response) {
 	return response;
 }
 
-function resolvePathRelativeToFluxloader(name) {
+function resolvePathRelativeToExecutable(name) {
 	// If absolute then return the path as is
 	if (path.isAbsolute(name)) return name;
 
-	// Otherwise relative to fluxloader.exe
-	// If this errors it is catastrophic
-	const __filename = url.fileURLToPath(import.meta.url);
-	const __dirname = path.dirname(__filename);
-	return path.join(__dirname, name);
+	let executablePath = process.env.PORTABLE_EXECUTABLE_DIR;
+	if (!executablePath) executablePath = url.fileURLToPath(import.meta.url);
+	return path.join(path.dirname(executablePath), name);
 }
 
 function resolvePathInsideFluxloader(name) {
 	// If absolute then return the path as is
 	if (path.isAbsolute(name)) return name;
 
-	// TODO: In the future this needs to accommodate for electron exe packaging
-
-	// Otherwise relative to fluxloader.exe
-	// If this errors it is catastrophic
-	const __filename = url.fileURLToPath(import.meta.url);
-	const __dirname = path.dirname(__filename);
-	return path.join(__dirname, name);
+	const moduleFilePath = url.fileURLToPath(import.meta.url);
+	const fileDir = path.dirname(moduleFilePath);
+	return path.join(fileDir, name);
 }
 
 function ensureDirectoryExists(dirPath) {
@@ -296,7 +291,7 @@ class ElectronModConfigAPI {
 
 	get(modID) {
 		const modIDPath = this.sanitizeModIDPath(modID);
-		const baseModsPath = resolvePathRelativeToFluxloader(config.modsPath);
+		const baseModsPath = resolvePathRelativeToExecutable(config.modsPath);
 		const modsConfigPath = path.join(baseModsPath, "config");
 		ensureDirectoryExists(modsConfigPath);
 		const modConfigPath = path.join(modsConfigPath, `${modIDPath}.json`);
@@ -312,7 +307,7 @@ class ElectronModConfigAPI {
 
 	set(modID, _config) {
 		const modIDPath = this.sanitizeModIDPath(modID);
-		const baseModsPath = resolvePathRelativeToFluxloader(config.modsPath);
+		const baseModsPath = resolvePathRelativeToExecutable(config.modsPath);
 		const modsConfigPath = path.join(baseModsPath, "config");
 		ensureDirectoryExists(modsConfigPath);
 		const modConfigPath = path.join(modsConfigPath, `${modIDPath}.json`);
@@ -808,7 +803,7 @@ class ModsManager {
 		// We also want to reset the mod dependencies
 		this.fetchedModCache = {};
 
-		this.baseModsPath = resolvePathRelativeToFluxloader(config.modsPath);
+		this.baseModsPath = resolvePathRelativeToExecutable(config.modsPath);
 		try {
 			ensureDirectoryExists(this.baseModsPath);
 		} catch (e) {
@@ -938,18 +933,21 @@ class ModsManager {
 
 		// Request the remote mods from the API
 		let responseData;
+		let timeTaken;
 		try {
+			logDebug(`Fetching remote mods from API: ${url}`);
 			const listStart = Date.now();
 			const response = await fetch(url);
 			responseData = await response.json();
 			const listEnd = Date.now();
-			logDebug(`Fetched ${responseData.mods.length} remote mods from API in ${listEnd - listStart}ms`);
+			timeTaken = listEnd - listStart;
 		} catch (e) {
 			return errorResponse(`Failed to fetch mods from the API: ${e.stack}`);
 		}
 
 		// Check it is a valid response
 		if (!responseData || !Object.hasOwn(responseData, "resultsCount")) return errorResponse("Invalid response from remote mods API");
+		logDebug(`Fetched ${responseData.mods.length} remote mods from API in ${timeTaken}ms`);
 
 		// Render the description of each mod if requested
 		if (config.rendered) {
@@ -1035,6 +1033,7 @@ class ModsManager {
 						const versionsURL = `https://fluxloader.app/api/mods?option=versions&modid=${currentModID}`;
 						let versionsResData;
 						try {
+							logDebug(`Fetching available versions for mod '${currentModID}' from API: ${versionsURL}`);
 							const versionFetchStart = Date.now();
 							const res = await fetch(versionsURL);
 							versionsResData = await res.json();
@@ -1118,6 +1117,7 @@ class ModsManager {
 						const modInfoURL = `https://fluxloader.app/api/mods?option=info&modid=${currentModID}&version=${latestVersion}`;
 						let infoResData;
 						try {
+							logDebug(`Fetching mod info for '${currentModID}' version ${latestVersion} from API: ${modInfoURL}`);
 							const modInfoFetchStart = Date.now();
 							const res = await fetch(modInfoURL);
 							infoResData = await res.json();
@@ -1202,6 +1202,104 @@ class ModsManager {
 		if (this.isPerformingActions) return errorResponse("Already performing mod actions, cannot perform again");
 		this.isPerformingActions = true;
 
+		const install = async (modID, version) => {
+			// Last check if the mod is already installed
+			if (this.installedMods[modID]) {
+				const installedMod = this.installedMods[modID];
+				return errorResponse(`Mod '${modID}' is already installed with version '${installedMod.info.version}'`, {
+					performedActions: performedActions,
+					errorModID: modID,
+					errorReason: "already-installed",
+				});
+			}
+
+			// Fetch the mod version from the API
+			const versionURL = `https://fluxloader.app/api/mods?option=download&modid=${modID}&version=${version}`;
+			let versionRes;
+			try {
+				logDebug(`Fetching mod version '${version}' for '${modID}' from API: ${versionURL}`);
+				versionRes = await fetch(versionURL);
+			} catch (e) {
+				return errorResponse(`Failed to fetch mod version '${version}' for '${modID}': ${e.stack}`, {
+					performedActions: performedActions,
+					errorModID: modID,
+					errorReason: "version-fetch",
+				});
+			}
+
+			// Check the content type is correct
+			if (!versionRes.ok || !versionRes.headers.get("content-type")?.includes("application/zip")) {
+				return errorResponse(`Invalid response for mod version '${version}' of '${modID}': ${versionRes.status} ${versionRes.statusText}`, {
+					performedActions: performedActions,
+					errorModID: modID,
+					errorReason: "invalid-response",
+				});
+			}
+
+			// Try to get the folder name from the Content-Disposition header
+			let folderName = modID;
+			const contentDisposition = versionRes.headers.get("content-disposition");
+			if (contentDisposition) {
+				const match = contentDisposition.match(/filename="?([^"]+)\.zip"?/i);
+				if (match && match[1]) folderName = match[1];
+			}
+
+			// Extract the zip file to the mod path
+			try {
+				console.log(versionRes);
+				const buffer = Buffer.from(await versionRes.arrayBuffer(), "base64");
+				const zip = new AdmZip(buffer);
+				zip.extractAllTo(this.baseModsPath, false);
+			} catch (e) {
+				return errorResponse(`Failed to extract mod '${modID}' version '${version}': ${e.stack}`, {
+					performedActions: performedActions,
+					errorModID: modID,
+					errorReason: "extraction-failed",
+				});
+			}
+
+			logDebug(`Mod '${modID}' version '${version}' installed successfully`);
+			return successResponse(`Mod '${modID}' version '${version}' installed successfully`);
+		};
+
+		const uninstall = async (modID) => {
+			// If the mod is not installed, we can skip it
+			if (!this.installedMods[modID]) {
+				return errorResponse(`Cannot uninstall mod '${modID}' as it is not installed`, {
+					performedActions: performedActions,
+					errorModID: modID,
+					errorReason: "not-installed",
+				});
+			}
+
+			// Check the folder exists
+			const modPath = this.installedMods[modID].path;
+			if (!fs.existsSync(modPath)) {
+				return errorResponse(`Cannot uninstall mod '${modID}' as its folder does not exist: ${modPath}`, {
+					performedActions: performedActions,
+					errorModID: modID,
+					errorReason: "folder-not-found",
+				});
+			}
+
+			// Remove the mod folder
+			try {
+				logDebug(`Uninstalling mod '${modID}' from path: ${modPath}`);
+				fs.rmSync(modPath, { recursive: true, force: true });
+			} catch (e) {
+				return errorResponse(`Failed to uninstall mod '${modID}': ${e.stack}`, {
+					performedActions: performedActions,
+					errorModID: modID,
+					errorReason: "uninstall-failed",
+				});
+			}
+
+			logDebug(`Mod '${modID}' uninstalled successfully`);
+
+			// Remove it from the installed mods list
+			delete this.installedMods[modID];
+		};
+
 		// Go over each action in order and perform it
 		const performedActions = [];
 		for (const actionModID in allActions) {
@@ -1210,44 +1308,22 @@ class ModsManager {
 
 			// Install the mod from the server
 			if (action.type === "install") {
-				// Last check if the mod is already installed
-				if (this.installedMods[action.modID]) {
-					const installedMod = this.installedMods[action.modID];
-					return errorResponse(`Mod '${action.modID}' is already installed with version '${installedMod.info.version}'`, {
-						performedActions: performedActions,
-						errorModID: action.modID,
-						errorReason: "already-installed",
-					});
-				}
-
-				// Fetch the mod version from the API
-				const versionURL = `https://fluxloader.app/api/mods?option=download&modid=${action.modID}&version=${action.version}`;
-				let versionResData;
-				try {
-					const res = await fetch(versionURL);
-					versionResData = await res.json();
-				} catch (e) {
-					return errorResponse(`Failed to fetch mod version '${action.version}' for '${action.modID}': ${e.stack}`, {
-						performedActions: performedActions,
-						errorModID: action.modID,
-						errorReason: "version-fetch",
-					});
-				}
-
-				// TODO: For now just assume it went through and worked
-				logError(`Mod '${action.modID}' installed successfully with version ${action.version}, but this is a stub implementation, no files were actually downloaded or installed.`);
+				const res = await install(action.modID, action.version);
+				if (!res.success) return res;
 			}
 
 			// Remove the mod from the local files
 			else if (action.type === "uninstall") {
-				// TODO: For now just assume it went through and worked
-				logError(`Mod '${action.modID}' uninstalled successfully, but this is a stub implementation, no files were actually removed.`);
+				const res = await uninstall(action.modID);
+				if (!res.success) return res;
 			}
 
 			// Uninstall current version and install the new version
 			else if (action.type === "change") {
-				// TODO: For now just assume it went through and worked
-				logError(`Mod '${action.modID}' changed from version ${action.version} to ${action.version}, but this is a stub implementation, no files were actually downloaded or installed.`);
+				const uninstallRes = await uninstall(action.modID);
+				if (!uninstallRes.success) return uninstallRes;
+				const installRes = await install(action.modID, action.version);
+				if (!installRes.success) return installRes;
 			}
 		}
 
@@ -1566,9 +1642,15 @@ class ModsManager {
 	async getInstalledModsVersions() {
 		let modVersions = {};
 
+		if (this.loadOrder.length === 0) {
+			logDebug("No mods installed, returning empty versions");
+			return successResponse("No mods installed", modVersions);
+		}
+
 		try {
 			const modIDs = this.loadOrder.join(",");
 			const url = `https://fluxloader.app/api/mods?option=versions&modids=${encodeURIComponent(modIDs)}`;
+			logDebug(`Fetching mod versions from API: ${url}`);
 			const versionStart = Date.now();
 			const response = await fetch(url);
 			modVersions = await response.json();
@@ -1584,11 +1666,11 @@ class ModsManager {
 	}
 
 	async getModVersion(args) {
-		const url = `https://fluxloader.app/api/mods?option=info&modid=${encodeURIComponent(args.modID)}&version=${encodeURIComponent(args.version)}`;
-
 		// Fetch the mod version info from the API
 		let responseData = null;
 		try {
+			const url = `https://fluxloader.app/api/mods?option=info&modid=${encodeURIComponent(args.modID)}&version=${encodeURIComponent(args.version)}`;
+			logDebug(`Fetching mod version info from API: ${url}`);
 			const versionStart = Date.now();
 			const response = await fetch(url);
 			responseData = await response.json();
@@ -1670,10 +1752,10 @@ function loadFluxloaderConfig() {
 
 	// If we fail to read config just use {}
 	try {
-		configPath = resolvePathRelativeToFluxloader(configPath);
+		configPath = resolvePathRelativeToExecutable(configPath);
 		config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 	} catch (e) {
-		logDebug(`Failed to read config file: ${e.stack}`);
+		logDebug(`Failed to read config file: ${e.message}`);
 		config = {};
 	}
 
@@ -1725,7 +1807,7 @@ function findValidGamePath() {
 	let fullGamePath = null;
 	let asarPath = null;
 	try {
-		fullGamePath = resolvePathRelativeToFluxloader(config.gamePath);
+		fullGamePath = resolvePathRelativeToExecutable(config.gamePath);
 		asarPath = findGameAsarInDirectory(fullGamePath);
 
 		if (!asarPath) {
@@ -1799,7 +1881,7 @@ function addFluxloaderPatches() {
 		);
 
 		// Add game.js to bundle.js, and dont start game until it is ready
-		const gameScriptPath = resolvePathRelativeToFluxloader("game.js").replaceAll("\\", "/");
+		const gameScriptPath = resolvePathRelativeToExecutable("game.js").replaceAll("\\", "/");
 		responseAsError(
 			gameFilesManager.setPatch("js/bundle.js", "fluxloader:preloadBundle", {
 				type: "replace",
@@ -1849,7 +1931,7 @@ function addFluxloaderPatches() {
 			);
 
 			// Add worker.js to each worker, and dont start until it is ready
-			const workerScriptPath = resolvePathRelativeToFluxloader(`worker.js`).replaceAll("\\", "/");
+			const workerScriptPath = resolvePathRelativeToExecutable(`worker.js`).replaceAll("\\", "/");
 			responseAsError(
 				gameFilesManager.setPatch(`js/${worker}.bundle.js`, "fluxloader:preloadBundle", {
 					type: "replace",
@@ -2077,8 +2159,9 @@ function setupElectronIPC() {
 
 	ipcMain.handle("fl:ping-server", async (event, args) => {
 		logDebug(`Received fl:ping-server with args: ${JSON.stringify(args)}`);
-		const url = `https://fluxloader.app/api`;
 		try {
+			const url = `https://fluxloader.app/api`;
+			logDebug(`Pinging server at ${url}`);
 			const pingStart = Date.now();
 			const response = await fetch(url);
 			const data = await response.json();
@@ -2148,6 +2231,8 @@ function closeManager() {
 async function startGame() {
 	if (isGameStarted) return errorResponse("Cannot start game, already running");
 
+	logInfo(JSON.stringify(process.env));
+
 	logInfo("Starting sandustry");
 	isGameStarted = true;
 
@@ -2210,6 +2295,7 @@ async function startApp() {
 	process.env["ELECTRON_DISABLE_SECURITY_WARNINGS"] = "true";
 	app.commandLine.appendSwitch("enable-features", "SharedArrayBuffer");
 	app.commandLine.appendSwitch("force_high_performance_gpu");
+	app.commandLine.appendSwitch("js-flags", "--experimental-vm-modules");
 
 	// Wait for electron to be ready to go
 	await app.whenReady();

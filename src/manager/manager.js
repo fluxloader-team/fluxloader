@@ -557,8 +557,9 @@ class ModsTab {
 				dependenciesList.classList.remove("empty");
 				for (const [depModID, depVersion] of Object.entries(modData.info.dependencies)) {
 					const depElement = createElement(`<div class="dependency-list-row">
-						<span class="mod-info-dependency-mod-id">${depModID}</span>
-						<span class="mod-info-dependency-version">${depVersion}</span>
+						<img class="dependency-img" src="assets/sublist.png" />
+						<span class="dependency-mod-id">${depModID}</span>
+						<span class="dependency-mod-version">${depVersion}</span>
 					</div>`);
 					dependenciesList.appendChild(depElement);
 				}
@@ -796,7 +797,7 @@ class ModsTab {
 		// Request the versions for the installed mods from the backend
 		const res = await api.invoke("fl:get-installed-mods-versions");
 		if (!res.success) {
-			logError("Failed to fetch installed mods versions:", res.data);
+			logError("Failed to fetch installed mods versions:" + res.data);
 			setConnectionState("offline");
 			return;
 		}
@@ -841,7 +842,7 @@ class ModsTab {
 		const startTime = Date.now();
 		const res = await api.invoke("fl:fetch-remote-mods", getInfo);
 		if (!res.success) {
-			logError("Failed to fetch remote mods:", res.error);
+			logError("Failed to fetch remote mods:" + res.error);
 			setConnectionState("offline");
 			this.setIsLoadingMods(false);
 			return;
@@ -1245,7 +1246,7 @@ class ModsTab {
 		const res = await api.invoke("fl:perform-mod-actions", this.allQueuedActions);
 		if (!res.success) {
 			logError("Failed to perform actions:", JSON.stringify(res.data));
-			setStatusBar("Failed to perform actions", 0, "error");
+			setStatusBar("Failed to perform actions", 0, "failed");
 			this.setIsPerformingActions(false);
 			return;
 		}
@@ -1361,7 +1362,11 @@ class ModsTab {
 	_setActionElementPreviewsVisible(action, visible, type = "queued") {
 		if (action.type == "install") {
 			// Highlight / unhighlight the install button
+			console.log(action.modID);
+			console.log(this.modRows[action.modID]);
+			console.log(this.modRows[action.modID].element);
 			const installButton = this.modRows[action.modID].element.querySelector(".mod-row-status .main-img");
+			if (!installButton && !visible) return;
 			installButton.classList.toggle("active", visible);
 			if (visible) {
 				const installHoverButton = this.modRows[action.modID].element.querySelector(".mod-row-status .hover-img");
@@ -1586,7 +1591,6 @@ class LogsTab {
 			return;
 		}
 
-		console.log(`Adding log: ${log.timestamp.toISOString()} [${log.level}] ${log.message}`);
 		if (log.level === "error" && notifyErrors) this.setErrorNotification(log.source, true);
 
 		this.sources[log.source].logs.push(log);
@@ -1823,7 +1827,7 @@ function pingBlockingTask(message) {
 
 function setupElectronEvents() {
 	api.on("fl:forward-log", (_, log) => {
-		tabs.logs.receiveLog(log);
+		tabs.logs.receiveLogFromRemote(log);
 	});
 
 	api.on(`fl:game-closed`, () => {

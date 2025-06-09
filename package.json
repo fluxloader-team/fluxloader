@@ -4,15 +4,40 @@
 	"main": "src/electron.js",
 	"type": "module",
 	"scripts": {
-		"start": "set \"NODE_OPTIONS=--experimental-vm-modules\" && electron ."
+		"start": "electron .",
+		"build": "electron-builder --win portable --x64"
 	},
 	"dependencies": {
 		"acorn": "^8.14.0",
+		"adm-zip": "^0.5.16",
 		"asar": "^3.2.0",
-		"electron": "^35.0.2",
+		"dotenv": "^16.5.0",
 		"escodegen": "^2.1.0",
 		"marked": "^15.0.11",
 		"puppeteer-core": "^20.0.0",
 		"semver": "^7.7.2"
+	},
+	"devDependencies": {
+		"electron": "^35.0.2",
+		"electron-builder": "^26.0.12"
+	},
+	"build": {
+		"appId": "com.fluxloader",
+		"productName": "Fluxloader",
+		"files": [
+			"src/**/*",
+			"package.json"
+		],
+		"win": {
+			"icon": "build/icon.ico",
+			"target": "portable"
+		},
+		"portable": {
+			"artifactName": "fluxloader-${version}-win.exe"
+		},
+		"directories": {
+			"output": "dist",
+			"buildResources": "build"
+		}
 	}
 }

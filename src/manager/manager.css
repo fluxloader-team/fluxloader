@@ -44,6 +44,8 @@
 	--color-bg-light2-hover-lighter: #5c5f70;
 	--color-bg-light3-hover-lighter: #848790;
 	--color-vivid-blue-hover-lighter: #7d9bf6;
+	--color-dark-red-hover-lighter: #b04a3c;
+	--color-dark-green-hover-lighter: #5c7a5c;
 
 	/* Specific Colours */
 	--color-control: #888;
@@ -59,7 +61,7 @@
 body {
 	font-family: sans-serif;
 	color: var(--color-text-primary);
-	background: var(--color-bg-dark2);
+	background-color: var(--color-bg-dark2);
 }
 
 .container {
@@ -735,7 +737,7 @@ input[type="checkbox"]:checked::before {
 	margin-top: 0;
 }
 
-#mods-tab-content .main-rightbar .mod-info .row.dependency-row {
+#mods-tab-content .main-rightbar .mod-info .row.dependency-mod-info-row {
 	flex-direction: column;
 	justify-content: flex-start;
 	align-items: start;
@@ -755,28 +757,30 @@ input[type="checkbox"]:checked::before {
 }
 
 #mods-tab-content .main-rightbar .mod-info .dependency-list .dependency-list-row {
-	background: var(--color-bg-light2);
-	border-radius: var(--br-small);
-	padding: 0.3rem 0.85rem;
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
-	gap: 1rem;
+	gap: 0.5rem;
 }
 
-#mods-tab-content .main-rightbar .mod-info .dependency-list .dependency-mod-id {
-	flex: 1;
+#mods-tab-content .main-rightbar .mod-info .dependency-list .dependency-list-row .dependency-img {
+	flex-shrink: 0;
+	height: 0.55rem;
+	width: 0.55rem;
+	object-fit: contain;
+	filter: brightness(0.5);
+	margin-bottom: 0.1rem;
+}
+
+#mods-tab-content .main-rightbar .mod-info .dependency-list .dependency-list-row .dependency-mod-id {
 	overflow: hidden;
 	white-space: nowrap;
-	text-overflow: ellipsis;
 	color: var(--color-text-primary);
 }
 
-#mods-tab-content .main-rightbar .mod-info .dependency-list .dependency-mod-version {
+#mods-tab-content .main-rightbar .mod-info .dependency-list .dependency-list-row .dependency-mod-version {
 	flex-shrink: 0;
 	overflow: hidden;
 	white-space: nowrap;
-	text-overflow: ellipsis;
 	color: var(--color-text-secondary);
 }
 
@@ -900,9 +904,17 @@ input[type="checkbox"]:checked::before {
 	padding: 0.5rem 0.7rem;
 }
 
+#mods-tab-content .rightbar-bottom .action-queue .content .action:hover {
+	background: var(--color-bg-light-hover-lighter);
+}
+
 #mods-tab-content .rightbar-bottom .action-queue .content .action.loading {
 	background: var(--color-bg-light2);
 	color: var(--color-text-muted);
+}
+
+#mods-tab-content .rightbar-bottom .action-queue .content .action.loading:hover {
+	background: var(--color-bg-light2-hover-lighter);
 }
 
 #mods-tab-content .rightbar-bottom .action-queue .content .action.failed {
@@ -910,13 +922,17 @@ input[type="checkbox"]:checked::before {
 	color: var(--color-text-muted);
 }
 
+#mods-tab-content .rightbar-bottom .action-queue .content .action.failed:hover {
+	background: var(--color-dark-red-hover-lighter);
+}
+
 #mods-tab-content .rightbar-bottom .action-queue .content .action.complete {
 	background: var(--color-dark-green);
 	color: var(--color-text-muted);
 }
 
-#mods-tab-content .rightbar-bottom .action-queue .content .action:hover {
-	background: var(--color-bg-light-hover-lighter);
+#mods-tab-content .rightbar-bottom .action-queue .content .action.complete:hover {
+	background: var(--color-dark-green-hover-lighter);
 }
 
 #mods-tab-content .rightbar-bottom .action-queue .content .action.active {
@@ -928,7 +944,7 @@ input[type="checkbox"]:checked::before {
 	display: inline-block;
 	height: 0.7rem;
 	width: 0.7rem;
-	background: url("assets/subaction.png") no-repeat center/contain;
+	background: url("assets/sublist.png") no-repeat center/contain;
 	filter: brightness(0.5);
 	vertical-align: top;
 	margin-right: 0.3rem;
