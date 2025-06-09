@@ -1236,10 +1236,16 @@ class ModsManager {
 		if (this.isPerformingActions) return errorResponse("Already performing mod actions, cannot perform again");
 
 		const install = async (modID, version) => {
-			// Last check if the mod is already installed
+			// Check if the mod is already installed
 			if (this.installedMods[modID]) {
 				const installedMod = this.installedMods[modID];
-				return errorResponse(`Mod '${modID}' is already installed with version '${installedMod.info.version}'`, {
+
+				if (installedMod.info.version === version) {
+					logDebug(`Mod '${modID}' is already installed with version '${version}'`);
+					return successResponse(`Mod '${modID}' is already installed with version '${version}'`);
+				}
+
+				return errorResponse(`Mod '${modID}' is already installed with different version '${installedMod.info.version}'`, {
 					performedActions: performedActions,
 					errorModID: modID,
 					errorReason: "already-installed",
@@ -1279,7 +1285,6 @@ class ModsManager {
 
 			// Extract the zip file to the mod path
 			try {
-				console.log(versionRes);
 				const buffer = Buffer.from(await versionRes.arrayBuffer(), "base64");
 				const zip = new AdmZip(buffer);
 				zip.extractAllTo(this.baseModsPath, false);
@@ -1346,8 +1351,23 @@ class ModsManager {
 				if (action.type === "install") {
 					const res = await install(action.modID, action.version);
 					if (!res.success) {
-						this.isPerformingActions = false;
-						return res;
+						if (res.data && res.data.errorReason === "already-installed") {
+							logWarn(`Pivoting to a 'change' action for mod '${action.modID}' as it is already installed with a different version`);
+
+							const uninstallRes = await uninstall(action.modID);
+							if (!uninstallRes.success) {
+								this.isPerformingActions = false;
+								return uninstallRes;
+							}
+							const installRes = await install(action.modID, action.version);
+							if (!installRes.success) {
+								this.isPerformingActions = false;
+								return installRes;
+							}
+						} else {
+							this.isPerformingActions = false;
+							return res;
+						}
 					}
 				}
 
@@ -1708,7 +1728,7 @@ class ModsManager {
 
 		try {
 			const modIDs = this.loadOrder.join(",");
-			const url = `https://fluxloader.app/api/mods?option=versions&modids=${encodeURIComponent(modIDs)}`;
+			const url = `https://fluxloader.app/api/mods?option=versions&modids=${modIDs}`;
 			logDebug(`Fetching mod versions from API: ${url}`);
 			const versionStart = Date.now();
 			const response = await fetch(url);
@@ -1725,6 +1745,12 @@ class ModsManager {
 	}
 
 	async getModVersion(args) {
+		// If it is installed locally then we can just return the info
+		if (this.isModInstalled(args.modID) && this.installedMods[args.modID].info.version === args.version) {
+			logDebug(`Mod '${args.modID}' (v${args.version}) is installed locally, returning info`);
+			return successResponse(`Mod '${args.modID}' (v${args.version}) is installed locally`, this.installedMods[args.modID]);
+		}
+
 		// Fetch the mod version info from the API
 		let responseData = null;
 		try {

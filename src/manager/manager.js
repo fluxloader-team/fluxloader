@@ -475,16 +475,15 @@ class ModsTab {
 
 	async loadMoreMods() {
 		if (this.isLoadingMods || this.isPerformingActions) return pingBlockingTask("Cannot load more mods while loading or performing actions.");
-		this.setIsLoadingMods(true);
-		setStatusBar("Loading more mods...", 0, "loading");
 
 		// This function makes you go online if you are offline
 		if (connectionState === "offline") {
 			setConnectionState("connecting");
-
-			// When we go online we also should check locally installed mods versions
 			await this.loadInstalledModsVersions();
 		}
+
+		this.setIsLoadingMods(true);
+		setStatusBar("Loading more mods...", 0, "loading");
 
 		await this.loadMoreRemoteMods();
 
@@ -603,7 +602,7 @@ class ModsTab {
 		setStatusBar(`Changing mod '${modID}' version to ${wantedVersion}...`, 0, "loading");
 		this.setIsLoadingMods(true);
 
-		// Fetch remote version
+		// Fetch version of a mod
 		logDebug(`Changing mod '${modID}' version to ${wantedVersion}`);
 		const res = await api.invoke("fl:get-mod-version", { modID, version: wantedVersion, rendered: true });
 		if (!res.success) {
@@ -614,19 +613,14 @@ class ModsTab {
 			return;
 		}
 
-		// Convert into modData format and put into the table
-		const versionMod = res.data;
-		let modData = {
-			modID: versionMod.modID,
-			info: versionMod.modData,
-			votes: versionMod.votes,
-			lastUpdated: convertUploadTimeToString(versionMod.uploadTime),
-			renderedDescription: versionMod.renderedDescription,
-			versions: this.modRows[modID].modData.versions, // The versions have not changed (and also not returned here)
-			isInstalled: false,
-			isEnabled: false,
-		};
-
+		// Convert mod into modData format and update mod row
+		let modData;
+		if (res.data.isInstalled) {
+			modData = this.convertInstalledModToModData(res.data);
+		} else {
+			modData = this.convertRemoteModToModData(res.data);
+		}
+		modData.versions = this.modRows[modID].modData.versions; // The versions have not changed (and also not returned here)
 		this.updateModRow(modData);
 
 		// Reselect the mod so that mod info is updated
@@ -734,6 +728,48 @@ class ModsTab {
 		}
 	}
 
+	async loadInstalledModsVersions() {
+		if (this.isLoadingMods || this.isPerformingActions) return pingBlockingTask("Cannot load installed mods versions as mods are currently loading or actions are being performed.");
+		this.setIsLoadingMods(true);
+
+		// Request the versions for the installed mods from the backend
+		const res = await api.invoke("fl:get-installed-mods-versions");
+		if (!res.success) {
+			logError("Failed to fetch installed mods versions:" + res.data);
+			setConnectionState("offline");
+			return;
+		}
+
+		// Update each existing installed mod we got versions for
+		const modVersions = res.data;
+		for (const modID in modVersions) {
+			if (this.modRows[modID] == null) {
+				logError(`Mod '${modID}' should exist but it does not`);
+				continue;
+			}
+
+			logDebug(`Updating mod '${modID}' versions with ${modVersions[modID].length} versions`);
+
+			// It is possible that the mod is local only
+			if (modVersions[modID] == null || modVersions[modID].length === 0) continue;
+
+			// Update mod row data with new versions
+			this.modRows[modID].modData.versions = modVersions[modID];
+			const versionsTD = this.modRows[modID].element.querySelector(".mod-row-versions");
+			if (versionsTD == null) {
+				logError(`Mod row for '${modID}' does not have versions td, cannot update versions`);
+				return;
+			}
+
+			// Create the versions element
+			versionsTD.innerHTML = "";
+			const versionElement = this._createModRowVersions(this.modRows[modID].modData);
+			versionsTD.appendChild(versionElement);
+		}
+
+		this.setIsLoadingMods(false);
+	}
+
 	// ------------ INTERNAL ------------
 	// Functions mainly used by MAIN functions inside this class
 
@@ -752,6 +788,20 @@ class ModsTab {
 			tbody.innerHTML = "";
 			this.modRows = {};
 			this.currentModPage = 0;
+		}
+
+		// If we are connected then also load mod versions
+		let versions = {};
+		if (connectionState === "online") {
+			const res = await api.invoke("fl:get-installed-mods-versions");
+			if (!res.success) {
+				logError("Failed to fetch installed mods versions:" + res.data);
+				setConnectionState("offline");
+				versions = {};
+			} else {
+				logDebug(`Fetched ${Object.keys(res.data).length} installed mod versions`);
+				versions = res.data;
+			}
 		}
 
 		// Now populate the table with the mods, this table should be empty at this point
@@ -774,59 +824,15 @@ class ModsTab {
 				if (!matched) continue;
 			}
 
-			// Convert them to our modData format
-			let modData = this.getBaseModData();
-			modData.modID = mod.info.modID;
-			modData.info = mod.info;
-			modData.votes = null;
-			modData.lastUpdated = "local";
-			modData.renderedDescription = mod.renderedDescription;
-			modData.versions = null;
-			modData.isInstalled = true;
-			modData.isEnabled = mod.isEnabled;
-
+			// Convert to mod data and save
+			const modData = this.convertInstalledModToModData(mod);
+			if (versions[modData.modID] != null) modData.versions = versions[modData.modID];
 			this.modRows[modData.modID] = this.createModRow(modData);
 			newModIDs.push(modData.modID);
 		}
 
 		for (const modID of newModIDs) tbody.appendChild(this.modRows[modID].element);
 		if (newModIDs.length > 0) getElement("mods-tab-table-empty").style.display = "none";
-	}
-
-	async loadInstalledModsVersions() {
-		if (!this.isLoadingMods) return logError("Cannot load installed mods versions as isLoadingMods is false, this should not happen");
-
-		// Request the versions for the installed mods from the backend
-		const res = await api.invoke("fl:get-installed-mods-versions");
-		if (!res.success) {
-			logError("Failed to fetch installed mods versions:" + res.data);
-			setConnectionState("offline");
-			return;
-		}
-
-		// Update each existing installed mod we got versions for
-		const modVersions = res.data;
-		for (const modID in modVersions) {
-			if (this.modRows[modID] == null) {
-				logError(`Mod '${modID}' should exist but it does not`);
-				continue;
-			}
-
-			// It is possible that the mod is local only
-			if (modVersions[modID] == null || modVersions[modID].length === 0) continue;
-
-			// Update mod row data with new versions
-			this.modRows[modID].modData.versions = modVersions[modID];
-			const versionsTD = this.modRows[modID].element.querySelector(".mod-row-versions");
-			if (versionsTD == null) {
-				logError(`Mod row for '${modID}' does not have versions td, cannot update versions`);
-				return;
-			}
-
-			// Create the versions element
-			const versionElement = this._createModRowVersions(this.modRows[modID].modData);
-			element.querySelector(".mod-row-versions").appendChild(versionElement);
-		}
 	}
 
 	async loadMoreRemoteMods() {
@@ -874,16 +880,7 @@ class ModsTab {
 			}
 
 			// Convert into modData format and put into the table
-			let modData = this.getBaseModData();
-			modData.modID = mod.modID;
-			modData.info = mod.modData;
-			modData.votes = mod.votes;
-			modData.lastUpdated = convertUploadTimeToString(mod.uploadTime);
-			modData.renderedDescription = mod.renderedDescription;
-			modData.versions = mod.versionNumbers;
-			modData.isInstalled = false;
-			modData.isEnabled = false;
-
+			const modData = this.convertRemoteModToModData(mod);
 			this.modRows[modData.modID] = this.createModRow(modData);
 			newModIDs.push(modData.modID);
 		}
@@ -1007,7 +1004,7 @@ class ModsTab {
 	}
 
 	async setViewingModConfig(enabled) {
-		if (this.isViewingModConfig === enabled) return logWarn("Cannot set isViewingModConfig to the same value");
+		if (this.isViewingModConfig === enabled) return;
 		this.isViewingModConfig = enabled;
 		const configContainer = getElement("mod-config-container");
 		const modInfoContainer = getElement("mod-info-container");
@@ -1101,6 +1098,32 @@ class ModsTab {
 			getElement("action-execute-button").classList.remove("active");
 			getElement("action-execute-button").classList.remove("block-cursor");
 		}
+	}
+
+	convertInstalledModToModData(mod) {
+		let modData = this.getBaseModData();
+		modData.modID = mod.info.modID;
+		modData.info = mod.info;
+		modData.votes = null; // Votes are not available for installed mods
+		modData.lastUpdated = "local"; // Local mods are always "local"
+		modData.renderedDescription = mod.renderedDescription;
+		modData.versions = null;
+		modData.isInstalled = true;
+		modData.isEnabled = mod.isEnabled;
+		return modData;
+	}
+
+	convertRemoteModToModData(mod) {
+		let modData = this.getBaseModData();
+		modData.modID = mod.modID;
+		modData.info = mod.modData;
+		modData.votes = mod.votes;
+		modData.lastUpdated = convertUploadTimeToString(mod.uploadTime);
+		modData.renderedDescription = mod.renderedDescription;
+		modData.versions = mod.versionNumbers;
+		modData.isInstalled = false;
+		modData.isEnabled = false;
+		return modData;
 	}
 
 	// ------------ ACTIONS ------------
@@ -1749,6 +1772,9 @@ async function handleClickConnectionButton(e) {
 		if (res.success) {
 			logDebug("Successfully pinged the server, connection is online.");
 			setConnectionState("online");
+
+			// If succesfully connect then fetch installed mods versions
+			await tabs.mods.loadInstalledModsVersions();
 		} else {
 			logError("Failed to ping the server, connection is offline");
 			setConnectionState("offline");
