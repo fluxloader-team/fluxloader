@@ -62,67 +62,6 @@ variables:
     - echo "Starting build for $CI_JOB_NAME with version $EFFECTIVE_BUILD_VERSION"
     - rm -rf $OUTPUT_DIR && mkdir -p $OUTPUT_DIR
 
-build-windows-x64:
-  extends: .build_template
-  script:
-    - !reference [.build_template, script]
-    # Changed: Target is now only 'portable'. Removed nsis config.
-    - ./node_modules/.bin/electron-builder --win portable --x64 --config.buildVersion="$EFFECTIVE_BUILD_VERSION"
-  artifacts:
-    paths:
-      - $OUTPUT_DIR/*.exe # Only expect the portable exe now
-    expire_in: 1 week
-
-build-windows-arm64:
-  extends: .build_template
-  script:
-    - !reference [.build_template, script]
-    # Changed: Target is now only 'portable'. Removed nsis config.
-    - ./node_modules/.bin/electron-builder --win portable --arm64 --config.buildVersion="$EFFECTIVE_BUILD_VERSION"
-  artifacts:
-    paths:
-      - $OUTPUT_DIR/*.exe # Only expect the portable exe now
-    expire_in: 1 week
-
-build-windows-legacy-x64:
-  extends: .build_template
-  before_script:
-    - !reference [.build_template, before_script]
-    - echo "Installing legacy Electron version $LEGACY_ELECTRON_VERSION..."
-    - npm install --save-dev electron@$LEGACY_ELECTRON_VERSION --legacy-peer-deps --no-audit
-    - echo "Legacy Electron installed."
-  script:
-    - !reference [.build_template, script]
-    # This build still produces an NSIS installer by default
-    - ./node_modules/.bin/electron-builder --win nsis --x64 --config.buildVersion="$EFFECTIVE_BUILD_VERSION"
-  artifacts:
-    paths:
-      - $OUTPUT_DIR/*-Legacy*.exe
-      - $OUTPUT_DIR/*-Legacy*.blockmap
-    expire_in: 1 week
-
-build-linux-x64:
-  extends: .build_template
-  script:
-    - !reference [.build_template, script]
-    - ./node_modules/.bin/electron-builder --linux AppImage deb --x64 --config.buildVersion="$EFFECTIVE_BUILD_VERSION"
-  artifacts:
-    paths:
-      - $OUTPUT_DIR/*.AppImage
-      - $OUTPUT_DIR/*.deb
-    expire_in: 1 week
-
-build-linux-arm64:
-  extends: .build_template
-  script:
-    - !reference [.build_template, script]
-    - ./node_modules/.bin/electron-builder --linux AppImage deb --arm64 --config.buildVersion="$EFFECTIVE_BUILD_VERSION"
-  artifacts:
-    paths:
-      - $OUTPUT_DIR/*.AppImage
-      - $OUTPUT_DIR/*.deb
-    expire_in: 1 week
-
 build-macos-x64:
   extends: .build_template
   script:
@@ -149,6 +88,16 @@ release-job:
   tags:
     - linux
   needs:
+    - job: build-linux-x64
+      artifacts: true
+    - job: build-linux-arm64
+      artifacts: true
+    - job: build-windows-x64
+      artifacts: true
+    - job: build-windows-arm64
+      artifacts: true
+    - job: build-windows-legacy-x64
+      artifacts: true
     - job: build-macos-x64
       artifacts: true
     - job: build-macos-arm64
