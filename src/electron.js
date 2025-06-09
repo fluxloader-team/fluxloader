@@ -343,7 +343,7 @@ class GameFilesManager {
 			// If the files are modified then reset them to the original
 			else if (this.isGameModified) {
 				for (const file in this.fileData) {
-					this._resetFile(file);
+					this._resetFileToBase(file);
 				}
 			}
 		} catch (e) {
@@ -360,6 +360,7 @@ class GameFilesManager {
 		// This is not modifying the files, just clearing the in-memory patches
 		for (const file in this.fileData) {
 			this.fileData[file].patches.clear();
+			this.fileData[file].usingLatestPatches = false;
 		}
 	}
 
@@ -376,6 +377,7 @@ class GameFilesManager {
 
 		logDebug(`Setting patch '${tag}' in file: ${file}`);
 		this.fileData[file].patches.set(tag, patch);
+		this.fileData[file].usingLatestPatches = false;
 		return successResponse(`Patch '${tag}' set in file: ${file}`);
 	}
 
@@ -392,6 +394,7 @@ class GameFilesManager {
 				}
 			}
 			this.fileData[file].patches.set(tag, mapFunction(...variables));
+			this.fileData[file].usingLatestPatches = false;
 		}
 		return successResponse(`Mapped patch '${tag}' set in file(s): ${Object.keys(fileMap)}`);
 	}
@@ -420,6 +423,7 @@ class GameFilesManager {
 
 		logDebug(`Removing patch '${tag}' from file: ${file}`);
 		this.fileData[file].patches.delete(tag);
+		this.fileData[file].usingLatestPatches = false;
 		return successResponse(`Patch '${tag}' removed from file: ${file}`);
 	}
 
@@ -635,18 +639,18 @@ class GameFilesManager {
 		if (!fs.existsSync(fullPath)) {
 			throw new Error(`File not found: ${fullPath}`);
 		}
-		this.fileData[file] = { fullPath, isModified: false, patches: new Map() };
+		this.fileData[file] = { fullPath, isModified: false, usingLatestPatches: false, patches: new Map() };
 	}
 
 	_repatchFile(file) {
 		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot repatch");
 		if (!this.fileData[file]) throw new Error(`File not initialized: ${file}`);
 		logDebug(`Repatching file: ${file}`);
-		this._resetFile(file);
+		this._resetFileToBase(file);
 		this._patchFile(file);
 	}
 
-	_resetFile(file) {
+	_resetFileToBase(file) {
 		logDebug(`Resetting file: ${file}`);
 
 		if (!this.isGameExtracted) throw new Error("Game files not extracted yet cannot reset file");
@@ -669,6 +673,7 @@ class GameFilesManager {
 		}
 
 		this.fileData[file].isModified = false;
+		this.fileData[file].usingLatestPatches = false;
 		this.isGameModified = Object.values(this.fileData).some((f) => f.isModified);
 	}
 
@@ -705,6 +710,7 @@ class GameFilesManager {
 		}
 
 		this.fileData[file].isModified = true;
+		this.fileData[file].usingLatestPatches = true;
 		this.isGameModified = true;
 	}
 
@@ -1201,7 +1207,6 @@ class ModsManager {
 		logDebug(`Performing ${Object.keys(allActions).length} mod action(s)`);
 
 		if (this.isPerformingActions) return errorResponse("Already performing mod actions, cannot perform again");
-		this.isPerformingActions = true;
 
 		const install = async (modID, version) => {
 			// Last check if the mod is already installed
@@ -1295,41 +1300,65 @@ class ModsManager {
 				});
 			}
 
-			logDebug(`Mod '${modID}' uninstalled successfully`);
-
 			// Remove it from the installed mods list
 			delete this.installedMods[modID];
+			
+			logDebug(`Mod '${modID}' uninstalled successfully`);
+			return successResponse(`Mod '${modID}' uninstalled successfully`);
 		};
 
-		// Go over each action in order and perform it
+		this.isPerformingActions = true;
 		const performedActions = [];
-		for (const actionModID in allActions) {
-			const action = allActions[actionModID];
-			logDebug(`Performing action '${action.type}' for mod '${action.modID}' (version: '${action.version}')`);
+		try {
+			// Go over each action in order and perform it
+			for (const actionModID in allActions) {
+				const action = allActions[actionModID];
+				logDebug(`Performing action '${action.type}' for mod '${action.modID}' (version: '${action.version}')`);
 
-			// Install the mod from the server
-			if (action.type === "install") {
-				const res = await install(action.modID, action.version);
-				if (!res.success) return res;
+				// Install the mod from the server
+				if (action.type === "install") {
+					const res = await install(action.modID, action.version);
+					if (!res.success) {
+						this.isPerformingActions = false;
+						return res;
+					}
+				}
+
+				// Remove the mod from the local files
+				else if (action.type === "uninstall") {
+					const res = await uninstall(action.modID);
+					this.isPerformingActions = false;
+					if (!res.success) {
+						this.isPerformingActions = false;
+						return res;
+					}
+				}
+
+				// Uninstall current version and install the new version
+				else if (action.type === "change") {
+					const uninstallRes = await uninstall(action.modID);
+					if (!uninstallRes.success) {
+						this.isPerformingActions = false;
+						return uninstallRes;
+					}
+					const installRes = await install(action.modID, action.version);
+					if (!installRes.success) {
+						this.isPerformingActions = false;
+						return installRes;
+					}
+				}
 			}
 
-			// Remove the mod from the local files
-			else if (action.type === "uninstall") {
-				const res = await uninstall(action.modID);
-				if (!res.success) return res;
-			}
-
-			// Uninstall current version and install the new version
-			else if (action.type === "change") {
-				const uninstallRes = await uninstall(action.modID);
-				if (!uninstallRes.success) return uninstallRes;
-				const installRes = await install(action.modID, action.version);
-				if (!installRes.success) return installRes;
-			}
+			this.isPerformingActions = false;
+			return successResponse("Mod actions performed successfully");
+		} catch (e) {
+			this.isPerformingActions = false;
+			return errorResponse(`Error while performing mod actions: ${e.stack}`, {
+				performedActions: performedActions,
+				errorModID: null,
+				errorReason: "unknown",
+			});
 		}
-
-		this.isPerformingActions = false;
-		return successResponse("Mod actions performed successfully");
 	}
 
 	// ------------ INTERNAL ------------
@@ -2213,11 +2242,13 @@ function startManager() {
 			},
 		});
 
+		// Redirect requests to the browser instead of internal electron
 		managerWindow.webContents.setWindowOpenHandler(({ url }) => {
 			shell.openExternal(url);
 			return { action: "deny" };
 		});
 
+		// Startup the manager window into manager.html
 		const managerPath = resolvePathInsideFluxloader("manager/manager.html");
 		managerWindow.on("closed", closeManager);
 		managerWindow.loadFile(managerPath);
@@ -2246,6 +2277,27 @@ function closeManager() {
 	isManagerStarted = false;
 }
 
+globalThis.attachDebuggerToGameWindow = function (window) {
+	// Attach the debugger so we can intercept requests
+	window.webContents.debugger.attach("1.3");
+	window.webContents.debugger.sendCommand("Fetch.enable", {
+		patterns: [{ urlPattern: "*", requestStage: "Request" }],
+	});
+	window.webContents.debugger.on("message", async (event, method, params) => {
+		if (method === "Fetch.requestPaused") {
+			const { requestId, request } = params;
+
+			logDebug(`Fetch request paused: ${requestId} - ${request.url}`);
+
+			if (request.url.startsWith("file://")) {
+			}
+
+			// Allow non-file requests to continue
+			window.webContents.debugger.sendCommand("Fetch.continueRequest", { requestId });
+		}
+	});
+};
+
 async function startGame() {
 	if (isGameStarted) return errorResponse("Cannot start game, already running");
 
@@ -2260,6 +2312,7 @@ async function startGame() {
 		responseAsError(addFluxloaderPatches());
 		responseAsError(await modsManager.loadAllMods());
 		responseAsError(gameFilesManager.repatchAllFiles());
+
 		gameElectronFuncs.createWindow();
 		gameWindow.on("closed", closeGame);
 		if (config.game.openDevTools) gameWindow.openDevTools();

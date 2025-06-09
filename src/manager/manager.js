@@ -700,7 +700,7 @@ class ModsTab {
 		// if the selected mod is installed then uninstall it, and vice versa
 		const modData = this.modRows[modID].modData;
 		if (modData.isInstalled) {
-			setFullscreenAlert("Installing mod", `Are you sure you want to uninstall mod '${modData.info.name}'?`, [
+			setFullscreenAlert("Uninstalling mod", `Are you sure you want to uninstall mod '${modData.info.name}'?`, [
 				{
 					text: "Uninstall",
 					onClick: async () => {
@@ -1180,7 +1180,7 @@ class ModsTab {
 			newMainAction.element.classList.toggle("failed", true);
 			this._setActionElementPreviewsVisible(newMainAction, true, "failed");
 
-			setStatusBar(`Failed to queue '${type}' action for mod '${modID}'`, 0, "failed");
+			setStatusBar(`Failed to queue '${type}' action for mod '${modID}'${res.data.errorReason ? ": " + res.data.errorReason : ""}`, 0, "failed");
 			this.setIsQueueingAction(false);
 			this.setActionQueueLoading(false);
 			return false;
@@ -1239,6 +1239,9 @@ class ModsTab {
 
 	async performQueuedActions() {
 		if (this.isLoadingMods || this.isPerformingActions) pingBlockingTask("Cannot perform actions as mods are currently loading or actions are being performed.");
+
+		this._clearCompletedActions();
+
 		if (Object.keys(this.allQueuedActions).length === 0) return logWarn("No actions to perform, returning");
 
 		this.setIsPerformingActions(true);
@@ -1249,7 +1252,7 @@ class ModsTab {
 		const res = await api.invoke("fl:perform-mod-actions", this.allQueuedActions);
 		if (!res.success) {
 			logError("Failed to perform actions:", JSON.stringify(res.data));
-			setStatusBar("Failed to perform actions", 0, "failed");
+			setStatusBar(`Failed to perform actions${res.data.errorReason ? ": " + res.data.errorReason : ""}`, 0, "failed");
 			this.setIsPerformingActions(false);
 			return;
 		}
@@ -1774,7 +1777,7 @@ async function handleClickPlayButton() {
 		const res = await api.invoke(`fl:start-game`);
 		if (!res.success) {
 			logError("Failed to start the game, please check the logs for more details");
-			setStatusBar("Failed to start game", 0, "failed");
+			setStatusBar(`Failed to start game${res.data.errorReason ? ": " + res.data.errorReason : ""}`, 0, "failed");
 		} else {
 			setStatusBar("Game started", 0, "success");
 		}

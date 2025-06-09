@@ -533,6 +533,10 @@ input[type="checkbox"]:checked::before {
 	color: var(--color-text-secondary);
 }
 
+#mods-tab-content .mods-table th:hover .resizer {
+	background: var(--color-bg-dark-hover-lighter);
+}
+
 #mods-tab-content .mods-table th.ascending::after {
 	content: "▲";
 	position: absolute;
@@ -1196,7 +1200,7 @@ input[type="checkbox"]:checked::before {
 }
 
 #logs-tab-content .logs-content .log-row .log-tag {
-	width: 5rem;
+	/* TODO WIDTH */
 	color: #6060e8;
 }
 
