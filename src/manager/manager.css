@@ -88,10 +88,10 @@ body {
 .tab-list .option {
 	position: relative;
 	cursor: pointer;
-	width: 6rem;
 	display: flex;
 	justify-content: center;
 	align-items: center;
+	padding: 0 1.5rem;
 }
 
 .tab-list .option p {
@@ -1073,6 +1073,8 @@ input[type="checkbox"]:checked::before {
 	min-width: 20rem;
 	height: 100%;
 	margin: auto;
+	display: flex;
+	flex-direction: column;
 }
 
 #config-tab-content .main .title {
@@ -1200,12 +1202,64 @@ input[type="checkbox"]:checked::before {
 }
 
 #logs-tab-content .logs-content .log-row .log-tag {
-	/* TODO WIDTH */
 	color: #6060e8;
 }
 
 #logs-tab-content .logs-content .log-row .log-message {
 	color: var(--color-text-primary) !important;
+}
+
+/* -------------------- TAB/CREATE MOD -------------------- */
+
+#create-mod-tab-content {
+	background: var(--color-bg-medium);
+	padding: 0 2.5rem;
+}
+
+#create-mod-tab-content .main {
+	background: var(--color-bg-light);
+	max-width: 50rem;
+	min-width: 20rem;
+	height: 100%;
+	margin: auto;
+	display: flex;
+	flex-direction: column;
+}
+
+#create-mod-tab-content .main .title {
+	text-align: center;
+	font-size: 1.6rem;
+	padding: 1.2rem 0 0.6rem 0;
+	color: var(--color-text-primary);
+}
+
+#create-mod-tab-content .create-mod-schema-container {
+	overflow: hidden;
+}
+
+#create-mod-tab-content .create-mod-footer {
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	flex-direction: column;
+	padding: 0.4rem 1.5rem 0.8rem 1.5rem;
+}
+#create-mod-tab-content .create-mod-footer .create-mod-submit {
+	min-width: 10rem;
+	font-size: 1.1rem;
+	border-radius: var(--br-small);
+	background: var(--color-bg-medium);
+	color: var(--color-text-primary);
+	padding: 0.7rem 2.2rem;
+	cursor: pointer;
+}
+
+#create-mod-tab-content .create-mod-footer .create-mod-submit:hover {
+	background: var(--color-bg-medium-hover-lighter);
+}
+
+#create-mod-tab-content .create-mod-footer .create-mod-submit:active {
+	background: var(--color-bg-medium-active-darker);
 }
 
 /* ---------------------------- FOOTER ---------------------------- */
@@ -1314,6 +1368,8 @@ input[type="checkbox"]:checked::before {
 	height: 100%;
 	display: flex;
 	flex-direction: column;
+	flex: 1;
+	overflow: hidden;
 }
 
 .config-schema-content {
@@ -1324,6 +1380,7 @@ input[type="checkbox"]:checked::before {
 	flex-direction: column;
 	gap: 1.2rem;
 	padding: 1.2rem;
+	overflow: auto;
 }
 
 .config-schema-container .config-schema-validated {

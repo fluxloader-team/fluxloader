@@ -125,10 +125,11 @@ class ConfigSchemaElement {
 	config = null;
 	schema = null;
 	onChange = null;
+	extraValidation = null;
 	inputs = new Map();
 	statusElements = { wrapper: null, text: null, image: null };
 
-	constructor(parentElement, config, schema, onChange) {
+	constructor(parentElement, config, schema, onChange, extraValidation = null) {
 		// Initialize variables
 		this.parentElement = parentElement;
 		this.containerElement = null;
@@ -136,6 +137,7 @@ class ConfigSchemaElement {
 		this.config = JSON.parse(JSON.stringify(config));
 		this.schema = schema;
 		this.onChange = onChange;
+		this.extraValidation = extraValidation;
 		this.inputs = new Map();
 		this.statusElements = { wrapper: null, text: null, image: null };
 
@@ -318,6 +320,16 @@ class ConfigSchemaElement {
 			input.classList.add("invalid");
 			this._setStatus("invalid");
 			return { value, valid: false };
+		}
+
+		// Then validate it with user provided extra validation
+		if (this.extraValidation) {
+			const extraValidationResult = this.extraValidation(value, schemaValue);
+			if (extraValidationResult !== true) {
+				input.classList.add("invalid");
+				this._setStatus("invalid");
+				return { value, valid: false };
+			}
 		}
 
 		return { value, valid: true };
@@ -1638,13 +1650,124 @@ class LogsTab {
 	}
 }
 
+class CreateModTab {
+	static modCreateRequestSchema = {
+		
+		modID: {
+			type: "string",
+			default: "custommod",
+			pattern: "^[a-zA-Z0-9_-]+$"
+		},
+		name: {
+			type: "string",
+			default: "Custom Mod",
+		},
+		version: {
+			type: "string",
+			default: "1.0.0",
+		},
+		author: {
+			type: "string",
+			default: "",
+		},
+		fluxloaderVersion: {
+			type: "string",
+			default: ">=2.0.0",
+		},
+		shortDescription: {
+			type: "string",
+			default: "",
+		},
+		description: {
+			type: "string",
+			default: "",
+		},
+		dependencies: {
+			type: "object",
+			default: {},
+		},
+		tags: {
+			type: "array",
+			default: [],
+		},
+		electronEntrypointEnabled: {
+			type: "boolean",
+			default: true,
+		},
+		electronEntrypointName: {
+			type: "string",
+			default: "entry.electron.js",
+		},
+		gameEntrypointEnabled: {
+			type: "boolean",
+			default: true,
+		},
+		gameEntrypointName: {
+			type: "string",
+			default: "entry.game.js",
+		},
+		workerEntrypointEnabled: {
+			type: "boolean",
+			default: true,
+		},
+		workerEntrypointName: {
+			type: "string",
+			default: "entry.worker.js",
+		},
+		scriptEnabled: {
+			type: "boolean",
+			default: false,
+		},
+		scriptFileName: {
+			type: "string",
+			default: "script.js",
+		},
+	};
+
+	renderer = null;
+	modCreateRequestData = {};
+
+	async setup() {
+		this.modCreateRequestData = {};
+		SchemaValidation.validate(this.modCreateRequestData, CreateModTab.modCreateRequestSchema);
+
+		const submitButton = getElement("create-mod-submit");
+		submitButton.addEventListener("click", async () => this.submitModInfo());
+
+		const container = getElement("create-mod-schema-container");
+		this.renderer = new ConfigSchemaElement(container, this.modCreateRequestData, CreateModTab.modCreateRequestSchema, (newConfig) => (this.modCreateRequestData = newConfig));
+	}
+
+	async selectTab() {
+		if (!this.renderer) await this.setup();
+		else this.renderer.forceSetConfig(this.modCreateRequestData);
+	}
+
+	async submitModInfo() {
+		if (!SchemaValidation.validate(this.modCreateRequestData, CreateModTab.modCreateRequestSchema)) {
+			setStatusBar("Mod creation data is invalid, please check the fields.", 0, "failed");
+			logError("Mod creation data is invalid:", this.modCreateRequestData);
+			return;
+		}
+
+		setStatusBar("Creating mod...", 0, "loading");
+		const res = await api.invoke("fl:create-new-mod", this.modCreateRequestData);
+		if (!res.success) {
+		setStatusBar("Failed to create mod: " + (res && res.error ? res.error : "Unknown error"), 0, "failed");
+		} else {
+		setStatusBar("Mod created successfully!", 0, "success");
+		}
+	}
+}
+
 async function setupTabs() {
 	tabs.logs = new LogsTab();
 	tabs.mods = new ModsTab();
 	tabs.config = new ConfigTab();
+	tabs.createMod = new CreateModTab();
 
 	for (const tab in tabs) {
-		getElement(`tab-${tab}`).addEventListener("click", async () => {
+		getElement(`tab-${tabNameToID(tab)}`).addEventListener("click", async () => {
 			await selectTab(tab);
 		});
 		if (tabs[tab].setup) await tabs[tab].setup();
@@ -1653,16 +1776,21 @@ async function setupTabs() {
 
 async function selectTab(tab) {
 	if (selectedTab) {
-		getElement(`tab-${selectedTab}`).classList.remove("selected");
-		getElement(`${selectedTab}-tab-content`).style.display = "none";
+		getElement(`tab-${tabNameToID(selectedTab)}`).classList.remove("selected");
+		getElement(`${tabNameToID(selectedTab)}-tab-content`).style.display = "none";
 		if (tabs[selectedTab].deselectTab) await tabs[selectedTab].deselectTab();
 	}
 
 	selectedTab = tab;
 
-	getElement(`tab-${tab}`).classList.add("selected");
-	getElement(`${tab}-tab-content`).style.display = "block";
+	getElement(`tab-${tabNameToID(tab)}`).classList.add("selected");
+	getElement(`${tabNameToID(tab)}-tab-content`).style.display = "block";
 	if (tabs[tab].selectTab) await tabs[tab].selectTab();
+}
+
+function tabNameToID(tabName) {
+	// convert camCase to kebab-case
+	return tabName.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
 }
 
 // =================== MAIN ===================

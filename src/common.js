@@ -118,7 +118,12 @@ export class SchemaValidation {
 				return targetValue === true || targetValue === false;
 
 			case "string":
-				return typeof targetValue === "string";
+				let valid = typeof targetValue === "string";
+				if (Object.hasOwn(schemaLeafValue, "pattern")) {
+					const regex = new RegExp(schemaLeafValue.pattern);
+					valid = valid && regex.test(targetValue);
+				}
+				return valid;
 
 			case "number":
 				if (typeof targetValue !== "number") return false;

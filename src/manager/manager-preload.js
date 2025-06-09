@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer, shell } = require("electron");
+const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("api", {
 	invoke: (msg, ...args) => ipcRenderer.invoke(msg, ...args),

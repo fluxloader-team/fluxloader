@@ -1,3 +1,4 @@
+
 import { app, BrowserWindow, ipcMain, screen, shell } from "electron";
 import path from "path";
 import fs from "fs";
@@ -1408,6 +1409,14 @@ class ModsManager {
 		}
 	}
 
+	async createNewMod(modCreateRequestData) {
+		return successResponse("Mod creation is not implemented yet", {
+			modID: modCreateRequestData.modID,
+			modName: modCreateRequestData.modName,
+			modVersion: modCreateRequestData.modVersion,
+		});
+	}
+
 	// ------------ INTERNAL ------------
 
 	async _initializeMod(modPath) {
@@ -1434,7 +1443,7 @@ class ModsManager {
 
 		// Validate it against the schema
 		if (!SchemaValidation.validate(modInfo, this.modInfoSchema, { unknownKeyMethod: "ignore" })) {
-			return errorResponse(`Modinfo schema validation failed for mod: ${modInfoPath} - ${SchemaValidation.getLastError()}`);
+			return errorResponse(`Modinfo schema validation failed for mod: ${modInfoPath}}`);
 		}
 
 		// Store the base schema
@@ -2251,9 +2260,11 @@ function setupElectronIPC() {
 		"fl:reload-installed-mods": async (_) => await modsManager.reloadInstalledMods(),
 		"fl:trigger-page-redirect": (args) => fluxloaderAPI.events.trigger("fl:page-redirect", args),
 		"fl:set-mod-enabled": async (args) => modsManager.setModEnabled(args.modID, args.enabled),
+		"fl:create-new-mod": (args) => modsManager.createNewMod(args),
 		"fl:start-game": (_) => startGame(),
 		"fl:close-game": (_) => closeGame(),
 		"fl:get-fluxloader-config": (_) => config,
+		"fl:get-mod-info-schema": (_) => modsManager.modInfoSchema,
 		"fl:get-fluxloader-config-schema": (_) => configSchema,
 		"fl:get-fluxloader-version": (_) => fluxloaderVersion,
 		"fl:forward-log-to-manager": (args) => forwardLogToManager(args),
