@@ -1,6 +1,9 @@
 {
 	"name": "sandustry-fluxloader",
-	"version": "1.0.0",
+	"author": "Fluxloader Team",
+	"email": "thomas.burniston@gmail.com",
+	"description": "A cross-platform modloader for Sandustry",
+	"version": "2.0.0",
 	"main": "src/electron.js",
 	"type": "module",
 	"scripts": {
@@ -14,8 +17,71 @@
 		"marked": "^15.0.11",
 		"semver": "^7.7.2"
 	},
-	"devDependencies":{
+	"devDependencies": {
 		"electron": "^35.0.2",
 		"electron-builder": "^26.0.12"
+	},
+	"build": {
+		"appId": "app.fluxloader.Fluxloader",
+		"productName": "Fluxloader",
+		"asar": true,
+		"publish": null,
+		"directories": {
+			"output": "dist",
+			"buildResources": "build"
+		},
+		"mac": {
+			"icon": "build/icons/256x256.icns",
+			"identity": null,
+			"target": [
+				{
+					"target": "dmg",
+					"arch": [
+						"x64",
+						"arm64"
+					]
+				}
+			]
+		},
+		"win": {
+			"icon": "build/icons/256x256.ico",
+			"target": [
+				{
+					"target": "portable",
+					"arch": [
+						"x64",
+						"arm64"
+					]
+				},
+				{
+					"target": "nsis",
+					"arch": [
+						"x64"
+					]
+				}
+			]
+		},
+		"linux": {
+			"icon": "build/icons/256x256.png",
+			"target": [
+				{
+					"target": "AppImage",
+					"arch": [
+						"x64",
+						"arm64"
+					]
+				},
+				{
+					"target": "deb",
+					"arch": [
+						"x64",
+						"arm64"
+					]
+				}
+			]
+		},
+		"extraMetadata": {
+			"buildResources": "build"
+		}
 	}
 }
