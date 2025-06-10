@@ -1,4 +1,3 @@
-
 import { app, BrowserWindow, ipcMain, screen, shell } from "electron";
 import path from "path";
 import fs from "fs";
@@ -127,9 +126,13 @@ function resolvePathRelativeToExecutable(name) {
 	if (path.isAbsolute(name)) return name;
 
 	if (app.isPackaged) {
-		// PORTABLE_EXECUTABLE_DIR is only defined in a portable build
+		// PORTABLE_EXECUTABLE_DIR is only defined in a portable windows build
 		if (process.env.PORTABLE_EXECUTABLE_DIR) {
 			return path.join(process.env.PORTABLE_EXECUTABLE_DIR, name);
+		}
+		// APPIMAGE is only defined in a portable linux build
+		else if (process.env.APPIMAGE) {
+			return path.join(path.dirname(process.env.APPIMAGE), name);
 		}
 		// Otherwise it must be standard electron-builder
 		else {
