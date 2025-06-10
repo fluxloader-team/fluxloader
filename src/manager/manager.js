@@ -1463,9 +1463,7 @@ class ModsTab {
 	_setActionElementPreviewsVisible(action, visible, type = "queued") {
 		if (action.type == "install") {
 			// Highlight / unhighlight the install button
-			console.log(action.modID);
-			console.log(this.modRows[action.modID]);
-			console.log(this.modRows[action.modID].element);
+			if (!this.modRows[action.modID]) return;
 			const installButton = this.modRows[action.modID].element.querySelector(".mod-row-status .main-img");
 			if (!installButton && !visible) return;
 			installButton.classList.toggle("active", visible);
