@@ -12,6 +12,7 @@ import { EventBus, SchemaValidation, Logging } from "./common.js";
 import semver from "semver";
 import AdmZip from "adm-zip";
 import Module from "module";
+globalThis.semver = semver;
 
 // ---- General architecture ----
 //
@@ -583,13 +584,14 @@ class GameFilesManager {
 			return successResponse(`File '${file}' is already using the latest patches`);
 		}
 
+		logDebug(`Repatching file '${file}' to ensure it is up to date with the latest patches`);
+
 		try {
 			this._repatchFile(file);
 		} catch (e) {
 			return errorResponse(`Failed to ensure file patches up to date for '${file}': ${e.stack}`);
 		}
 
-		logDebug(`File '${file}' re-patched to the latest patches`);
 		return successResponse(`File '${file}' re-patched to the latest patches`);
 	}
 
@@ -861,7 +863,7 @@ class ModsManager {
 				// Try and initialize the mod and its scripts
 				const res = await this._initializeMod(modPath);
 				if (!res.success) {
-					logError(`Failed to initialize mod at path ${modPath}: ${res.message}, ignoring...`);
+					logError(`Failed to initialize mod at '${modPath}': ${res.message}, ignoring...`);
 					continue;
 				}
 
@@ -958,7 +960,6 @@ class ModsManager {
 		// Mods also have side effects on game files, IPC handlers, and events
 		gameFilesManager.clearPatches();
 		fluxloaderAPI._clearModIPCHandlers();
-		fluxloaderAPI.events.clear();
 		logDebug("All mods unloaded successfully");
 		return successResponse("All mods unloaded successfully");
 	}
@@ -1413,11 +1414,78 @@ class ModsManager {
 	}
 
 	async createNewMod(modCreateRequestData) {
-		return successResponse("Mod creation is not implemented yet", {
-			modID: modCreateRequestData.modID,
-			modName: modCreateRequestData.modName,
-			modVersion: modCreateRequestData.modVersion,
-		});
+		// Assume that the data adheres to the modCreateRequestSchema
+		try {
+			// Check the modID is unique
+			if (this.installedMods[modCreateRequestData.modID] || this.fetchedModCache[modCreateRequestData.modID]) {
+				return errorResponse(`Mod with ID '${modCreateRequestData.modID}' already exists, please choose a different ID`);
+			}
+
+			// Create the mod directory
+			const modPath = path.join(this.baseModsPath, modCreateRequestData.modID);
+			logDebug(`Creating new mod directory at: ${modPath}`);
+			if (fs.existsSync(modPath)) {
+				return errorResponse(`Mod directory already exists at '${modPath}', please choose a different ID`);
+			}
+			ensureDirectoryExists(modPath);
+
+			// Create the modinfo.json file
+			const modInfo = {
+				modID: modCreateRequestData.modID,
+				name: modCreateRequestData.name,
+				version: modCreateRequestData.version,
+				author: modCreateRequestData.author,
+				fluxloaderVersion: modCreateRequestData.fluxloaderVersion,
+				shortDescription: modCreateRequestData.shortDescription,
+				description: modCreateRequestData.description,
+				dependencies: {},
+				tags: [],
+			};
+			if (modCreateRequestData.electronEntrypointEnabled) modInfo.electronEntrypoint = modCreateRequestData.electronEntrypointName;
+			if (modCreateRequestData.gameEntrypointEnabled) modInfo.gameEntrypoint = modCreateRequestData.gameEntrypointName;
+			if (modCreateRequestData.workerEntrypointEnabled) modInfo.workerEntrypoint = modCreateRequestData.workerEntrypointName;
+			if (modCreateRequestData.scriptEnabled) modInfo.scriptPath = modCreateRequestData.scriptPath;
+
+			// Helper function to create a file with optional content
+			function createFile(filePath, content = "") {
+				logDebug(`Creating file at: ${filePath}`);
+				try {
+					fs.writeFileSync(filePath, content, "utf8");
+				} catch (e) {
+					return errorResponse(`Failed to create file at ${filePath}: ${e.stack}`);
+				}
+			}
+
+			// Try create the modinfo.json file
+			const modInfoPath = path.join(modPath, "modinfo.json");
+			const modInfoResult = createFile(modInfoPath, JSON.stringify(modInfo, null, 2));
+			if (modInfoResult && !modInfoResult.success) return modInfoResult;
+
+			// Try create each entrypoint
+			if (modCreateRequestData.electronEntrypointEnabled) {
+				const electronEntrypointPath = path.join(modPath, modCreateRequestData.electronEntrypointName);
+				const res = createFile(electronEntrypointPath);
+				if (res && !res.success) return res;
+			}
+			if (modCreateRequestData.gameEntrypointEnabled) {
+				const gameEntrypointPath = path.join(modPath, modCreateRequestData.gameEntrypointName);
+				const res = createFile(gameEntrypointPath);
+				if (res && !res.success) return res;
+			}
+			if (modCreateRequestData.workerEntrypointEnabled) {
+				const workerEntrypointPath = path.join(modPath, modCreateRequestData.workerEntrypointName);
+				const res = createFile(workerEntrypointPath);
+				if (res && !res.success) return res;
+			}
+			if (modCreateRequestData.scriptEnabled) {
+				const scriptPath = path.join(modPath, modCreateRequestData.scriptPath);
+				const res = createFile(scriptPath);
+				if (res && !res.success) return res;
+			}
+			return successResponse(`Mod '${modCreateRequestData.modID}' created successfully`);
+		} catch (e) {
+			return errorResponse(`Failed to create new mod: ${e.stack}`);
+		}
 	}
 
 	// ------------ INTERNAL ------------
@@ -1445,15 +1513,14 @@ class ModsManager {
 		}
 
 		// Validate it against the schema
-		if (!SchemaValidation.validate(modInfo, this.modInfoSchema, { unknownKeyMethod: "ignore" })) {
-			return errorResponse(`Modinfo schema validation failed for mod: ${modInfoPath}}`);
-		}
+		const res = SchemaValidation.validate(modInfo, this.modInfoSchema, { unknownKeyMethod: "ignore" });
+		if (!res.success) return errorResponse(`Mod info schema validation failed: (${res.source}) ${res.error}`);
 
 		// Store the base schema
 		try {
 			modInfo.configSchemaBase = JSON.parse(JSON.stringify(modInfo.configSchema));
 		} catch (e) {
-			return errorResponse(`Failed to clone mod config schema for mod: ${modInfoPath} - ${e.stack}`);
+			return errorResponse(`Failed to clone mod config schema: ${e.stack}`);
 		}
 
 		// Validate each entrypoint
@@ -1527,9 +1594,8 @@ class ModsManager {
 		if (mod.info.configSchema && Object.keys(mod.info.configSchema).length > 0) {
 			logDebug(`Validating schema for mod: ${mod.info.modID}`);
 			let config = fluxloaderAPI.modConfig.get(mod.info.modID);
-			if (!SchemaValidation.validate(config, mod.info.configSchema)) {
-				return errorResponse(`Mod '${mod.info.modID}' config schema validation failed: ${e.message}`);
-			}
+			const res = SchemaValidation.validate(config, mod.info.configSchema);
+			if (!res.success) return errorResponse(`Mod '${mod.info.modID}' config schema validation failed: (${res.source}) ${res.error}`);
 			fluxloaderAPI.modConfig.set(mod.info.modID, config);
 		}
 
@@ -1857,15 +1923,14 @@ function loadFluxloaderConfig() {
 	}
 
 	// Validating against the schema will also set default values for any missing fields
-	let valid = SchemaValidation.validate(config, configSchema, { unknownKeyMethod: "delete" });
-
-	if (!valid) {
+	let res = SchemaValidation.validate(config, configSchema, { unknownKeyMethod: "delete" });
+	if (!res.success) {
 		// Applying the schema to an empty {} will set the default values
-		logDebug(`Config file is invalid, resetting to default values: ${configPath}`);
+		logDebug(`Config file ${configPath} is invalid: (${res.source}) ${res.error}`);
 		config = {};
-		valid = SchemaValidation.validate(config, configSchema);
-		if (!valid) {
-			throw new Error(`Failed to validate empty config file: ${configPath}`);
+		res = SchemaValidation.validate(config, configSchema);
+		if (!res.success) {
+			throw new Error(`Failed to validate empty config file: (${res.source}) ${res.error}`);
 		}
 	}
 
@@ -2209,7 +2274,6 @@ globalThis.attachDebuggerToGameWindow = function (window) {
 				const filePath = url.fileURLToPath(request.url);
 				if (filePath.startsWith(gameFilesManager.tempExtractedPath)) {
 					const relativePath = filePath.replace(gameFilesManager.tempExtractedPath + "\\", "");
-					logDebug(`Request for file: ${relativePath} intercepted`);
 					gameFilesManager.ensureFilePatchesUpToDate(relativePath);
 				}
 			}
@@ -2265,6 +2329,7 @@ function setupElectronIPC() {
 		"fl:set-mod-enabled": async (args) => modsManager.setModEnabled(args.modID, args.enabled),
 		"fl:create-new-mod": (args) => modsManager.createNewMod(args),
 		"fl:start-game": (_) => startGame(),
+		"fl:start-unmodded-game": (_) => startUnmoddedGame(),
 		"fl:close-game": (_) => closeGame(),
 		"fl:get-fluxloader-config": (_) => config,
 		"fl:get-mod-info-schema": (_) => modsManager.modInfoSchema,
@@ -2293,9 +2358,8 @@ function setupElectronIPC() {
 		if (!configLoaded) {
 			return errorResponse("Config not loaded yet");
 		}
-		if (!SchemaValidation.validate(args, configSchema)) {
-			return errorResponse("Invalid config data provided");
-		}
+		const res = SchemaValidation.validate(args, configSchema);
+		if (!res.success) return errorResponse(`Invalid config data provided: (${res.source}) ${res.error}`);
 		config = args;
 		return updateFluxloaderConfig();
 	});
@@ -2335,6 +2399,7 @@ function startManager() {
 			height: managerWindowHeight,
 			autoHideMenuBar: true,
 			webPreferences: {
+				nodeIntegration: true,
 				preload: resolvePathInsideFluxloader("manager/manager-preload.js"),
 			},
 		});
@@ -2372,6 +2437,32 @@ function closeManager() {
 		closeGame();
 	}
 	isManagerStarted = false;
+}
+
+async function startUnmoddedGame() {
+	if (isGameStarted) return errorResponse("Cannot start game, already running");
+
+	logInfo("Starting unmodded sandustry");
+	isGameStarted = true;
+
+	// Startup the events, files, and mods
+	try {
+		fluxloaderAPI._initializeEvents();
+		responseAsError(gameFilesManager.resetToBaseFiles());
+		responseAsError(await gameFilesManager.patchAndRunGameElectron());
+
+		gameElectronFuncs.createWindow();
+		gameWindow.on("closed", closeGame);
+		if (config.game.openDevTools) gameWindow.openDevTools();
+	} catch (e) {
+		logError(`Error starting unmodded game window: ${e.stack}`);
+		closeGame();
+		return errorResponse(`Error starting unmodded game window`, null, false);
+	}
+
+	fluxloaderAPI.events.trigger("fl:game-started");
+	logInfo(`Unmodded game started successfully at ${new Date().toISOString()}`);
+	return successResponse("Unmodded game started successfully");
 }
 
 async function startGame() {
@@ -2413,6 +2504,7 @@ function closeGame() {
 	gameWindow = null;
 	fluxloaderAPI.events.trigger("fl:game-closed");
 	modsManager.unloadAllMods();
+	fluxloaderAPI.events.clear();
 	trySendManagerEvent("fl:game-closed");
 	isGameStarted = false;
 }

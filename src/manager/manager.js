@@ -1,4 +1,5 @@
 import { SchemaValidation, Logging } from "../common.js";
+globalThis.semver = api.semver;
 
 // =================== VARIABLES ===================
 
@@ -126,8 +127,10 @@ class ConfigSchemaElement {
 	schema = null;
 	onChange = null;
 	extraValidation = null;
-	inputs = new Map();
 	statusElements = { wrapper: null, text: null, image: null };
+	schemaError = null;
+	inputErrors = new Map();
+	inputs = new Map();
 
 	constructor(parentElement, config, schema, onChange, extraValidation = null) {
 		// Initialize variables
@@ -176,8 +179,18 @@ class ConfigSchemaElement {
 	rerender() {
 		this.contentElement.innerHTML = "";
 		this.inputs.clear();
-		this._setStatus("valid");
+		this.inputErrors.clear();
+		this.schemaError = null;
 		this._createSchemaSection(this.config, this.schema, this.contentElement, []);
+		this._updateStatus();
+	}
+
+	rerenderAsInvalidSchema(error) {
+		this.contentElement.innerHTML = "";
+		this.inputs.clear();
+		this.inputErrors.clear();
+		this.schemaError = error;
+		this._updateStatus();
 	}
 
 	// ------------ INTERNAL ------------
@@ -189,7 +202,12 @@ class ConfigSchemaElement {
 			const currentPath = [...path, key];
 
 			// If it is not a leaf node then recurse into a new section
-			if (!SchemaValidation.isSchemaLeafNode(schemaValue)) {
+			const res = SchemaValidation.isSchemaLeafNode(schemaValue);
+			if (!res.success) {
+				this.rerenderAsInvalidSchema(res.error);
+				return false;
+			}
+			if (!res.isLeaf) {
 				const sectionContainer = document.createElement("div");
 				sectionContainer.classList.add("config-section");
 				const sectionTitle = document.createElement("h3");
@@ -199,7 +217,7 @@ class ConfigSchemaElement {
 				container.appendChild(sectionContainer);
 
 				// Recurse into the next level
-				this._createSchemaSection(configSection?.[key] ?? {}, schemaValue, sectionContainer, currentPath);
+				if (!this._createSchemaSection(configSection?.[key] ?? {}, schemaValue, sectionContainer, currentPath)) return false;
 			}
 
 			// Otherwise we want to render this leaf as an input
@@ -209,10 +227,17 @@ class ConfigSchemaElement {
 				}
 
 				// Create the input element based on the schema type
-				const value = configSection?.[key] ?? schemaValue.default;
+				let value = configSection?.[key] ?? schemaValue.default;
+				if (!value) value = "";
 				let input;
 				switch (schemaValue.type) {
 					case "string":
+						input = document.createElement("input");
+						input.type = "text";
+						input.value = value;
+						break;
+
+					case "semver":
 						input = document.createElement("input");
 						input.type = "text";
 						input.value = value;
@@ -263,8 +288,6 @@ class ConfigSchemaElement {
 					default:
 						throw new Error(`Unsupported input type: ${schemaValue.type}`);
 				}
-				this.inputs.set(currentPath.join("."), input);
-				input.addEventListener("change", () => this._handleInputChange(currentPath, input, schemaValue));
 				input.classList.add("config-input");
 
 				// Create the elements for the input
@@ -292,47 +315,62 @@ class ConfigSchemaElement {
 				}
 				container.appendChild(wrapper);
 
-				// Validate the input value immediately
-				this._validateInput(input, schemaValue);
+				this.inputs.set(currentPath.join("."), input);
+				input.addEventListener("change", () => this._validateInput(currentPath, input, schemaValue));
+				this._validateInput(currentPath, input, schemaValue, false);
 			}
 		}
+
+		return true;
 	}
 
-	_handleInputChange(path, input, schemaValue) {
-		const ret = this._validateInput(input, schemaValue);
-		if (ret.valid) {
-			input.classList.remove("invalid");
-			this._setConfigValue(path, ret.value);
-			this._setStatus("valid");
-			this.onChange(this.config);
-		}
-	}
+	_validateInput(path, input, schemaValue, emitOnChange = true) {
+		let isValid = true;
+		let error = { source: "unknown", error: "" };
 
-	_validateInput(input, schemaValue) {
 		// Parse the value out of the input
 		let value;
-		if (schemaValue.type === "boolean") value = input.checked;
-		else if (schemaValue.type === "number") value = parseFloat(input.value);
-		else value = input.value;
+		try {
+			if (schemaValue.type === "boolean") value = input.checked;
+			else if (schemaValue.type === "number") value = parseFloat(input.value);
+			else value = input.value;
+		} catch (e) {
+			isValid = false;
+			error.source = "input";
+			error.message = `Invalid value: ${e.message}`;
+		}
 
 		// Then validate it using the schema
-		if (!SchemaValidation.validateValue(value, schemaValue)) {
-			input.classList.add("invalid");
-			this._setStatus("invalid");
-			return { value, valid: false };
+		const pathKey = path.join(".");
+		if (isValid) {
+			const res = SchemaValidation.validateValue(value, schemaValue);
+			if (!res.success) {
+				isValid = false;
+				error.source = res.source;
+				error.message = `${pathKey} is invalid: ${res.error}`;
+			}
 		}
 
 		// Then validate it with user provided extra validation
-		if (this.extraValidation) {
-			const extraValidationResult = this.extraValidation(value, schemaValue);
-			if (extraValidationResult !== true) {
-				input.classList.add("invalid");
-				this._setStatus("invalid");
-				return { value, valid: false };
+		if (isValid && this.extraValidation) {
+			const extraValidationRes = this.extraValidation(value, schemaValue);
+			if (!extraValidationRes.success) {
+				isValid = false;
+				error.source = extraValidationRes.source;
+				error.message = extraValidationRes.error;
 			}
 		}
 
-		return { value, valid: true };
+		if (isValid) {
+			input.classList.remove("invalid");
+			this.inputErrors.delete(pathKey);
+			this._setConfigValue(path, value);
+			if (emitOnChange) this.onChange(this.config);
+		} else {
+			input.classList.add("invalid");
+			this.inputErrors.set(pathKey, error);
+		}
+		this._updateStatus();
 	}
 
 	_getConfigValue(path) {
@@ -356,19 +394,32 @@ class ConfigSchemaElement {
 		obj[path.at(-1)] = value;
 	}
 
-	_setStatus(status) {
-		if (status === "valid") {
-			this.statusElements.wrapper.classList.add("valid");
-			this.statusElements.wrapper.classList.remove("invalid");
-			const now = new Date();
-			this.statusElements.text.textContent = "Config is valid (" + now.toLocaleTimeString() + ")";
-			this.statusElements.image.src = "assets/check.png";
-		} else if (status === "invalid") {
+	_updateStatus() {
+		if (this.schemaError != null) {
 			this.statusElements.wrapper.classList.add("invalid");
 			this.statusElements.wrapper.classList.remove("valid");
-			this.statusElements.text.textContent = "Config is invalid.";
+			this.statusElements.text.textContent = `Schema is invalid: ${this.schemaError}`;
 			this.statusElements.image.src = "assets/cross.png";
+			return;
 		}
+
+		if (this.inputErrors.size > 0) {
+			this.statusElements.wrapper.classList.add("invalid");
+			this.statusElements.wrapper.classList.remove("valid");
+			let firstError = this.inputErrors.values().next().value;
+			this.statusElements.text.textContent = firstError.message;
+			if (this.inputErrors.size > 1) {
+				this.statusElements.text.textContent += ` (${this.inputErrors.size} errors)`;
+			}
+			this.statusElements.image.src = "assets/cross.png";
+			return;
+		}
+
+		this.statusElements.wrapper.classList.remove("invalid");
+		this.statusElements.wrapper.classList.add("valid");
+		const now = new Date();
+		this.statusElements.text.textContent = "Config is valid (" + now.toLocaleTimeString() + ")";
+		this.statusElements.image.src = "assets/check.png";
 	}
 }
 
@@ -462,7 +513,7 @@ class ModsTab {
 			return;
 		}
 
-		// Fetch these installed with an arbitrary delay
+		// Fetch the installed mods with an arbitrary delay
 		const reloadStartTime = Date.now();
 		await this.loadInstalledMods(true);
 		const reloadEndTime = Date.now();
@@ -473,11 +524,15 @@ class ModsTab {
 		// If we are connected then fetch remote mods
 		if (connectionState === "online") await this.loadMoreRemoteMods();
 
-		// Reselect the selected mod if it is still visible
-		if (this.selectedMod != null && this.modRows[this.selectedMod] != null) {
-			const oldSelectedMod = this.selectedMod;
-			this.selectedMod = null;
-			this.selectMod(oldSelectedMod);
+		// If we are selecting a mod then make sure to reselect it
+		if (this.selectedMod != null) {
+			if (this.modRows[this.selectedMod] != null) {
+				const oldSelectedMod = this.selectedMod;
+				this.selectedMod = null;
+				this.selectMod(oldSelectedMod);
+			} else {
+				this.selectMod(null);
+			}
 		}
 
 		this.setIsLoadingMods(false);
@@ -508,12 +563,16 @@ class ModsTab {
 
 		// Deselect a mod and remove all mod info
 		if (this.selectedMod !== null) {
-			this.modRows[this.selectedMod].element.classList.remove("selected");
+			if (this.modRows[this.selectedMod] != null) {
+				this.modRows[this.selectedMod].element.classList.remove("selected");
+			}
+
+			getElement("mod-info-title").innerText = "Mod Name";
+			getElement("mod-info").style.display = "none";
+			getElement("mod-info-empty").style.display = "block";
+			this.setModButtons([]);
+
 			if (this.selectedMod === modID) {
-				getElement("mod-info-title").innerText = "Mod Name";
-				getElement("mod-info").style.display = "none";
-				getElement("mod-info-empty").style.display = "block";
-				this.setModButtons([]);
 				this.selectedMod = null;
 				return;
 			}
@@ -681,6 +740,7 @@ class ModsTab {
 		e.stopPropagation();
 
 		// If there is an existing action and it is an install then unqueue it
+		this._clearCompletedActions();
 		if (this.allQueuedActions[modID]) {
 			if (this.allQueuedActions[modID].type === "install") {
 				await this.unqueueAction(modID);
@@ -1652,26 +1712,25 @@ class LogsTab {
 
 class CreateModTab {
 	static modCreateRequestSchema = {
-		
 		modID: {
 			type: "string",
-			default: "custommod",
-			pattern: "^[a-zA-Z0-9_-]+$"
+			pattern: "^[a-zA-Z0-9_-]+$",
 		},
 		name: {
 			type: "string",
-			default: "Custom Mod",
+			pattern: ".+",
 		},
 		version: {
-			type: "string",
+			type: "semver",
 			default: "1.0.0",
 		},
 		author: {
 			type: "string",
 			default: "",
+			pattern: ".+",
 		},
 		fluxloaderVersion: {
-			type: "string",
+			type: "semver",
 			default: ">=2.0.0",
 		},
 		shortDescription: {
@@ -1682,14 +1741,6 @@ class CreateModTab {
 			type: "string",
 			default: "",
 		},
-		dependencies: {
-			type: "object",
-			default: {},
-		},
-		tags: {
-			type: "array",
-			default: [],
-		},
 		electronEntrypointEnabled: {
 			type: "boolean",
 			default: true,
@@ -1697,6 +1748,7 @@ class CreateModTab {
 		electronEntrypointName: {
 			type: "string",
 			default: "entry.electron.js",
+			pattern: ".+",
 		},
 		gameEntrypointEnabled: {
 			type: "boolean",
@@ -1705,6 +1757,7 @@ class CreateModTab {
 		gameEntrypointName: {
 			type: "string",
 			default: "entry.game.js",
+			pattern: ".+",
 		},
 		workerEntrypointEnabled: {
 			type: "boolean",
@@ -1713,14 +1766,16 @@ class CreateModTab {
 		workerEntrypointName: {
 			type: "string",
 			default: "entry.worker.js",
+			pattern: ".+",
 		},
 		scriptEnabled: {
 			type: "boolean",
 			default: false,
 		},
-		scriptFileName: {
+		scriptPath: {
 			type: "string",
 			default: "script.js",
+			pattern: ".+",
 		},
 	};
 
@@ -1735,12 +1790,27 @@ class CreateModTab {
 		submitButton.addEventListener("click", async () => this.submitModInfo());
 
 		const container = getElement("create-mod-schema-container");
-		this.renderer = new ConfigSchemaElement(container, this.modCreateRequestData, CreateModTab.modCreateRequestSchema, (newConfig) => (this.modCreateRequestData = newConfig));
+		this.renderer = new ConfigSchemaElement(
+			container,
+			this.modCreateRequestData,
+			CreateModTab.modCreateRequestSchema,
+			(newConfig) => (this.modCreateRequestData = newConfig),
+			(value, schemaValue) => this.extraValidation(value, schemaValue)
+		);
 	}
 
 	async selectTab() {
 		if (!this.renderer) await this.setup();
 		else this.renderer.forceSetConfig(this.modCreateRequestData);
+	}
+
+	extraValidation(value, schemaValue) {
+		if (schemaValue.type === "string") {
+			if (tabs.mods.modRows[value]) {
+				return { success: false, error: "Mod ID already exists, please choose a different one." };
+			}
+		}
+		return { success: true };
 	}
 
 	async submitModInfo() {
@@ -1750,12 +1820,17 @@ class CreateModTab {
 			return;
 		}
 
+		console.log(this.modCreateRequestData);
+
 		setStatusBar("Creating mod...", 0, "loading");
 		const res = await api.invoke("fl:create-new-mod", this.modCreateRequestData);
 		if (!res.success) {
-		setStatusBar("Failed to create mod: " + (res && res.error ? res.error : "Unknown error"), 0, "failed");
+			setStatusBar("Failed to create mod: " + (res && res.data ? res.data : "Unknown error"), 0, "failed");
 		} else {
-		setStatusBar("Mod created successfully!", 0, "success");
+			setStatusBar("Mod created successfully!", 0, "success");
+			await selectTab("mods");
+			await tabs.mods.reloadMods();
+			await tabs.mods.selectMod(this.modCreateRequestData.modID);
 		}
 	}
 }
@@ -1911,24 +1986,24 @@ async function handleClickConnectionButton(e) {
 	}
 }
 
-function updatePlayButton() {
-	if (isPlayButtonLoading) {
-		getElement("play-button").innerText = "Loading...";
-	} else {
-		getElement("play-button").innerText = isPlaying ? "Stop" : "Start";
-	}
-}
-
-async function handleClickPlayButton() {
+async function handleClickPlayButton(unmodded = false) {
 	if (isPlayButtonLoading || tabs.mods.isLoadingMods || tabs.mods.isPerformingActions) return pingBlockingTask("Cannot change game state while loading mods or performing actions.");
 
 	setIsPlayButtonLoading(true);
 	updatePlayButton();
 	getElement("play-button").classList.toggle("active", true);
+	getElement("footer-dropdown").classList.toggle("active", true);
+	getElement("footer-dropdown-menu").style.display = "none";
 	setStatusBar("Loading...", 0, "loading");
 
 	if (!isPlaying) {
-		const res = await api.invoke(`fl:start-game`);
+		let res;
+		if (unmodded) {
+			res = await api.invoke(`fl:start-unmodded-game`);
+		} else {
+			res = await api.invoke(`fl:start-game`);
+		}
+
 		if (!res.success) {
 			logError("Failed to start the game, please check the logs for more details");
 			setStatusBar(`Failed to start game${res.data.errorReason ? ": " + res.data.errorReason : ""}`, 0, "failed");
@@ -1936,6 +2011,7 @@ async function handleClickPlayButton() {
 			setStatusBar("Game started", 0, "success");
 		}
 		getElement("play-button").classList.toggle("active", res.success);
+		getElement("footer-dropdown").classList.toggle("active", res.success);
 		isPlaying = res.success;
 		setIsPlayButtonLoading(false);
 		updatePlayButton();
@@ -1943,9 +2019,18 @@ async function handleClickPlayButton() {
 		await api.invoke(`fl:close-game`);
 		setStatusBar("Game stopped", 0, "success");
 		getElement("play-button").classList.toggle("active", false);
+		getElement("footer-dropdown").classList.toggle("active", false);
 		setIsPlayButtonLoading(false);
 		setIsPlaying(false);
 		updatePlayButton();
+	}
+}
+
+function updatePlayButton() {
+	if (isPlayButtonLoading) {
+		getElement("play-button").innerText = "Loading...";
+	} else {
+		getElement("play-button").innerText = isPlaying ? "Stop" : "Start";
 	}
 }
 
@@ -1996,6 +2081,7 @@ function setupElectronEvents() {
 		setIsPlaying(false);
 		updatePlayButton();
 		getElement("play-button").classList.toggle("active", false);
+		getElement("footer-dropdown").classList.toggle("active", false);
 	});
 
 	api.on("fl:mod-schema-updated", (_, { modID, schema }) => {
@@ -2016,6 +2102,16 @@ function setupElectronEvents() {
 	getElement("play-button").addEventListener("click", () => handleClickPlayButton());
 
 	getElement("connection-button").addEventListener("click", (e) => handleClickConnectionButton(e));
+
+	getElement("footer-dropdown-unmodded").addEventListener("click", (e) => {
+		e.stopPropagation();
+		handleClickPlayButton(true);
+	});
+	getElement("footer-dropdown").addEventListener("click", (e) => {
+		e.stopPropagation();
+		if (isPlaying) return;
+		getElement("footer-dropdown-menu").style.display = getElement("footer-dropdown-menu").style.display === "none" ? "block" : "none";
+	});
 
 	document.querySelectorAll(".resizer").forEach(handleResizer);
 

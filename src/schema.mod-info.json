@@ -7,13 +7,13 @@
 		"type": "string"
 	},
 	"version": {
-		"type": "string"
+		"type": "semver"
 	},
 	"author": {
 		"type": "string"
 	},
 	"fluxloaderVersion": {
-		"type": "string",
+		"type": "semver",
 		"default": ""
 	},
 	"shortDescription": {

@@ -62,10 +62,11 @@ export class SchemaValidation {
 
 	static validate(target, schema, config = {}) {
 		// Recursively validates the target object against the schema object
-		if (typeof schema !== "object") throw new Error("Schema must be an object");
+		if (typeof schema !== "object") {
+			return { success: false, error: "Schema must be an object", source: "schema" };
+		}
 		if (typeof target !== "object") {
-			log("error", "", `Target Invalid: Target is not an object`);
-			return false;
+			return { success: false, error: "Target must be an object", source: "target" };
 		}
 
 		// Ensure every key in target is also in the schema
@@ -77,92 +78,107 @@ export class SchemaValidation {
 					log("warn", "", `Target warning: Key '${configKey}' is not in the schema, deleting...`);
 					delete target[configKey];
 				} else if (config.unknownKeyMethod === "error") {
-					log("error", "", `Target Invalid: Key '${configKey}' is not in the schema`);
-					return false;
+					return { success: false, error: `Key '${configKey}' is not in the schema`, source: "target" };
 				}
 			}
 		}
 
 		for (const [schemaKey, schemaValue] of Object.entries(schema)) {
 			// The schema value must be an object
-			if (typeof schemaValue !== "object") throw new Error(`Schema invalid: Key '${schemaKey}' is not an object`);
+			if (typeof schemaValue !== "object") {
+				// throw new Error(`Schema invalid: Key '${schemaKey}' is not an object`);
+				return { success: false, error: `Key '${schemaKey}' is not an object`, source: "schema" };
+			}
 
 			// Validate the target value against the schema leaf node
-			if (this.isSchemaLeafNode(schemaValue)) {
+			const res = this.isSchemaLeafNode(schemaValue);
+			if (!res.success) return res;
+			if (res.isLeaf) {
 				if (!Object.hasOwn(target, schemaKey)) {
 					if (!Object.hasOwn(schemaValue, "default")) {
-						log("error", "", `Target Invalid: Key '${schemaKey}' is required by the schema`);
-						return false;
+						return { success: false, error: `Key '${schemaKey}' is required by the schema`, source: "target" };
 					}
 					target[schemaKey] = schemaValue.default;
 				}
-				if (!this.validateValue(target[schemaKey], schemaValue)) {
-					log("error", "", `Target Invalid: Schema key '${schemaKey}' is invalid in the target object`);
-					return false;
-				}
+				const res = this.validateValue(target[schemaKey], schemaValue);
+				if (!res.success) return { success: false, error: `Key '${schemaKey}' is invalid, ${res.error}`, source: res.source };
 			}
 
 			// Otherwise recurse into the target and schema object
 			else {
 				if (!Object.hasOwn(target, schemaKey)) target[schemaKey] = {};
-				if (!this.validate(target[schemaKey], schemaValue)) return false;
+				const res = this.validate(target[schemaKey], schemaValue);
+				if (!res.success) return res;
 			}
 		}
 
-		return true;
+		return { success: true };
 	}
 
 	static validateValue(targetValue, schemaLeafValue) {
 		switch (schemaLeafValue.type) {
 			case "boolean":
-				return targetValue === true || targetValue === false;
+				var isValid = typeof targetValue === "boolean";
+				if (!isValid) return { success: false, error: `Expected boolean but got ${typeof targetValue}`, source: "target" };
+				return { success: true };
 
 			case "string":
-				let valid = typeof targetValue === "string";
+				if (typeof targetValue !== "string") return { success: false, error: `Expected string but got ${typeof targetValue}`, source: "target" };
 				if (Object.hasOwn(schemaLeafValue, "pattern")) {
-					const regex = new RegExp(schemaLeafValue.pattern);
-					valid = valid && regex.test(targetValue);
+					var regex = new RegExp(schemaLeafValue.pattern);
+					if (!regex.test(targetValue)) return { success: false, error: `String '${targetValue}' does not match pattern '${schemaLeafValue.pattern}'`, source: "target" };
 				}
-				return valid;
+				return { success: true };
+
+			case "semver":
+				if (typeof targetValue !== "string") return { success: false, error: `Expected semver string but got ${typeof targetValue}`, source: "target" };
+				if (globalThis.semver.coerce(targetValue) === null) return { success: false, error: `String is not a valid semver version`, source: "target" };
+				return { success: true };
 
 			case "number":
-				if (typeof targetValue !== "number") return false;
-				if (Object.hasOwn(schemaLeafValue, "min") && targetValue < schemaLeafValue.min) return false;
-				if (Object.hasOwn(schemaLeafValue, "max") && targetValue > schemaLeafValue.max) return false;
+				if (typeof targetValue !== "number") return { success: false, error: `Expected number but got ${typeof targetValue}`, source: "target" };
+				if (Object.hasOwn(schemaLeafValue, "min") && targetValue < schemaLeafValue.min) return { success: false, error: `Number is less than minimum value ${schemaLeafValue.min}`, source: "target" };
+				if (Object.hasOwn(schemaLeafValue, "max") && targetValue > schemaLeafValue.max) return { success: false, error: `Number is greater than maximum value ${schemaLeafValue.max}`, source: "target" };
 				// If step is given, checks if the value is close enough to the step value
 				if (Object.hasOwn(schemaLeafValue, "step")) {
-					if (Math.abs(targetValue / schemaLeafValue.step - Math.round(targetValue / schemaLeafValue.step)) > SchemaValidation.FLOAT_EPSILON) return false;
+					if (Math.abs(targetValue / schemaLeafValue.step - Math.round(targetValue / schemaLeafValue.step)) > SchemaValidation.FLOAT_EPSILON) {
+						return { success: false, error: `Number is not a valid step of ${schemaLeafValue.step}`, source: "target" };
+					}
 				}
-
-				return true;
+				return { success: true };
 
 			case "dropdown":
-				if (!schemaLeafValue.options) throw new Error("Schema invalid: Type 'dropdown' requires an 'options' array");
-				return schemaLeafValue.options.includes(targetValue);
+				if (!schemaLeafValue.options) return { success: false, error: `Dropdown schema must have 'options' defined`, source: "schema" };
+				if (!schemaLeafValue.options.includes(targetValue)) return { success: false, error: `Value '${targetValue}' is not a valid option for dropdown`, source: "target" };
+				return { success: true };
 
 			case "object":
-				return typeof targetValue === "object" && targetValue !== null && !Array.isArray(targetValue);
+				if (typeof targetValue !== "object") return { success: false, error: `Expected object but got ${typeof targetValue}`, source: "target" };
+				if (targetValue === null) return { success: false, error: `Expected object but got null`, source: "target" };
+				if (Array.isArray(targetValue)) return { success: false, error: `Expected object but got an array`, source: "target" };
+				return { success: true };
 
 			case "array":
-				return Array.isArray(targetValue);
+				if (!Array.isArray(targetValue)) return { success: false, error: `Expected array but got ${typeof targetValue}`, source: "target" };
+				return { success: true };
 
 			default:
-				throw new Error(`Schema invalid: Unknown schema type '${schemaLeafValue.type}'`);
+				return { success: false, error: `Unknown schema type '${schemaLeafValue.type}'`, source: "schema" };
 		}
 	}
 
 	static isSchemaLeafNode(schemaValue) {
 		// This should be caught in the validate function but just in case we check here too
-		if (typeof schemaValue !== "object") throw new Error("Schema invalid: Schema value is not an object");
+		if (typeof schemaValue !== "object") return { success: false, error: `Schema value must be an object`, source: "schema" };
 
 		// If the schema value has "type" defined it is a leaf node
 		const hasType = Object.hasOwn(schemaValue, "type");
-		if (hasType) return true;
+		if (hasType) return { success: true, isLeaf: true };
 
 		// If it does not have "type" defined it must only contain other objects or be empty
-		const anyValues = Object.values(schemaValue).some((value) => typeof value !== "object");
-		if (anyValues) throw new Error(`Schema invalid: Schema nodes must either have "type" or only values that are objects`);
-		return false;
+		const anyValuesNotObjects = Object.values(schemaValue).some((value) => typeof value !== "object");
+		if (anyValuesNotObjects) return { success: false, error: `Schema node properties must either be a leaf node (include type) or only contain other objects`, source: "schema" };
+		return { success: true, isLeaf: false };
 	}
 }
 
