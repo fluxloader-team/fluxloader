@@ -985,7 +985,12 @@ class ModsManager {
 		}
 
 		// Check it is a valid response
-		if (!responseData || !Object.hasOwn(responseData, "resultsCount")) return errorResponse("Invalid response from remote mods API");
+		if (!responseData) return errorResponse("Invalid response from remote mods API");
+		if (responseData.message && responseData.message === "No mods found matching your search query.") {
+			logWarn(`No mods found for ${url}`);
+			return successResponse("No remote mods found for the given query", []);
+		}
+		if (!Object.hasOwn(responseData, "resultsCount")) return errorResponse("Invalid response from remote mods API, missing 'resultsCount'");
 		logDebug(`Fetched ${responseData.mods.length} remote mods from API in ${timeTaken}ms`);
 
 		// Render the description of each mod if requested
