@@ -1819,6 +1819,17 @@ class ModsManager {
 
 		if (!modVersions || !Object.hasOwn(modVersions, "versions")) return errorResponse(`Invalid response from mod versions API: ${JSON.stringify(modVersions)}`);
 
+		
+		for (const modID in modVersions.versions) {
+			const modVersionInfo = modVersions.versions[modID];
+			if (this.isModInstalled(modID)) {
+				this.installedMods[modID].versions = modVersionInfo;
+				logDebug(`Updated mod '${modID}' version info with fetched data`);
+			} else {
+				logError(`Mod '${modID}' version info found but mod is not installed, skipping update`);
+			}
+		}
+		
 		return successResponse(`Fetched versions for ${this.loadOrder.length} installed mods`, modVersions.versions);
 	}
 

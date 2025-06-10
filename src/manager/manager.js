@@ -1179,7 +1179,7 @@ class ModsTab {
 		modData.votes = null; // Votes are not available for installed mods
 		modData.lastUpdated = "local"; // Local mods are always "local"
 		modData.renderedDescription = mod.renderedDescription;
-		modData.versions = null;
+		modData.versions = mod.versions || null;
 		modData.isInstalled = true;
 		modData.isEnabled = mod.isEnabled;
 		return modData;
