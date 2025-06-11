@@ -1764,9 +1764,16 @@ class ModsManager {
 						this.modContext.require = customRequire;
 						module.runInContext(this.modContext);
 						await this.modContext.fluxloaderTopLevel();
-						delete this.modContext.fluxloaderTopLevel;
 					} catch (e) {
-						catchModError(`Error evaluating mod electron entrypoint`, mod.info.modID, e);
+						let out = `Error evaluating mod electron entrypoint (Mod ID: ${mod.info.modID})`;
+						if (e) {
+							if (e.stack) {
+								out += `\n${e.stack}`;
+							} else {
+								out += `\n${e}`;
+							}
+						}
+						logError(out);
 					}
 				})();
 			} catch (e) {
@@ -2042,20 +2049,6 @@ function setupFluxloaderEvents() {
 	logDebug("Setting up fluxloader events");
 	fluxloaderEvents = new EventBus();
 	fluxloaderEvents.registerEvent("game-cleanup");
-}
-
-function catchModError(msg, modID, err) {
-	let out = `Mod Error: ${msg}`;
-	if (modID) out += ` (Mod ID: ${modID})`;
-	if (err) {
-		if (err.stack) {
-			out += `\n${err.stack}`;
-		} else {
-			out += `\n${err}`;
-		}
-	}
-	logError(out);
-	closeGame();
 }
 
 function loadFluxloaderConfig() {
@@ -2640,15 +2633,15 @@ async function startGame() {
 		gameElectronFuncs.createWindow();
 		gameWindow.on("closed", closeGame);
 		if (config.game.openDevTools) gameWindow.openDevTools();
+
+		fluxloaderAPI.events.trigger("fl:game-started");
+		logInfo(`Game started successfully at ${new Date().toISOString()}`);
+		return successResponse("Game started successfully");
 	} catch (e) {
 		logError(`Error starting game window: ${e.stack}`);
 		closeGame();
 		return errorResponse(`Error starting game window`, null, false);
 	}
-
-	fluxloaderAPI.events.trigger("fl:game-started");
-	logInfo(`Game started successfully at ${new Date().toISOString()}`);
-	return successResponse("Game started successfully");
 }
 
 function closeGame() {
