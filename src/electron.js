@@ -985,7 +985,12 @@ class ModsManager {
 		}
 
 		// Check it is a valid response
-		if (!responseData || !Object.hasOwn(responseData, "resultsCount")) return errorResponse("Invalid response from remote mods API");
+		if (!responseData) return errorResponse("Invalid response from remote mods API");
+		if (responseData.message && responseData.message === "No mods found matching your search query.") {
+			logWarn(`No mods found for ${url}`);
+			return successResponse("No remote mods found for the given query", []);
+		}
+		if (!Object.hasOwn(responseData, "resultsCount")) return errorResponse("Invalid response from remote mods API, missing 'resultsCount'");
 		logDebug(`Fetched ${responseData.mods.length} remote mods from API in ${timeTaken}ms`);
 
 		// Render the description of each mod if requested
@@ -1288,11 +1293,21 @@ class ModsManager {
 				if (match && match[1]) folderName = match[1];
 			}
 
+			// Check it doesn't exist
+			const modExtractPath = path.join(this.baseModsPath, folderName);
+			if (fs.existsSync(modExtractPath)) {
+				return errorResponse(`Cannot install mod '${modID}' version '${version}' as the folder '${modExtractPath}' already exists`, {
+					performedActions: performedActions,
+					errorModID: modID,
+					errorReason: "already-exists"
+				});
+			}
+
 			// Extract the zip file to the mod path
 			try {
 				const buffer = Buffer.from(await versionRes.arrayBuffer(), "base64");
 				const zip = new AdmZip(buffer);
-				zip.extractAllTo(this.baseModsPath, false);
+				zip.extractAllTo(modExtractPath, false);
 			} catch (e) {
 				return errorResponse(`Failed to extract mod '${modID}' version '${version}': ${e.stack}`, {
 					performedActions: performedActions,
@@ -2282,9 +2297,9 @@ globalThis.attachDebuggerToGameWindow = function (window) {
 
 			// We only care about files inside the gameFilesManager.tempExtractedPath
 			if (request.url.startsWith("file://")) {
-				const filePath = url.fileURLToPath(request.url);
+				const filePath = url.fileURLToPath(request.url).replace("\\", "/");
 				if (filePath.startsWith(gameFilesManager.tempExtractedPath)) {
-					const relativePath = filePath.replace(gameFilesManager.tempExtractedPath + "\\", "");
+					const relativePath = filePath.replace(gameFilesManager.tempExtractedPath + "/", "");
 					gameFilesManager.ensureFilePatchesUpToDate(relativePath);
 				}
 			}
