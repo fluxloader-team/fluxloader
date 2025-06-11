@@ -1158,6 +1158,7 @@ class ModsManager {
 		// Setup the current state with the currently installed mods
 		let currentState = {};
 		let currentConstraints = {};
+		let uninstallConstraints = {};
 		for (const modID in this.installedMods) {
 			const mod = this.installedMods[modID];
 			currentState[modID] = mod.info.version;
@@ -1185,7 +1186,9 @@ class ModsManager {
 				for (const depModID in dependencies) {
 					// We cannot depend on a mod if it has a hard uninstall
 					if (hardUninstalls.includes(depModID)) {
-						logWarn(`Mod '${modID}' has a dependency on '${depModID}' but it is marked for uninstall, skipping`);
+						logWarn(`Skipping dependency '${depModID}' for mod '${modID}' as it is marked for uninstall`);
+						if (!uninstallConstraints[modID]) uninstallConstraints[modID] = [];
+						uninstallConstraints[modID].push(currentState[modID]);
 					} else {
 						if (!currentConstraints[depModID]) currentConstraints[depModID] = [];
 						currentConstraints[depModID].push({ version: dependencies[depModID], parent: modID });
@@ -1218,7 +1221,7 @@ class ModsManager {
 
 				// We should only try and find a mod version that fits if:
 				// - One of the dependencies is explicit (not optional or conflict)
-				// - We have the mod installed (and therefore need to try and avoid conflicts etc)
+				// - We have the mod installed (and therefore need we are searching for a version that matches versions)
 				let needsToBeConsidered = false;
 				for (const constraint of currentModConstraints) {
 					if (!constraint.version.startsWith("optional:") && !constraint.version.startsWith("conflict:")) {
@@ -1241,6 +1244,10 @@ class ModsManager {
 							satisfiesAll = false;
 							break;
 						}
+					}
+					// Do not allow installing a mod version that is blocked due to a hard uninstall
+					if (uninstallConstraints[requiredModID] && uninstallConstraints[requiredModID].includes(installedVersion)) {
+						satisfiesAll = false;
 					}
 					if (satisfiesAll) {
 						logDebug(`Using currently installed version '${installedVersion}' for mod '${requiredModID}'`);
@@ -1275,6 +1282,10 @@ class ModsManager {
 							satisfiesAll = false;
 							break;
 						}
+					}
+					// Do not allow installing a mod version that is blocked due to a hard uninstall
+					if (uninstallConstraints[requiredModID] && uninstallConstraints[requiredModID].includes(version)) {
+						satisfiesAll = false;
 					}
 					if (satisfiesAll) {
 						foundVersion = version;
@@ -1325,7 +1336,7 @@ class ModsManager {
 		for (const uninstallModID of hardUninstalls) {
 			actions[uninstallModID] = { type: "uninstall", modID: uninstallModID };
 		}
-		// Convert any mods that survived into "change" or "install" actions
+		// Convert any mods that have specified versions into "change" or "install" actions
 		for (const modID in currentState) {
 			const version = currentState[modID];
 			if (actions[modID]) {
@@ -1346,9 +1357,9 @@ class ModsManager {
 				actions[modID] = { type: "install", modID, version, parents };
 			}
 		}
-		// Convert any installed mods that did not survive into "uninstall" actions
+		// If a mod that we have installed was blocked by an uninstall then we need to add an "uninstall" action for it
 		for (const modID in this.installedMods) {
-			if (!actions[modID] && !hardUninstalls.includes(modID)) {
+			if (!actions[modID] && uninstallConstraints[modID] && uninstallConstraints[modID].includes(this.installedMods[modID].info.version)) {
 				actions[modID] = { type: "uninstall", modID };
 			}
 		}
