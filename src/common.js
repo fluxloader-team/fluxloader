@@ -160,6 +160,15 @@ export class SchemaValidation {
 
 			case "array":
 				if (!Array.isArray(targetValue)) return { success: false, error: `Expected array but got ${typeof targetValue}`, source: "target" };
+				if (Object.hasOwn(schemaLeafValue, "elements")) {
+					// If elements is defined, validate each element in the array
+					for (const [index, element] of targetValue.entries()) {
+						const res = this.validateValue(element, schemaLeafValue.elements);
+						if (!res.success) {
+							return { success: false, error: `Element at index ${index} is invalid, ${res.error}`, source: res.source };
+						}
+					}
+				}
 				return { success: true };
 
 			default:

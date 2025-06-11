@@ -30,7 +30,11 @@
 	},
 	"tags": {
 		"type": "array",
-		"default": []
+		"default": [],
+		"elements": {
+			"type": "string",
+			"pattern": "^[a-z]+$"
+		}
 	},
 	"electronEntrypoint": {
 		"type": "string",
