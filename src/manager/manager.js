@@ -1011,11 +1011,12 @@ class ModsTab {
 
 		// Make sure the hover status matches the old one
 		// TODO: Fix this so it properly reflects action queue state
-		console.log(oldElement);
-		const oldHoverSrc = oldElement.querySelector(".mod-row-status .hover-img").src;
-		newRow.element.querySelector(".mod-row-status .hover-img").src = oldHoverSrc;
-		const oldMainActive = oldElement.querySelector(".mod-row-status .main-img").classList.contains("active");
-		newRow.element.querySelector(".mod-row-status .main-img").classList.toggle("active", oldMainActive);
+		if (oldElement.querySelector(".mod-row-status .hover-img")) {
+			const oldHoverSrc = oldElement.querySelector(".mod-row-status .hover-img").src;
+			newRow.element.querySelector(".mod-row-status .hover-img").src = oldHoverSrc;
+			const oldMainActive = oldElement.querySelector(".mod-row-status .main-img").classList.contains("active");
+			newRow.element.querySelector(".mod-row-status .main-img").classList.toggle("active", oldMainActive);
+		}
 	}
 
 	_createModRowStatus(modData) {
