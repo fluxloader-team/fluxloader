@@ -1293,11 +1293,21 @@ class ModsManager {
 				if (match && match[1]) folderName = match[1];
 			}
 
+			// Check it doesn't exist
+			const modExtractPath = path.join(this.baseModsPath, folderName);
+			if (fs.existsSync(modExtractPath)) {
+				return errorResponse(`Cannot install mod '${modID}' version '${version}' as the folder '${modExtractPath}' already exists`, {
+					performedActions: performedActions,
+					errorModID: modID,
+					errorReason: "already-exists"
+				});
+			}
+
 			// Extract the zip file to the mod path
 			try {
 				const buffer = Buffer.from(await versionRes.arrayBuffer(), "base64");
 				const zip = new AdmZip(buffer);
-				zip.extractAllTo(this.baseModsPath, false);
+				zip.extractAllTo(modExtractPath, false);
 			} catch (e) {
 				return errorResponse(`Failed to extract mod '${modID}' version '${version}': ${e.stack}`, {
 					performedActions: performedActions,
