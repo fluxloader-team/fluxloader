@@ -2286,9 +2286,9 @@ globalThis.attachDebuggerToGameWindow = function (window) {
 
 			// We only care about files inside the gameFilesManager.tempExtractedPath
 			if (request.url.startsWith("file://")) {
-				const filePath = url.fileURLToPath(request.url);
+				const filePath = url.fileURLToPath(request.url).replace("\\", "/");
 				if (filePath.startsWith(gameFilesManager.tempExtractedPath)) {
-					const relativePath = filePath.replace(gameFilesManager.tempExtractedPath + "\\", "");
+					const relativePath = filePath.replace(gameFilesManager.tempExtractedPath + "/", "");
 					gameFilesManager.ensureFilePatchesUpToDate(relativePath);
 				}
 			}
