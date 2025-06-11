@@ -11,4 +11,6 @@
 -   Load order GUI + saving
 -   Open folder buttons in schema
 -   Folder locators in schema
-
+-   Allow setting contents of non existent files, maybe with overwrite
+-   Update game entrypoint to also be CJS same as electron
+-   Look into manager -> game events
