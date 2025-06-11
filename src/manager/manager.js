@@ -1288,9 +1288,9 @@ class ModsTab {
 
 		// Re-create the full action element for each action
 		getElement("action-queue-content").innerHTML = "";
-		for (const actionID in this.allQueuedActions) {
-			this._addActionRowElement(this.allQueuedActions[actionID]);
-			this._setActionElementPreviewsVisible(this.allQueuedActions[actionID], true, "queued");
+		for (const actionModID in this.allQueuedActions) {
+			this._addActionRowElement(this.allQueuedActions[actionModID]);
+			this._setActionElementPreviewsVisible(this.allQueuedActions[actionModID], true, "queued");
 		}
 
 		this.setIsQueueingAction(false);
