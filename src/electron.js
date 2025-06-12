@@ -1752,7 +1752,6 @@ class ModsManager {
 		if (mod.info.electronEntrypoint) {
 			try {
 				const includeVMScript = (filePath) => {
-					console.log(`Including VM script: ${filePath}`);
 					// Read the provided files content (relative to the mods folder)
 					const absolutePath = path.join(mod.path, filePath);
 					if (!fs.existsSync(absolutePath)) throw new Error(`File not found: ${absolutePath}`);

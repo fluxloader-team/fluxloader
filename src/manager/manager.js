@@ -1845,8 +1845,6 @@ class CreateModTab {
 			return;
 		}
 
-		console.log(this.modCreateRequestData);
-
 		setStatusBar("Creating mod...", 0, "loading");
 		const res = await api.invoke("fl:create-new-mod", this.modCreateRequestData);
 		if (!res.success) {
