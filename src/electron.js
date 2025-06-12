@@ -2419,10 +2419,10 @@ globalThis.attachDebuggerToGameWindow = function (window) {
 			if (request.url.startsWith("file://")) {
 				const filePath = url.fileURLToPath(request.url).replace("\\", "/");
 				if (filePath.startsWith(gameFilesManager.tempExtractedPath)) {
-					await fluxloaderAPI.events.trigger("fl:file-requested", filePath);
 					const relativePath = filePath.replace(gameFilesManager.tempExtractedPath + "/", "");
 					gameFilesManager.ensureFilePatchesUpToDate(relativePath);
 				}
+				await fluxloaderAPI.events.trigger("fl:file-requested", filePath);
 			}
 
 			// Allow non-file requests to continue
