@@ -11,7 +11,6 @@ import { marked } from "marked";
 import { EventBus, SchemaValidation, Logging } from "./common.js";
 import semver from "semver";
 import AdmZip from "adm-zip";
-import Module from "module";
 globalThis.semver = semver;
 
 // ---- General architecture ----
@@ -1745,34 +1744,33 @@ class ModsManager {
 
 		if (mod.info.electronEntrypoint) {
 			try {
-				const entrypointPath = path.join(mod.path, mod.info.electronEntrypoint);
-				const entrypointCode = fs.readFileSync(entrypointPath, "utf8");
-				const identifier = url.pathToFileURL(entrypointPath).href;
-				logDebug(`Loading electron entrypoint: ${identifier}`);
+				const includeVMScript = (filePath) => {
+					console.log(`Including VM script: ${filePath}`);
+					// Read the provided files content (relative to the mods folder)
+					const absolutePath = path.join(mod.path, filePath);
+					if (!fs.existsSync(absolutePath)) throw new Error(`File not found: ${absolutePath}`);
+					const code = fs.readFileSync(absolutePath, "utf8");
 
-				// Wrap the code so top level async works
-				const wrappedCode = `globalThis.fluxloaderTopLevel = async () => {${entrypointCode}\n}`;
+					// Wrap the code in a top level async so it can be awaited
+					const wrappedCode = `globalThis.toplevelAsyncWrapperExport = async () => {${code}\n}`;
+					const identifier = url.pathToFileURL(absolutePath).href;
+					const script = new vm.Script(wrappedCode, { filename: identifier });
 
-				// Load and start the electron entrypoint as a module in the context
-				const module = new vm.Script(wrappedCode, { filename: identifier });
-				this.modElectronModules[mod.info.modID] = module;
+					// Give it access to this includeVMScript
+					this.modContext.includeVMScript = includeVMScript;
+					script.runInContext(this.modContext);
+					return this.modContext.toplevelAsyncWrapperExport();
+				};
 
-				// Await the async top level asynchronously
+				logDebug(`Loading electron entrypoint: ${mod.info.electronEntrypoint}`);
+
 				(async () => {
 					try {
-						const customRequire = Module.createRequire(entrypointPath);
-						this.modContext.require = customRequire;
-						module.runInContext(this.modContext);
-						await this.modContext.fluxloaderTopLevel();
+						await includeVMScript(mod.info.electronEntrypoint);
 					} catch (e) {
 						let out = `Error evaluating mod electron entrypoint (Mod ID: ${mod.info.modID})`;
-						if (e) {
-							if (e.stack) {
-								out += `\n${e.stack}`;
-							} else {
-								out += `\n${e}`;
-							}
-						}
+						if (e && e.stack) out += `\n${e.stack}`;
+						else if (e) out += `\n${e}`;
 						logError(out);
 					}
 				})();
@@ -1791,7 +1789,6 @@ class ModsManager {
 		if (!mod.isLoaded) logWarn(`Mod '${mod.info.modID}' is not loaded, cannot unload it`);
 		logDebug(`Unloading mod: ${mod.info.modID}`);
 		delete this.modScriptsImport[mod.info.modID];
-		delete this.modElectronModules[mod.info.modID];
 		fluxloaderAPI.events.trigger("fl:mod-unloaded", mod);
 		mod.isLoaded = false;
 		this.loadedModCount--;
