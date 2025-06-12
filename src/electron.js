@@ -239,6 +239,12 @@ class ElectronFluxloaderAPI {
 		ipcMain.handle(fullChannel, handler);
 	}
 
+	sendGameEvent(event, message) {
+		const fullEvent = `fl-mod:${event}`;
+		logDebug(`Sending game event: ${fullEvent} with message: ${JSON.stringify(message)}`);
+		globalThis.gameWindow?.webContents.send(fullEvent, message);
+	}
+
 	getInstalledMods() {
 		return modsManager.getInstalledMods();
 	}
@@ -469,51 +475,52 @@ class GameFilesManager {
 		// The main point is we want to ensure we open the game the same way the game does
 
 		try {
-			const replaceAllMain = (tag, from, to, matches = 1) => {
+			const setPatchMain = (tag, from, to, matches = 1) => {
 				const res = gameFilesManager.setPatch("main.js", tag, { type: "replace", from, to, expectedMatches: matches });
 				if (!res.success) throw new Error(`Failed to set patch for main.js: ${res.message}`);
 			};
-			const replaceAllPreload = (tag, from, to, matches = 1) => {
+			const setPatchPreload = (tag, from, to, matches = 1) => {
 				const res = gameFilesManager.setPatch("preload.js", tag, { type: "replace", from, to, expectedMatches: matches });
 				if (!res.success) throw new Error(`Failed to set patch for main.js: ${res.message}`);
 			};
 
 			// Rename and expose the games main electron functions
-			replaceAllMain("fluxloader:electron-globalize-main", "function createWindow ()", "globalThis.gameElectronFuncs.createWindow = function()");
-			replaceAllMain("fluxloader:electron-globalize-ipc", "function setupIpcHandlers()", "globalThis.gameElectronFuncs.setupIpcHandlers = function()");
-			replaceAllMain("fluxloader:electron-globalize-settings", "function loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync = function()");
-			replaceAllMain("fluxloader:electron-globalize-settings-calls", "loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync()");
+			setPatchMain("fluxloader:electron-globalize-main", "function createWindow ()", "globalThis.gameElectronFuncs.createWindow = function()");
+			setPatchMain("fluxloader:electron-globalize-ipc", "function setupIpcHandlers()", "globalThis.gameElectronFuncs.setupIpcHandlers = function()");
+			setPatchMain("fluxloader:electron-globalize-settings", "function loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync = function()");
+			setPatchMain("fluxloader:electron-globalize-settings-calls", "loadSettingsSync()", "globalThis.gameElectronFuncs.loadSettingsSync()");
 
 			// Block the automatic app listeners so we control when things happen
-			replaceAllMain("fluxloader:electron-block-execution-1", "app.whenReady().then(() => {", "var _ = (() => {");
-			replaceAllMain("fluxloader:electron-block-execution-2", "app.on('window-all-closed', function () {", "var _ = (() => {");
+			setPatchMain("fluxloader:electron-block-execution-1", "app.whenReady().then(() => {", "var _ = (() => {");
+			setPatchMain("fluxloader:electron-block-execution-2", "app.on('window-all-closed', function () {", "var _ = (() => {");
 
 			// Ensure that the app thinks it is still running inside the app.asar
 			// - Fix the userData path to be 'sandustrydemo' instead of 'sandustry-fluxloader'
 			// - Override relative "preload.js" to absolute
 			// - Override relative "index.html" to absolute
-			replaceAllMain("fluxloader:electron-fix-paths-1", 'getPath("userData")', 'getPath("userData").replace("sandustry-fluxloader", "sandustrydemo")', 3);
-			replaceAllMain("fluxloader:electron-fix-paths-2", "path.join(__dirname, 'preload.js')", `'${path.join(this.tempExtractedPath, "preload.js").replaceAll("\\", "/")}'`);
-			replaceAllMain("fluxloader:electron-fix-paths-3", "loadFile('index.html')", `loadFile('${path.join(this.tempExtractedPath, "index.html").replaceAll("\\", "/")}')`);
+			setPatchMain("fluxloader:electron-fix-paths-1", 'getPath("userData")', 'getPath("userData").replace("sandustry-fluxloader", "sandustrydemo")', 3);
+			setPatchMain("fluxloader:electron-fix-paths-2", "path.join(__dirname, 'preload.js')", `'${path.join(this.tempExtractedPath, "preload.js").replaceAll("\\", "/")}'`);
+			setPatchMain("fluxloader:electron-fix-paths-3", "loadFile('index.html')", `loadFile('${path.join(this.tempExtractedPath, "index.html").replaceAll("\\", "/")}')`);
 
 			// Expose the games main window to be global
-			replaceAllMain("fluxloader:electron-globalize-window", "const mainWindow", "globalThis.gameWindow", 1);
-			replaceAllMain("fluxloader:electron-globalize-window-calls", "mainWindow", "globalThis.gameWindow", 4);
+			setPatchMain("fluxloader:electron-globalize-window", "const mainWindow", "globalThis.gameWindow", 1);
+			setPatchMain("fluxloader:electron-globalize-window-calls", "mainWindow", "globalThis.gameWindow", 4);
 
 			// Make the menu bar visible
 			// replaceAllMain("autoHideMenuBar: true,", "autoHideMenuBar: false,");
 
 			// We're also gonna expose the ipcMain in preload.js
-			replaceAllPreload(
+			setPatchPreload(
 				"fluxloader:exposeIPC",
 				"save: (id, name, data)",
 				`invoke: (msg, ...args) => ipcRenderer.invoke(msg, ...args),
 				handle: (msg, func) => ipcRenderer.handle(msg, func),
+				on: (msg, func) => ipcRenderer.on(msg, func),
 				save: (id, name, data)`
 			);
 
 			// Hook into the debugger
-			replaceAllMain("fluxloader:attach-debugger", "globalThis.gameWindow.loadFile", "globalThis.attachDebuggerToGameWindow(globalThis.gameWindow);globalThis.gameWindow.loadFile");
+			setPatchMain("fluxloader:attach-debugger", "globalThis.gameWindow.loadFile", "globalThis.attachDebuggerToGameWindow(globalThis.gameWindow);globalThis.gameWindow.loadFile");
 
 			gameFilesManager._repatchFile("main.js");
 			gameFilesManager._repatchFile("preload.js");

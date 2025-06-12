@@ -7,7 +7,7 @@ export class EventBus {
 		this.events[event] = [];
 	}
 
-	trigger(event, data, toLog=true) {
+	trigger(event, data, toLog = true) {
 		// When triggering an event generally if the source is inactive we error, but if the listener is inactive we ignore it
 		if (toLog) log("debug", "", `Triggering event '${event}'`);
 		if (!this.events[event]) throw new Error(`Cannot trigger non-existent event: ${event}`);
@@ -206,7 +206,7 @@ export class Logging {
 			return `[${tag ? tag + " " : ""}${levelText} ${timestampText}]`;
 		} else {
 			const levelColour = Logging.levelColours[level] || "white";
-			return Logging.colourText(tag ? `${tag} ` : "", "blue") + Logging.colourText(`${levelText} ${timestampText}`, levelColour);
+			return Logging.colourText(`${levelText} ${timestampText}`, levelColour) + Logging.colourText(tag ? ` ${tag}` : "", "magenta");
 		}
 	}
 

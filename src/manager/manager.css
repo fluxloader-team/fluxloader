@@ -1202,7 +1202,7 @@ input[type="checkbox"]:checked::before {
 }
 
 #logs-tab-content .logs-content .log-row .log-tag {
-	color: #6060e8;
+	color: #CEBAFA !important;
 }
 
 #logs-tab-content .logs-content .log-row .log-message {

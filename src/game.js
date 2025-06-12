@@ -53,6 +53,10 @@ class GameFluxloaderAPI {
 		return await window.electron.invoke(`fl-mod:${channel}`, ...args);
 	}
 
+	handleElectronEvent(event, handler) {
+		window.electron.on(`fl-mod:${event}`, (event, ...args) => handler(event, ...args));
+	}
+
 	async sendWorkerMessage(channel, ...args) {
 		this.gameWorld.environment.multithreading.simulation.postAll(this.gameWorld, ["fluxloaderMessage", channel, ...args]);
 	}
