@@ -7,9 +7,9 @@ export class EventBus {
 		this.events[event] = [];
 	}
 
-	trigger(event, data) {
+	trigger(event, data, toLog=true) {
 		// When triggering an event generally if the source is inactive we error, but if the listener is inactive we ignore it
-		log("debug", "", `Triggering event '${event}'`);
+		if (toLog) log("debug", "", `Triggering event '${event}'`);
 		if (!this.events[event]) throw new Error(`Cannot trigger non-existent event: ${event}`);
 		for (const func of this.events[event]) func(data);
 	}

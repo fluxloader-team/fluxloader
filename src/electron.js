@@ -11,6 +11,7 @@ import { marked } from "marked";
 import { EventBus, SchemaValidation, Logging } from "./common.js";
 import semver from "semver";
 import AdmZip from "adm-zip";
+import Module from "module";
 globalThis.semver = semver;
 
 // ---- General architecture ----
@@ -166,6 +167,7 @@ function ensureDirectoryExists(dirPath) {
 
 class ElectronFluxloaderAPI {
 	static allEvents = ["fl:mod-loaded", "fl:mod-unloaded", "fl:all-mods-loaded", "fl:game-started", "fl:game-closed", "fl:file-requested", "fl:config-changed", "fl:mod-config-changed"];
+	environment = "electron";
 	events = undefined;
 	modConfig = undefined;
 	fileManager = gameFilesManager;
@@ -893,9 +895,7 @@ class ModsManager {
 			}
 		}
 
-		const res = this._calculateLoadOrder();
-		if (!res.success) return errorResponse(`Failed to calculate load order: ${res.message}`);
-		this.loadOrder = res.data;
+		this._updateLoadOrder();
 
 		this._applyModsScriptModifySchema();
 
@@ -1638,6 +1638,20 @@ class ModsManager {
 		}
 	}
 
+	setIsLoadOrderManual(isManual) {
+		config.isLoadOrderManual = isManual;
+		config.loadOrder = [];
+		updateFluxloaderConfig();
+		this._updateLoadOrder();
+	}
+
+	setManualLoadOrder(loadOrder) {
+		logDebug(`Setting manual load order: [${loadOrder.join(", ")}]`);
+		config.loadOrder = loadOrder;
+		updateFluxloaderConfig();
+		this._updateLoadOrder();
+	}
+
 	// ------------ INTERNAL ------------
 
 	async _initializeMod(modPath) {
@@ -1763,6 +1777,8 @@ class ModsManager {
 					const script = new vm.Script(wrappedCode, { filename: identifier });
 
 					// Give it access to this includeVMScript
+					const customRequire = Module.createRequire(absolutePath);
+					this.modContext.require = customRequire;
 					this.modContext.includeVMScript = includeVMScript;
 					script.runInContext(this.modContext);
 					return this.modContext.toplevelAsyncWrapperExport();
@@ -1800,7 +1816,43 @@ class ModsManager {
 		this.loadedModCount--;
 	}
 
-	_calculateLoadOrder() {
+	_updateLoadOrder() {
+		logDebug(`Updating load order...`);
+
+		const res = this._calculateAutoLoadOrder();
+		if (!res.success) return errorResponse(`Failed to calculate load order: ${res.message}`);
+
+		if (!config.isLoadOrderManual || config.loadOrder.length == 0) {
+			// If automatic just use the automatic load order
+			this.loadOrder = res.data;
+		} else {
+			// Otherwise we want to as much as possible use the manual load order
+			let finalLoadOrder = [];
+			for (const modID of config.loadOrder) {
+				if (this.installedMods[modID]) {
+					finalLoadOrder.push(modID);
+				} else {
+					logWarn(`Mod '${modID}' in manual load order is not installed, skipping it`);
+				}
+			}
+
+			logDebug(`Intermediate load order based on manual: [${finalLoadOrder.join(", ")}]`);
+
+			// Add any mods that are not in the manual load order but are installed
+			for (const modID in this.installedMods) {
+				if (!finalLoadOrder.includes(modID)) {
+					finalLoadOrder.push(modID);
+				}
+			}
+
+			this.loadOrder = finalLoadOrder;
+		}
+
+		logDebug(`Final load order: [${this.loadOrder.join(", ")}]`);
+		trySendManagerEvent("fl:load-order-updated", this.loadOrder);
+	}
+
+	_calculateAutoLoadOrder() {
 		// Recalculate the load order based on the mod dependencies
 		// Each mod needs to be before any mod that depends on it
 		// This is a topological sort of the mod dependency graph using DFS
@@ -2390,7 +2442,7 @@ function addFluxloaderPatches() {
 function trySendManagerEvent(eventName, args) {
 	if (!managerWindow || managerWindow.isDestroyed()) return;
 	try {
-		if (eventName !== "fl:forward-log") logDebug(`Sending event ${eventName} to manager`);
+		if (eventName !== "fl:forward-log") logDebug(`Sending event '${eventName}' to manager`);
 		managerWindow.webContents.send(eventName, args);
 	} catch (e) {
 		logError(`Failed to send event ${eventName} to manager window: ${e.stack}`);
@@ -2418,7 +2470,7 @@ globalThis.attachDebuggerToGameWindow = function (window) {
 					const relativePath = filePath.replace(gameFilesManager.tempExtractedPath + "/", "");
 					gameFilesManager.ensureFilePatchesUpToDate(relativePath);
 				}
-				await fluxloaderAPI.events.trigger("fl:file-requested", filePath);
+				await fluxloaderAPI.events.trigger("fl:file-requested", filePath, false);
 			}
 
 			// Allow non-file requests to continue
@@ -2469,6 +2521,10 @@ function setupElectronIPC() {
 		"fl:get-mod-version": async (args) => await modsManager.getModVersion(args),
 		"fl:reload-installed-mods": async (_) => await modsManager.reloadInstalledMods(),
 		"fl:set-mod-enabled": async (args) => modsManager.setModEnabled(args.modID, args.enabled),
+		"fl:set-is-load-order-manual": async (args) => modsManager.setIsLoadOrderManual(args),
+		"fl:get-is-load-order-manual": (_) => config.isLoadOrderManual,
+		"fl:get-load-order": (_) => modsManager.loadOrder,
+		"fl:set-manual-load-order": (args) => modsManager.setManualLoadOrder(args),
 		"fl:create-new-mod": (args) => modsManager.createNewMod(args),
 		"fl:start-game": (_) => startGame(),
 		"fl:start-unmodded-game": (_) => startUnmoddedGame(),
@@ -2484,7 +2540,7 @@ function setupElectronIPC() {
 	for (const [endpoint, handler] of Object.entries(simpleEndpoints)) {
 		ipcMain.handle(endpoint, (_, args) => {
 			if (!["fl:forward-log-to-manager"].includes(endpoint)) {
-				logDebug(`Received ${endpoint}`);
+				logDebug(`Received '${endpoint}'`);
 			}
 			try {
 				return handler(args);

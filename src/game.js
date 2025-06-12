@@ -28,6 +28,7 @@ function forwardLogToManager(log) {
 
 class GameFluxloaderAPI {
 	static allEvents = ["fl:menu-loaded", "fl:game-loaded"];
+	environment = "game";
 	events = undefined;
 	modConfig = undefined;
 	gameWorld = undefined;

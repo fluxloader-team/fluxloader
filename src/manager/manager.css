@@ -1209,6 +1209,112 @@ input[type="checkbox"]:checked::before {
 	color: var(--color-text-primary) !important;
 }
 
+/* -------------------- TAB/LOAD ORDER -------------------- */
+
+#load-order-tab-content {
+	background: var(--color-bg-medium);
+}
+
+#load-order-tab-content .main {
+	background: var(--color-bg-light);
+	max-width: 50rem;
+	min-width: 20rem;
+	height: 100%;
+	margin: auto;
+	display: flex;
+	flex-direction: column;
+}
+
+#load-order-tab-content .main .title {
+	text-align: center;
+	font-size: 1.6rem;
+	padding: 1.2rem 0 0.6rem 0;
+	color: var(--color-text-primary);
+}
+
+#load-order-tab-content .load-order-manual-toggle {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.8rem;
+	padding: 0.8rem 1.2rem;
+	background: var(--color-bg-light);
+	border-radius: var(--br-small);
+	margin-bottom: 0.5rem;
+}
+
+#load-order-tab-content .load-order-manual-toggle p {
+	color: var(--color-text-primary);
+	font-size: 1rem;
+	margin: 0;
+}
+
+#load-order-tab-content .load-order-manual-toggle input[type="checkbox"] {
+	width: 1.2rem;
+	height: 1.2rem;
+}
+
+#load-order-tab-content .load-order-container {
+	flex: 1;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+	gap: 0.8rem;
+	padding: 1.2rem;
+	overflow-y: scroll;
+	padding: 0.5rem 2rem;
+}
+
+#load-order-tab-content .load-order-container.auto .load-order-item {
+	background: var(--color-bg-medium);
+	color: var(--color-text-muted);
+	pointer-events: none;
+	cursor: not-allowed;
+}
+
+#load-order-tab-content .load-order-container .load-order-item,
+.load-order-item-drag-clone {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	background: var(--color-bg-light2);
+	border-radius: var(--br-small);
+	padding: 0.5rem 1rem;
+	cursor: grab;
+	user-select: none;
+}
+
+#load-order-tab-content .load-order-container .load-order-item img,
+.load-order-item-drag-clone img {
+	width: 0.9rem;
+	height: 0.9rem;
+	object-fit: contain;
+	filter: brightness(0.5);
+	margin-right: 0.6rem;
+}
+
+#load-order-tab-content .load-order-container .load-order-item:hover {
+	background: var(--color-bg-light2-hover-lighter);
+}
+
+#load-order-tab-content .load-order-container .load-order-item.active {
+	background: var(--color-bg-light-active-lighter);
+	cursor: grabbing;
+}
+
+#load-order-tab-content .load-order-container .load-order-item-placeholder {
+	border: 2px dashed var(--color-bg-light-active-lighter);
+	border-radius: var(--br-small);
+}
+
+.load-order-item-drag-clone {
+	position: absolute;
+	opacity: 0.8;
+	box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+	pointer-events: none;
+	z-index: 100000;
+}
+
 /* -------------------- TAB/CREATE MOD -------------------- */
 
 #create-mod-tab-content {

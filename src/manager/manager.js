@@ -448,6 +448,11 @@ class ModsTab {
 	// ------------ SETUP ------------
 
 	setup() {
+		api.on("fl:mod-schema-updated", (_, { modID, schema }) => {
+			logDebug(`Received schema update for mod '${modID}'`);
+			this.forceSetModSchema(modID, schema);
+		});
+
 		getElement("mods-tab-table")
 			.querySelectorAll("th")
 			.forEach((element) => {
@@ -1308,7 +1313,7 @@ class ModsTab {
 			return;
 		}
 		await this._processActionQueueQueue();
-		
+
 		this._clearCompletedActions();
 
 		if (!this.allQueuedActions[modID]) return logWarn(`No queued action for mod '${modID}' to unqueue.`);
@@ -1544,6 +1549,11 @@ class ConfigTab {
 	renderer = null;
 
 	async setup() {
+		api.on("fl:fluxloader-config-updated", (_, config) => {
+			logDebug("Received config update for FluxLoader");
+			this.forceSetConfig(config);
+		});
+
 		// Load config and schema
 		const config = await api.invoke("fl:get-fluxloader-config");
 		const configSchema = await api.invoke("fl:get-fluxloader-config-schema");
@@ -1589,6 +1599,10 @@ class LogsTab {
 	mainContainer = null;
 
 	async setup() {
+		api.on("fl:forward-log", (_, log) => {
+			this.receiveLogFromRemote(log);
+		});
+
 		// Clear and setup the elements
 		this.tabContainer = getElement("logs-tab-content").querySelector(".logs-tab-list");
 		this.mainContainer = getElement("logs-tab-content").querySelector(".logs-content-scroll");
@@ -1735,6 +1749,149 @@ class LogsTab {
 	}
 }
 
+class LoadOrderTab {
+	loadOrder = [];
+	isManual = null;
+
+	async setup() {
+		api.on("fl:load-order-updated", (_, loadOrder) => this.onLoadOrderUpdated(loadOrder));
+		this.loadOrder = await api.invoke("fl:get-load-order");
+		const isManual = await api.invoke("fl:get-is-load-order-manual");
+		await this.setIsManual(isManual);
+		const toggleManualLoadOrder = getElement("load-order-manual-toggle");
+		toggleManualLoadOrder.onchange = async (e) => await this.setIsManual(e.target.checked);
+		this.renderLoadOrder();
+		this.setupDraggingElements();
+	}
+
+	async setIsManual(isManual) {
+		if (this.isManual === isManual) return logWarn("Cannot set isManual to the same value");
+		this.isManual = isManual;
+		const container = getElement("load-order-container");
+		container.classList.toggle("auto", !isManual);
+		const toggleManualLoadOrder = getElement("load-order-manual-toggle");
+		toggleManualLoadOrder.checked = isManual;
+		await api.invoke("fl:set-is-load-order-manual", isManual);
+	}
+
+	async onLoadOrderUpdated(loadOrder) {
+		logDebug("Received load order update from backend:", loadOrder);
+		this.loadOrder = loadOrder;
+		this.renderLoadOrder();
+	}
+
+	async onLoadOrderRearranged(loadOrder) {
+		this.loadOrder = loadOrder;
+		await api.invoke("fl:set-manual-load-order", loadOrder);
+	}
+
+	setupDraggingElements() {
+		const container = getElement("load-order-container");
+
+		// Common variables for the dragging
+		let isDragging = false;
+		let draggingElement = null;
+		let cloneElement = null;
+		let placeholderElement = null;
+		let offsetY = 0;
+
+		const onMouseMove = (e) => {
+			if (!isDragging) return;
+
+			// Move the placeholder with the mouse
+			cloneElement.style.top = `${e.clientY - offsetY}px`;
+
+			// Loop through each item in the container
+			const items = container.querySelectorAll(".load-order-item");
+			let nextItem = null;
+
+			for (const item of items) {
+				if (item === draggingElement) continue;
+				const box = item.getBoundingClientRect();
+				const middle = box.top + box.height / 2;
+
+				// We want to find the first element that is "lower" than the mouse
+				if (e.clientY < middle) {
+					nextItem = item;
+					break;
+				}
+			}
+
+			// Put the placeholder either just before an element or at the end
+			if (nextItem) container.insertBefore(placeholderElement, nextItem);
+			else container.appendChild(placeholderElement);
+		};
+
+		const onMouseUp = (e) => {
+			if (!isDragging) return;
+
+			document.removeEventListener("mousemove", onMouseMove);
+			document.removeEventListener("mouseup", onMouseUp);
+
+			// Move the element to right place, remove the others
+			container.insertBefore(draggingElement, placeholderElement);
+			draggingElement.style.display = "flex";
+			cloneElement.remove();
+			placeholderElement.remove();
+			cloneElement = null;
+			placeholderElement = null;
+			draggingElement = null;
+
+			// Update load order based on the element orders
+			const newLoadOrder = Array.from(container.children).map((el) => el.dataset.modID);
+			this.onLoadOrderRearranged(newLoadOrder);
+			isDragging = false;
+		};
+
+		container.addEventListener("mousedown", (e) => {
+			if (isDragging) return;
+
+			draggingElement = e.target.closest(".load-order-item");
+			if (!draggingElement) return;
+			isDragging = true;
+
+			// Find the mouses offset from the boxes position
+			const rect = draggingElement.getBoundingClientRect();
+			offsetY = e.clientY - rect.top;
+
+			// Add a visual dragging clone to the document
+			cloneElement = draggingElement.cloneNode(true);
+			cloneElement.classList.add("load-order-item-drag-clone");
+			cloneElement.style.left = `${rect.left}px`;
+			cloneElement.style.top = `${rect.top}px`;
+			cloneElement.style.width = `${rect.width}px`;
+			document.body.appendChild(cloneElement);
+
+			// Put a placeholder in the container to indicate drop position
+			placeholderElement = document.createElement("div");
+			placeholderElement.className = "load-order-item-placeholder";
+			placeholderElement.style.height = `${rect.height}px`;
+			container.insertBefore(placeholderElement, draggingElement.nextSibling);
+
+			// Hide the current dragging element
+			draggingElement.style.display = "none";
+
+			// Listen for further drag events
+			document.addEventListener("mousemove", onMouseMove);
+			document.addEventListener("mouseup", onMouseUp);
+		});
+	}
+
+	async renderLoadOrder() {
+		const container = getElement("load-order-container");
+		container.innerHTML = "";
+		this.loadOrderElements = [];
+
+		if (this.loadOrder.length === 0) return;
+
+		for (const modID of this.loadOrder) {
+			const itemElement = createElement(`<div class="load-order-item"><span>${modID}</span><img src="assets/grab.png" /></div>`);
+			itemElement.dataset.modID = modID;
+			container.appendChild(itemElement);
+		}
+	}
+}
+
 class CreateModTab {
 	static modCreateRequestSchema = {
 		modID: {
@@ -1862,6 +2019,7 @@ async function setupTabs() {
 	tabs.logs = new LogsTab();
 	tabs.mods = new ModsTab();
 	tabs.config = new ConfigTab();
+	tabs.loadOrder = new LoadOrderTab();
 	tabs.createMod = new CreateModTab();
 
 	for (const tab in tabs) {
@@ -2093,10 +2251,8 @@ function pingBlockingTask(message) {
 
 // =================== DRIVER ===================
 
-function setupElectronEvents() {
-	api.on("fl:forward-log", (_, log) => {
-		tabs.logs.receiveLogFromRemote(log);
-	});
+(async () => {
+	await setupTabs();
 
 	api.on(`fl:game-closed`, () => {
 		if (!isPlaying) return logWarn("Received game closed event but isPlaying is false, ignoring.");
@@ -2106,21 +2262,6 @@ function setupElectronEvents() {
 		getElement("play-button").classList.toggle("active", false);
 		getElement("footer-dropdown").classList.toggle("active", false);
 	});
-
-	api.on("fl:mod-schema-updated", (_, { modID, schema }) => {
-		logDebug(`Received schema update for mod '${modID}'`);
-		tabs.mods.forceSetModSchema(modID, schema);
-	});
-
-	api.on("fl:fluxloader-config-updated", (_, config) => {
-		logDebug("Received config update for FluxLoader");
-		tabs.config.forceSetConfig(config);
-	});
-}
-
-(async () => {
-	await setupTabs();
-	setupElectronEvents();
 
 	getElement("play-button").addEventListener("click", () => handleClickPlayButton());
 

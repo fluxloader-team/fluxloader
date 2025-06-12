@@ -15,6 +15,11 @@
 		"hidden": true,
 		"default": {}
 	},
+	"isLoadOrderManual": {
+		"type": "boolean",
+		"description": "Whether the load order is manually specified or automatically determined",
+		"default": false
+	},
 	"loadOrder": {
 		"type": "array",
 		"description": "Array specifying the order in which mods should be loaded",

@@ -20,6 +20,7 @@ globalThis.logError = (...args) => log("error", "", args.join(" "));
 // ------------- MAIN -------------
 
 class WorkerFluxloaderAPI {
+	environment = "worker";
 	workerWorld = undefined;
 	messageListeners = {};
 
