@@ -166,7 +166,7 @@ function ensureDirectoryExists(dirPath) {
 // =================== MAIN ===================
 
 class ElectronFluxloaderAPI {
-	static allEvents = ["fl:mod-loaded", "fl:mod-unloaded", "fl:all-mods-loaded", "fl:game-started", "fl:game-closed", "fl:page-redirect", "fl:config-changed", "fl:mod-config-changed"];
+	static allEvents = ["fl:mod-loaded", "fl:mod-unloaded", "fl:all-mods-loaded", "fl:game-started", "fl:game-closed", "fl:file-requested", "fl:config-changed", "fl:mod-config-changed"];
 	events = undefined;
 	modConfig = undefined;
 	fileManager = gameFilesManager;
@@ -298,13 +298,20 @@ class ElectronModConfigAPI {
 		}
 	}
 
-	set(modID, _config) {
+	set(modID, _config, ignoreSchema = false) {
 		const modIDPath = this.sanitizeModIDPath(modID);
 		const baseModsPath = resolvePathRelativeToExecutable(config.modsPath);
 		const modsConfigPath = path.join(baseModsPath, "config");
 		ensureDirectoryExists(modsConfigPath);
 		const modConfigPath = path.join(modsConfigPath, `${modIDPath}.json`);
 		logDebug(`Setting mod config: ${modIDPath} -> ${modConfigPath}`);
+
+		if (!ignoreSchema) {
+			// Silent fail if mod isn't installed, which shouldn't be the case *ever*
+			if (!modsManager.installedMods.hasOwnProperty(modID)) return;
+			const res = SchemaValidation.validate(_config, modsManager.installedMods[modID].info.configSchema, { unknownKeyMethod: "ignore" });
+			if (!res.success) return errorResponse(`Mod info schema validation failed when being set: (${res.source}) ${res.error}`);
+		}
 
 		// If this fails treat it as catastrophic for now
 		fs.writeFileSync(modConfigPath, JSON.stringify(_config, null, 4), "utf8");
@@ -2354,17 +2361,6 @@ function addFluxloaderPatches() {
 			);
 		}
 
-		// When the game page redirects trigger the fluxloader event
-		responseAsError(
-			gameFilesManager.setPatch("js/bundle.js", "fluxloader:onPageRedirect", {
-				type: "replace",
-				from: 'window.history.replaceState({},"",n),',
-				to: "$$fluxloader_onPageRedirect(e),",
-				token: "$$",
-			})
-		);
-
-		// When the game page redirects trigger the fluxloader event
 		responseAsError(
 			gameFilesManager.setPatch("js/bundle.js", "fluxloader:electron-remove-error-require", {
 				type: "replace",
@@ -2423,6 +2419,7 @@ globalThis.attachDebuggerToGameWindow = function (window) {
 			if (request.url.startsWith("file://")) {
 				const filePath = url.fileURLToPath(request.url).replace("\\", "/");
 				if (filePath.startsWith(gameFilesManager.tempExtractedPath)) {
+					await fluxloaderAPI.events.trigger("fl:file-requested", filePath);
 					const relativePath = filePath.replace(gameFilesManager.tempExtractedPath + "/", "");
 					gameFilesManager.ensureFilePatchesUpToDate(relativePath);
 				}
@@ -2475,7 +2472,6 @@ function setupElectronIPC() {
 		"fl:perform-mod-actions": async (args) => await modsManager.performModActions(args),
 		"fl:get-mod-version": async (args) => await modsManager.getModVersion(args),
 		"fl:reload-installed-mods": async (_) => await modsManager.reloadInstalledMods(),
-		"fl:trigger-page-redirect": (args) => fluxloaderAPI.events.trigger("fl:page-redirect", args),
 		"fl:set-mod-enabled": async (args) => modsManager.setModEnabled(args.modID, args.enabled),
 		"fl:create-new-mod": (args) => modsManager.createNewMod(args),
 		"fl:start-game": (_) => startGame(),
