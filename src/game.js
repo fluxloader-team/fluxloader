@@ -27,7 +27,7 @@ function forwardLogToManager(log) {
 // ------------- MAIN -------------
 
 class GameFluxloaderAPI {
-	static allEvents = ["fl:menu-loaded", "fl:game-loaded", "fl:page-redirect"];
+	static allEvents = ["fl:menu-loaded", "fl:game-loaded"];
 	events = undefined;
 	modConfig = undefined;
 	gameWorld = undefined;
@@ -98,10 +98,10 @@ async function loadAllMods() {
 function catchUnexpectedExits() {
 	window.onerror = (event) => {
 		logError(`An unexpected error occurred: ${JSON.stringify(event)}`);
-	}
+	};
 	window.onunhandledrejection = (event) => {
 		logError(`An unhandled promise rejection occurred: ${JSON.stringify(event)}`);
-	}
+	};
 }
 
 globalThis.fluxloader_preloadBundle = async () => {
@@ -129,11 +129,6 @@ globalThis.fluxloader_onWorkerMessage = (m) => {
 	m.data.shift();
 	const channel = m.data.shift();
 	fluxloaderAPI._onWorkerMessage(channel, ...m.data);
-};
-
-globalThis.fluxloader_onPageRedirect = async (path) => {
-	fluxloaderAPI.events.trigger("fl:page-redirect", path);
-	await window.electron.invoke("fl:trigger-page-redirect", path);
 };
 
 // Should definitely be changed to load from an image in the future
