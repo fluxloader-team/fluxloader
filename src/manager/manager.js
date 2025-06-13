@@ -281,7 +281,6 @@ class ConfigSchemaElement {
 						}
 						break;
 					case "object":
-
 					case "array":
 						// Not directly editable in this version
 						continue;
@@ -289,31 +288,51 @@ class ConfigSchemaElement {
 						throw new Error(`Unsupported input type: ${schemaValue.type}`);
 				}
 				input.classList.add("config-input");
+				const inputWrapper = document.createElement("div");
+				inputWrapper.classList.add("config-input-wrapper");
+				inputWrapper.appendChild(input);
 
 				// Create the elements for the input
 				const wrapper = document.createElement("div");
 				wrapper.classList.add("config-input-wrapper");
+
 				const labelRow = document.createElement("div");
 				labelRow.classList.add("config-input-label-row");
 				const label = document.createElement("label");
 				label.classList.add("config-input-label");
 				label.textContent = key;
 				labelRow.appendChild(label);
+
 				if (schemaValue.description) {
 					const desc = document.createElement("span");
 					desc.classList.add("config-input-description");
 					desc.textContent = schemaValue.description;
 					labelRow.appendChild(desc);
 				}
+
 				if (schemaValue.type === "boolean") {
 					wrapper.classList.add("same-row");
-					wrapper.appendChild(input);
+					wrapper.appendChild(inputWrapper);
 					wrapper.appendChild(labelRow);
 				} else {
 					wrapper.appendChild(labelRow);
-					wrapper.appendChild(input);
+					wrapper.appendChild(inputWrapper);
 				}
 				container.appendChild(wrapper);
+
+				// If its a path add a button
+				if (schemaValue.type === "string" && schemaValue.display && schemaValue.display === "path") {
+					logDebug(`Adding path button for ${currentPath.join(".")}`);
+					const pathButton = createElement(`<img class="config-input-path-button" src="assets/folder.png" />`);
+					pathButton.addEventListener("click", async () => {
+						const res = await api.invoke("fl:pick-folder", { initialPath: input.value });
+						if (!res.success) return logError(`Failed to pick folder for ${currentPath.join(".")}: ${res.error}`);
+						logDebug(`Picked folder for ${currentPath.join(".")}: ${JSON.stringify(res.data)}`);
+						input.value = res.data;
+						this._validateInput(currentPath, input, schemaValue);
+					});
+					inputWrapper.appendChild(pathButton);
+				}
 
 				this.inputs.set(currentPath.join("."), input);
 				input.addEventListener("change", () => this._validateInput(currentPath, input, schemaValue));
@@ -1080,7 +1099,7 @@ class ModsTab {
 		if (this.modRows[modID].modData.isInstalled) {
 			options.push({ icon: "assets/queueuninstall.png", label: "Queue Uninstall", action: () => this.queueMainAction(modID, "uninstall") });
 			options.push({ icon: "assets/uninstall.png", label: "Uninstall", action: () => this.instantMainAction(modID, "uninstall") });
-			options.push({ icon: "assets/folder.png", label: "Open Directory", action: () => this.openModFolder(modID) });
+			options.push({ icon: "assets/folder.png", label: "Open Directory", action: async () => await api.invoke("fl:open-mod-folder", modID) });
 		} else {
 			options.push({ icon: "assets/queueinstall.png", label: "Queue Install", action: () => this.queueMainAction(modID, "install") });
 			options.push({ icon: "assets/install.png", label: "Install", action: () => this.instantMainAction(modID, "install") });
@@ -1257,10 +1276,6 @@ class ModsTab {
 		modData.isInstalled = false;
 		modData.isEnabled = false;
 		return modData;
-	}
-
-	async openModFolder(modID) {
-		return await api.invoke("fl:open-mod-folder", modID);
 	}
 
 	// ------------ ACTIONS ------------
@@ -2129,6 +2144,7 @@ function setIsPlaying(playing) {
 	isPlaying = playing;
 	if (isPlaying) addBlockingTask("isPlaying");
 	else removeBlockingTask("isPlaying");
+	getElement("open-game-folder").style.display = isPlaying ? "flex" : "none";
 }
 
 function setIsPlayButtonLoading(loading) {
@@ -2264,9 +2280,10 @@ async function handleClickPlayButton(unmodded = false) {
 		} else {
 			setStatusBar("Game started", 0, "success");
 		}
+
 		getElement("play-button").classList.toggle("active", res.success);
 		getElement("footer-dropdown").classList.toggle("active", res.success);
-		isPlaying = res.success;
+		setIsPlaying(true);
 		setIsPlayButtonLoading(false);
 		updatePlayButton();
 	} else {
@@ -2351,6 +2368,15 @@ function pingBlockingTask(message) {
 	});
 
 	document.querySelectorAll(".resizer").forEach(handleResizer);
+
+	// <div class="open-game-folder" id="open-game-folder">
+	// 	<img src="./assets/foldergame.png" />
+	// </div>
+	// <div class="open-mods-folder" id="open-mods-folder">
+	// 	<img src="./assets/folder.png" />
+
+	getElement("open-game-folder").addEventListener("click", async () => await api.invoke("fl:open-game-folder"));
+	getElement("open-mods-folder").addEventListener("click", async () => await api.invoke("fl:open-mods-folder"));
 
 	setStatusBar("", 0);
 	selectTab("mods");

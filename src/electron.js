@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen, shell } from "electron";
+import { app, BrowserWindow, ipcMain, screen, shell, dialog } from "electron";
 import path from "path";
 import fs from "fs";
 import process from "process";
@@ -2515,28 +2515,57 @@ function openModFolderNative(modID) {
 	if (!modsManager.isModInstalled(modID)) {
 		return errorResponse(`Mod '${modID}' is not installed, cannot open folder`);
 	}
-
 	const mod = modsManager.installedMods[modID];
-
 	if (!fs.existsSync(mod.path)) {
 		return errorResponse(`Mod folder does not exist: ${modFolderPath}`);
 	}
 
 	logDebug(`Opening mod folder for '${modID}': ${mod.path}`);
-	shell.openPath(mod.path);
-
+	try {
+		shell.openPath(mod.path);
+	} catch (e) {
+		return errorResponse(`Failed to open mod folder for '${modID}': ${e.message}`);
+	}
 	return successResponse(`Opened mod folder for '${modID}'`);
 }
 
 function openModsFolderNative() {
-	if (!fs.existsSync(modsManager.modsPath)) {
-		return errorResponse(`Mods folder does not exist: ${modsManager.modsPath}`);
+	logDebug(`Opening mods folder: ${modsManager.baseModsPath}`);
+	try {
+		shell.openPath(modsManager.baseModsPath);
+	} catch (e) {
+		return errorResponse(`Failed to open mods folder: ${e.message}`);
+	}
+	return successResponse(`Opened mods folder`);
+}
+
+function openGameFolderNative() {
+	logDebug(`Opening game folder: ${config.gamePath}`);
+	try {
+		shell.openPath(config.gamePath);
+	} catch (e) {
+		return errorResponse(`Failed to open game folder: ${e.message}`);
+	}
+	return successResponse(`Opened game folder`);
+}
+
+async function pickFolderNative(args) {
+	let defaultPath = resolvePathRelativeToExecutable(".");
+	if (args.initialPath) defaultPath = path.resolve(defaultPath, args.initialPath);
+
+	const result = await dialog.showOpenDialog({
+		title: "Select a folder",
+		defaultPath,
+		properties: ["openDirectory", "createDirectory"],
+	});
+
+	if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+		return errorResponse("No folder selected");
 	}
 
-	logDebug(`Opening mods folder: ${modsManager.modsPath}`);
-	shell.openPath(modsManager.modsPath);
-
-	return successResponse(`Opened mods folder`, { path: modsManager.modsPath });
+	const selectedPath = result.filePaths[0];
+	logDebug(`Selected folder: ${selectedPath}`);
+	return successResponse("Folder selected successfully", selectedPath);
 }
 
 function setupElectronIPC() {
@@ -2570,6 +2599,8 @@ function setupElectronIPC() {
 		"fl:request-manager-logs": (_) => logsForManager,
 		"fl:open-mod-folder": (args) => openModFolderNative(args),
 		"fl:open-mods-folder": (_) => openModsFolderNative(),
+		"fl:open-game-folder": (_) => openGameFolderNative(),
+		"fl:pick-folder": async (args) => await pickFolderNative(args),
 	};
 
 	for (const [endpoint, handler] of Object.entries(simpleEndpoints)) {
@@ -2587,7 +2618,7 @@ function setupElectronIPC() {
 	}
 
 	ipcMain.handle("fl:set-fluxloader-config", async (event, args) => {
-		logDebug(`Received fl:set-fluxloader-config with args: ${JSON.stringify(args)}`);
+		logDebug(`Received 'fl:set-fluxloader-config' with args: ${JSON.stringify(args)}`);
 		if (!configLoaded) {
 			return errorResponse("Config not loaded yet");
 		}
@@ -2598,7 +2629,7 @@ function setupElectronIPC() {
 	});
 
 	ipcMain.handle("fl:ping-server", async (event, args) => {
-		logDebug(`Received fl:ping-server with args: ${JSON.stringify(args)}`);
+		logDebug(`Received 'fl:ping-server' with args: ${JSON.stringify(args)}`);
 		try {
 			const url = `https://fluxloader.app/api`;
 			logDebug(`Pinging server at ${url}`);
@@ -2612,7 +2643,7 @@ function setupElectronIPC() {
 			return errorResponse(`Failed to ping server: ${e.message}`);
 		}
 	});
-}
+};
 
 function startManager() {
 	if (isManagerStarted) return errorResponse("Cannot start manager, already running");

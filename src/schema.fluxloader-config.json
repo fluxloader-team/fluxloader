@@ -2,12 +2,14 @@
 	"gamePath": {
 		"type": "string",
 		"description": "Path to the game executable",
-		"default": "."
+		"default": ".",
+		"display": "path"
 	},
 	"modsPath": {
 		"type": "string",
 		"description": "Directory where mods are stored",
-		"default": "./mods"
+		"default": "./mods",
+		"display": "path"
 	},
 	"modsEnabled": {
 		"type": "object",
