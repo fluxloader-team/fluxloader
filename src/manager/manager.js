@@ -736,7 +736,7 @@ class ModsTab {
 		this.setIsPerformingActions(false);
 	}
 
-	async clickRowInstall(modID, e) {
+	async clickRowActionStatus(modID, e) {
 		if (this.isLoadingMods || this.isPerformingActions) {
 			logWarn("Cannot click install / uninstall as mods are currently loading or actions are being performed.");
 			return;
@@ -744,18 +744,15 @@ class ModsTab {
 
 		e.stopPropagation();
 
-		// If there is an existing action and it is an install then unqueue it
 		this._clearCompletedActions();
+
+		// Unqueue whatever action is currently active
 		if (this.allQueuedActions[modID]) {
-			if (this.allQueuedActions[modID].type === "install") {
-				await this.unqueueAction(modID);
-			} else {
-				logWarn(`Cannot click install / uninstall for mod '${modID}' as it already has another action.`);
-			}
+			await this.unqueueAction(modID);
 		}
 
-		// Otherwise queue the install action
-		else {
+		// Otherwise queue install if not installed
+		else if (this.modRows[modID] && !this.modRows[modID].modData.isInstalled) {
 			await this.queueMainAction(modID, "install");
 		}
 	}
@@ -996,6 +993,14 @@ class ModsTab {
 		const versionElement = this._createModRowVersions(modData);
 		element.querySelector(".mod-row-versions").appendChild(versionElement);
 
+		// Add listener to right click
+		element.addEventListener("contextmenu", (e) => {
+			e.preventDefault();
+			const menu = this.createModRowContextMenu(modData.info.modID);
+			menu.style.left = e.clientX + "px";
+			menu.style.top = e.clientY + "px";
+		});
+
 		return { element, modData };
 	}
 
@@ -1014,37 +1019,38 @@ class ModsTab {
 		this.modRows[modData.modID].element = newRow.element;
 		this.modRows[modData.modID].modData = modData;
 
-		// Make sure the hover status matches the old one
-		// TODO: Fix this so it properly reflects action queue state
-		let oldStatusHoverElement = oldElement.querySelector(".mod-row-status .hover-img");
-		let newStatusHoverElement = newRow.element.querySelector(".mod-row-status .hover-img");
-		if (oldStatusHoverElement && newStatusHoverElement) newStatusHoverElement.src = oldStatusHoverElement.src;
-		const oldStatusMainElement = oldElement.querySelector(".mod-row-status .main-img");
-		const newStatusMainElement = newRow.element.querySelector(".mod-row-status .main-img");
-		if (oldStatusMainElement && newStatusMainElement) newStatusMainElement.classList.toggle("acitive", oldStatusMainElement.classList.contains("active"));
+		// If an action exists for this mod ID then update
+		if (this.allQueuedActions[modData.modID]) {
+			this._updateModRowWithAction(this.allQueuedActions[modData.modID], true);
+		}
 	}
 
 	_createModRowStatus(modData) {
+		const containerElement = document.createElement("div");
+
 		// If installed then create a checkbox for enabling / disabling
-		if (modData.isInstalled) {
-			const checkboxElement = createElement(`<input type="checkbox" ${modData.isEnabled ? "checked" : ""}>`);
-			checkboxElement.addEventListener("click", (e) => e.stopPropagation());
-			checkboxElement.addEventListener("change", (e) => this.changeModEnabled(modData.modID, e));
-			return checkboxElement;
-		}
+		const checkboxElement = createElement(`<input type="checkbox" ${modData.isEnabled ? "checked" : ""}>`);
+		checkboxElement.addEventListener("click", (e) => e.stopPropagation());
+		checkboxElement.addEventListener("change", (e) => this.changeModEnabled(modData.modID, e));
+		checkboxElement.checked = modData.isEnabled;
+		containerElement.appendChild(checkboxElement);
 
 		// Otherwise create a download icon for installing
-		else {
-			const downloadElement = createElement(`<img class="main-img" src="assets/download.png" />`);
-			downloadElement.addEventListener("click", (e) => this.clickRowInstall(modData.modID, e));
+		const mainActionStatusImgElement = createElement(`<img class="main-img" src="assets/install.png" />`);
+		mainActionStatusImgElement.addEventListener("click", (e) => this.clickRowActionStatus(modData.modID, e));
+		const hoverActionStatusImgElement = createElement(`<img class="hover-img" src="assets/queued.png" />`);
+		containerElement.appendChild(mainActionStatusImgElement);
+		containerElement.appendChild(hoverActionStatusImgElement);
 
-			const hoverElement = createElement(`<img class="hover-img" src="assets/install.png" />`);
-
-			const containerElement = document.createElement("div");
-			containerElement.appendChild(downloadElement);
-			containerElement.appendChild(hoverElement);
-			return containerElement;
+		if (modData.isInstalled) {
+			checkboxElement.style.display = "block";
+			mainActionStatusImgElement.style.display = "none";
+		} else {
+			checkboxElement.style.display = "none";
+			mainActionStatusImgElement.style.display = "block";
 		}
+
+		return containerElement;
 	}
 
 	_createModRowVersions(modData) {
@@ -1061,6 +1067,47 @@ class ModsTab {
 			dropdown.addEventListener("change", (e) => this.changeModVersion(modData.modID, e));
 			return dropdown;
 		}
+	}
+
+	createModRowContextMenu(modID) {
+		const existingMenu = document.getElementById("mod-row-context-menu");
+		if (existingMenu) existingMenu.remove();
+
+		const menu = createElement(`<div id="mod-row-context-menu"></div>`);
+		document.body.appendChild(menu);
+
+		const options = [];
+		if (this.modRows[modID].modData.isInstalled) {
+			options.push({ icon: "assets/queueuninstall.png", label: "Queue Uninstall", action: () => this.queueMainAction(modID, "uninstall") });
+			options.push({ icon: "assets/uninstall.png", label: "Uninstall", action: () => this.instantMainAction(modID, "uninstall") });
+			options.push({ icon: "assets/folder.png", label: "Open Directory", action: () => this.openModFolder(modID) });
+		} else {
+			options.push({ icon: "assets/queueinstall.png", label: "Queue Install", action: () => this.queueMainAction(modID, "install") });
+			options.push({ icon: "assets/install.png", label: "Install", action: () => this.instantMainAction(modID, "install") });
+		}
+
+		for (const opt of options) {
+			const item = createElement(`<div class="mod-row-context-menu-item">
+					<img src="${opt.icon}">
+					<span>${opt.label}</span>
+				</div>`);
+			item.addEventListener("click", (e) => {
+				e.stopPropagation();
+				opt.action();
+				menu.remove();
+			});
+			menu.appendChild(item);
+		}
+
+		document.body.appendChild(menu);
+
+		document.addEventListener("scroll", () => menu.remove(), { once: true, capture: true });
+
+		setTimeout(() => {
+			document.addEventListener("click", () => menu.remove(), { once: true });
+		}, 0);
+
+		return menu;
 	}
 
 	setModButtons(buttons) {
@@ -1212,6 +1259,10 @@ class ModsTab {
 		return modData;
 	}
 
+	async openModFolder(modID) {
+		return await api.invoke("fl:open-mod-folder", modID);
+	}
+
 	// ------------ ACTIONS ------------
 
 	async instantMainAction(modID, type) {
@@ -1226,6 +1277,8 @@ class ModsTab {
 		while (this.allQueuedActions.size > 0) {
 			this._removeActionAndParents(Object.keys(this.allQueuedActions)[0]);
 		}
+		this.mainQueuedActions = {};
+		this.allQueuedActions = {};
 		this.setIsQueueingAction(false);
 
 		// Queue this as a main action
@@ -1244,6 +1297,8 @@ class ModsTab {
 		}
 
 		await this._processActionQueueQueue();
+
+		this._clearCompletedActions();
 
 		// There should not be an existing action for this mod, and the mod should exist
 		if (this.mainQueuedActions[modID] != null || this.allQueuedActions[modID] != null) {
@@ -1267,9 +1322,6 @@ class ModsTab {
 		this.setActionQueueVisible(true);
 		setStatusBar(`Queueing action for mod '${modID}'...`, 0, "loading");
 
-		// Clear out any "completed" actions
-		this._clearCompletedActions();
-
 		// Make the new main action as loading
 		const modRow = this.modRows[modID];
 		const newMainAction = { modID, version: modRow.modData.info.version, type };
@@ -1277,7 +1329,7 @@ class ModsTab {
 		this.mainQueuedActions[modID] = newMainAction;
 		this.allQueuedActions[modID] = newMainAction;
 		this._addActionRowElement(newMainAction);
-		this._setActionElementPreviewsVisible(newMainAction, true, "loading");
+		this._updateModRowWithAction(newMainAction, true);
 		newMainAction.element.classList.toggle("loading", true);
 
 		// Try update the queue with this new main action
@@ -1288,7 +1340,7 @@ class ModsTab {
 			newMainAction.state = "failed";
 			newMainAction.element.classList.toggle("loading", false);
 			newMainAction.element.classList.toggle("failed", true);
-			this._setActionElementPreviewsVisible(newMainAction, true, "failed");
+			this._updateModRowWithAction(newMainAction, true);
 			this.setIsQueueingAction(false);
 			this.setActionQueueLoading(false);
 			setStatusBar(`Failed to queue '${type}' action for mod '${modID}'${res.data.errorReason ? ": " + res.data.errorReason : ""}`, 0, "failed");
@@ -1353,6 +1405,7 @@ class ModsTab {
 			action.element.classList.toggle("loading", false);
 			action.element.classList.toggle("failed", false);
 			action.element.classList.toggle("complete", true);
+			this._updateModRowWithAction(action, true);
 		}
 
 		this.setIsPerformingActions(false);
@@ -1371,7 +1424,7 @@ class ModsTab {
 		logDebug(`Removing action for mod '${modID}'`);
 
 		this._removeActionRowElement(action);
-		this._setActionElementPreviewsVisible(action, false);
+		this._updateModRowWithAction(action, false);
 		delete this.allQueuedActions[modID];
 		if (this.mainQueuedActions[modID]) delete this.mainQueuedActions[modID];
 
@@ -1407,7 +1460,7 @@ class ModsTab {
 		getElement("action-queue-content").innerHTML = "";
 		for (const actionModID in this.allQueuedActions) {
 			this._addActionRowElement(this.allQueuedActions[actionModID]);
-			this._setActionElementPreviewsVisible(this.allQueuedActions[actionModID], true, "queued");
+			this._updateModRowWithAction(this.allQueuedActions[actionModID], true);
 		}
 
 		return { success: true };
@@ -1420,7 +1473,7 @@ class ModsTab {
 			if (action.state === "complete" || action.state === "failed") {
 				logDebug(`Removing completed action for mod '${modID}'`);
 				this._removeActionRowElement(action);
-				this._setActionElementPreviewsVisible(action, false);
+				this._updateModRowWithAction(action, false);
 				delete this.allQueuedActions[modID];
 				delete this.mainQueuedActions[modID];
 			}
@@ -1488,24 +1541,42 @@ class ModsTab {
 		}
 	}
 
-	_setActionElementPreviewsVisible(action, visible, type = "queued") {
-		if (action.type == "install") {
-			// Highlight / unhighlight the install button
-			if (!this.modRows[action.modID]) return;
+	_updateModRowWithAction(action, enabled) {
+		const statusCheckbox = this.modRows[action.modID].element.querySelector(".mod-row-status input[type='checkbox']");
+		const statusMainImg = this.modRows[action.modID].element.querySelector(".mod-row-status .main-img");
+		const statusHoverImg = this.modRows[action.modID].element.querySelector(".mod-row-status .hover-img");
 
-			const installButton = this.modRows[action.modID].element.querySelector(".mod-row-status .main-img");
-			if (!installButton && !visible) return;
-
-			installButton.classList.toggle("active", visible);
-			const installHoverButton = this.modRows[action.modID].element.querySelector(".mod-row-status .hover-img");
-			if (visible) {
-				if (type == "queued") installHoverButton.src = "assets/install.png";
-				else if (type == "loading") installHoverButton.src = "assets/loading.gif";
-				else if (type == "failed") installHoverButton.src = "assets/cross.png";
-				else if (type == "complete") installHoverButton.src = "assets/check.png";
-			} else {
-				installHoverButton.src = "assets/install.png";
+		if (!enabled) {
+			// Action disabled but mod installed, so show checkbox
+			if (this.modRows[action.modID].modData.isInstalled) {
+				statusCheckbox.style.display = "block";
+				statusMainImg.style.display = "none";
 			}
+
+			// Action disabled and mod not installed, so show install icon
+			else {
+				statusCheckbox.style.display = "none";
+				statusMainImg.style.display = "block";
+				statusMainImg.src = "assets/install.png";
+				statusHoverImg.src = "assets/queued.png";
+			}
+		} else {
+			// Action is enabled, so hide checkbox and allow below to decide
+			statusCheckbox.style.display = "none";
+			statusMainImg.style.display = "block";
+		}
+
+		// The main image should be active if the action is
+		statusMainImg.classList.toggle("active", enabled);
+
+		// The hover image should show the state of the action if enabled
+		if (enabled) {
+			if (!action.state) statusHoverImg.src = "assets/queued.png";
+			else if (action.state == "loading") statusHoverImg.src = "assets/loading.gif";
+			else if (action.state == "failed") statusHoverImg.src = "assets/cross.png";
+			else if (action.state == "complete") statusHoverImg.src = "assets/check.png";
+			if (action.type == "install") statusMainImg.src = "assets/install.png";
+			if (action.type == "uninstall") statusMainImg.src = "assets/uninstall.png";
 		}
 	}
 
@@ -1772,6 +1843,8 @@ class LoadOrderTab {
 		const toggleManualLoadOrder = getElement("load-order-manual-toggle");
 		toggleManualLoadOrder.checked = isManual;
 		await api.invoke("fl:set-is-load-order-manual", isManual);
+		const manualWarning = getElement("load-order-manual-warning");
+		manualWarning.style.display = isManual ? "block" : "none";
 	}
 
 	async onLoadOrderUpdated(loadOrder) {

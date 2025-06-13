@@ -984,7 +984,7 @@ input[type="checkbox"]:checked::before {
 
 #mods-tab-content .rightbar-bottom .action-queue .content .action span.action-type {
 	color: var(--color-text-secondary);
-	width: 3.8rem;
+	width: 4.5rem;
 }
 
 #mods-tab-content .rightbar-bottom .action-queue .content .action span.action-id {
@@ -1058,6 +1058,45 @@ input[type="checkbox"]:checked::before {
 	margin: 0.2rem;
 	font-size: 0.8rem;
 	overflow: hidden;
+}
+
+#mod-row-context-menu {
+	position: fixed;
+	z-index: 10000;
+	background-color: var(--color-bg-light2);
+	border-radius: var(--br-small);
+	box-shadow: 0 0.5rem 2rem rgba(0, 0, 0, 0.321);
+}
+
+#mod-row-context-menu .mod-row-context-menu-item {
+	cursor: pointer;
+	color: var(--color-text-primary);
+	padding: 0.5rem 0.7rem;
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 1rem;
+	border-bottom: 1px solid var(--color-bg-light2-hover-lighter);
+}
+
+#mod-row-context-menu .mod-row-context-menu-item:first-child {
+	border-radius: var(--br-small) var(--br-small) 0 0;
+}
+
+#mod-row-context-menu .mod-row-context-menu-item:last-child {
+	border-bottom: none;
+	border-radius: 0 0 var(--br-small) var(--br-small);
+}
+
+#mod-row-context-menu .mod-row-context-menu-item img {
+	width: 1rem;
+	height: 1rem;
+	object-fit: contain;
+	filter: brightness(0.8);
+}
+
+#mod-row-context-menu .mod-row-context-menu-item:hover {
+	background: var(--color-bg-light2-hover-lighter);
 }
 
 /* -------------------- TAB/CONFIG -------------------- */
@@ -1202,7 +1241,7 @@ input[type="checkbox"]:checked::before {
 }
 
 #logs-tab-content .logs-content .log-row .log-tag {
-	color: #CEBAFA !important;
+	color: #cebafa !important;
 }
 
 #logs-tab-content .logs-content .log-row .log-message {
@@ -1240,7 +1279,6 @@ input[type="checkbox"]:checked::before {
 	padding: 0.8rem 1.2rem;
 	background: var(--color-bg-light);
 	border-radius: var(--br-small);
-	margin-bottom: 0.5rem;
 }
 
 #load-order-tab-content .load-order-manual-toggle p {
@@ -1252,6 +1290,13 @@ input[type="checkbox"]:checked::before {
 #load-order-tab-content .load-order-manual-toggle input[type="checkbox"] {
 	width: 1.2rem;
 	height: 1.2rem;
+}
+
+#load-order-tab-content .load-order-manual-warning {
+	font-size: 0.9rem;
+	margin: auto;
+	margin-bottom: 0.8rem;
+	color: var(--color-vivid-orange);
 }
 
 #load-order-tab-content .load-order-container {

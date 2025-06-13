@@ -1073,7 +1073,6 @@ class ModsManager {
 			}
 			if (!versionsResData || !Object.hasOwn(versionsResData, "versions")) {
 				return errorResponse(`Invalid response for available versions of mod '${modID}' with url ${versionsURL}`, {
-					allActions: allActions,
 					errorModID: modID,
 					errorReason: "mod-versions-fetch",
 				});
@@ -1337,7 +1336,6 @@ class ModsManager {
 
 		if (!isStable) {
 			return errorResponse(`Failed to find a stable configuration of mod versions after ${iterations} iterations`, {
-				allActions: allActions,
 				errorReason: "unstable-configuration",
 			});
 		}
@@ -2513,6 +2511,34 @@ function handleUncaughtErrors() {
 	});
 }
 
+function openModFolderNative(modID) {
+	if (!modsManager.isModInstalled(modID)) {
+		return errorResponse(`Mod '${modID}' is not installed, cannot open folder`);
+	}
+
+	const mod = modsManager.installedMods[modID];
+
+	if (!fs.existsSync(mod.path)) {
+		return errorResponse(`Mod folder does not exist: ${modFolderPath}`);
+	}
+
+	logDebug(`Opening mod folder for '${modID}': ${mod.path}`);
+	shell.openPath(mod.path);
+
+	return successResponse(`Opened mod folder for '${modID}'`);
+}
+
+function openModsFolderNative() {
+	if (!fs.existsSync(modsManager.modsPath)) {
+		return errorResponse(`Mods folder does not exist: ${modsManager.modsPath}`);
+	}
+
+	logDebug(`Opening mods folder: ${modsManager.modsPath}`);
+	shell.openPath(modsManager.modsPath);
+
+	return successResponse(`Opened mods folder`, { path: modsManager.modsPath });
+}
+
 function setupElectronIPC() {
 	logDebug("Setting up electron IPC handlers");
 
@@ -2542,6 +2568,8 @@ function setupElectronIPC() {
 		"fl:get-fluxloader-version": (_) => fluxloaderVersion,
 		"fl:forward-log-to-manager": (args) => forwardLogToManager(args),
 		"fl:request-manager-logs": (_) => logsForManager,
+		"fl:open-mod-folder": (args) => openModFolderNative(args),
+		"fl:open-mods-folder": (_) => openModsFolderNative(),
 	};
 
 	for (const [endpoint, handler] of Object.entries(simpleEndpoints)) {
