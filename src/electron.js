@@ -166,7 +166,7 @@ function ensureDirectoryExists(dirPath) {
 // =================== MAIN ===================
 
 class ElectronFluxloaderAPI {
-	static allEvents = ["fl:mod-loaded", "fl:mod-unloaded", "fl:all-mods-loaded", "fl:game-started", "fl:game-closed", "fl:file-requested", "fl:config-changed", "fl:mod-config-changed"];
+	static allEvents = ["fl:mod-loaded", "fl:mod-unloaded", "fl:all-mods-loaded", "fl:game-started", "fl:game-closed", "fl:file-requested", "fl:config-changed", "fl:mod-config-changed", "fl:pre-scene-loaded"];
 	environment = "electron";
 	events = undefined;
 	modConfig = undefined;
@@ -2471,11 +2471,28 @@ globalThis.attachDebuggerToGameWindow = function (window) {
 			// We only care about files inside the gameFilesManager.tempExtractedPath
 			if (request.url.startsWith("file://")) {
 				const filePath = url.fileURLToPath(request.url).replace("\\", "/");
+				await fluxloaderAPI.events.trigger("fl:file-requested", filePath, false);
 				if (filePath.startsWith(gameFilesManager.tempExtractedPath)) {
 					const relativePath = filePath.replace(gameFilesManager.tempExtractedPath + "/", "");
+					if (relativePath === "index.html") {
+						let queryParams = request.url.split("?");
+						// Make sure query params do exist
+						if (queryParams.length > 1) {
+							queryParams = queryParams[1];
+							if (queryParams.includes("new_game")) {
+								fluxloaderAPI.events.trigger("fl:pre-scene-loaded", "intro");
+							} else if (queryParams.includes("db_load")) {
+								fluxloaderAPI.events.trigger("fl:pre-scene-loaded", "game");
+							} else {
+								fluxloaderAPI.events.trigger("fl:pre-scene-loaded", "mainmenu");
+							}
+						} else {
+							// Loading menu if no query parameters are present
+							fluxloaderAPI.events.trigger("fl:pre-scene-loaded", "mainmenu");
+						}
+					}
 					gameFilesManager.ensureFilePatchesUpToDate(relativePath);
 				}
-				await fluxloaderAPI.events.trigger("fl:file-requested", filePath, false);
 			}
 
 			// Allow non-file requests to continue
