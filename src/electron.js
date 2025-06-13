@@ -1042,6 +1042,68 @@ class ModsManager {
 		return successResponse(`Fetched ${responseData.mods.length} remote mods`, responseData.mods);
 	}
 
+	async fetchRemoteMod(config) {
+		// If it is cached then return that
+		if (this.fetchedModCache[config.modID]) {
+			logDebug(`Returning cached mod info for '${config.modID}'`);
+			return successResponse(`Returning cached mod info for '${config.modID}'`, this.fetchedModCache[config.modID]);
+		}
+
+		const url = `https://fluxloader.app/api/mods?option=info&modid=${config.modID}`;
+		logDebug(`Fetching remote mod info from API: ${url}`);
+
+		// Request the mod info from the API
+		let responseData;
+		try {
+			const start = Date.now();
+			const response = await fetch(url);
+			responseData = await response.json();
+			const end = Date.now();
+			const timeTaken = end - start;
+			logDebug(`Fetched mod '${config.modID}' from API in ${timeTaken}ms`);
+		} catch (e) {
+			return errorResponse(`Failed to fetch mod info from API: ${e.stack}`, {
+				errorModID: config.modID,
+				errorReason: "mod-info-fetch",
+			});
+		}
+
+		// Check it is a valid response
+		if (!responseData || !Object.hasOwn(responseData, "mod")) {
+			return errorResponse(`Invalid response from remote mod API for mod '${config.modID}'`, {
+				errorModID: config.modID,
+				errorReason: "mod-info-fetch",
+			});
+		}
+		const mod = responseData.mod;
+		if (!Object.hasOwn(mod, "modData")) {
+			return errorResponse(`Invalid response from remote mod API for mod '${config.modID}', missing 'modData'`, {
+				errorModID: config.modID,
+				errorReason: "mod-info-fetch",
+			});
+		}
+
+		// Render the description if requested
+		if (config.rendered && mod.modData.description) {
+			try {
+				mod.renderedDescription = marked(mod.modData.description);
+			} catch (e) {
+				return errorResponse(`Failed to render mod description for mod '${config.modID}': ${e.stack}`, {
+					errorModID: config.modID,
+					errorReason: "mod-description-render",
+				});
+			}
+		} else {
+			mod.renderedDescription = "";
+		}
+
+		// Cache the fetched mod
+		this.fetchedModCache[mod.modID] = mod;
+
+		logDebug(`Returning mod info for '${config.modID}'`);
+		return successResponse(`Fetched mod info for '${config.modID}'`, mod);
+	}
+
 	async calculateModActions(mainActions) {
 		logDebug(`Calculating all mod actions for ${Object.keys(mainActions).length} main action(s)`);
 
@@ -2554,6 +2616,7 @@ function setupElectronIPC() {
 		"fl:get-installed-mods": (args) => modsManager.getInstalledMods(args),
 		"fl:get-installed-mods-versions": (args) => modsManager.getInstalledModsVersions(args),
 		"fl:fetch-remote-mods": async (args) => await modsManager.fetchRemoteMods(args),
+		"fl:fetch-remote-mod": async (args) => await modsManager.fetchRemoteMod(args),
 		"fl:calculate-mod-actions": async (args) => await modsManager.calculateModActions(args),
 		"fl:perform-mod-actions": async (args) => await modsManager.performModActions(args),
 		"fl:get-mod-version": async (args) => await modsManager.getModVersion(args),

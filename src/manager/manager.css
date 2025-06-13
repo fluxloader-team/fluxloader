@@ -837,6 +837,13 @@ p {
 	display: flex;
 	align-items: center;
 	gap: 0.5rem;
+	cursor: pointer;
+	border-radius: var(--br-small);
+	padding: 0.2rem 0.5rem;
+}
+
+#mods-tab-content .main-rightbar .mod-info .dependency-list .dependency-list-row:hover {
+	background: var(--color-bg-light-hover-lighter);
 }
 
 #mods-tab-content .main-rightbar .mod-info .dependency-list .dependency-list-row .dependency-img {

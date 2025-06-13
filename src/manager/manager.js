@@ -582,6 +582,45 @@ class ModsTab {
 		setStatusBar("Loaded mods", 0, "success");
 	}
 
+	async fetchAndSelectMod(modID) {
+		if (this.isLoadingMods || this.isPerformingActions) return pingBlockingTask("Cannot fetch and select mod while loading or performing actions.");
+
+		// If the mod is already selected then do nothing
+		if (this.selectedMod === modID) return;
+
+		// If we already have the mod in the list the select it
+		if (this.modRows[modID] != null) {
+			await this.selectMod(modID);
+			return;
+		}
+
+		// Otherwise we need to first fetch it from remote
+		setStatusBar(`Fetching mod '${modID}'...`, 0, "loading");
+		this.setIsLoadingMods(true);
+		setConnectionState("connecting");
+
+		const res = await api.invoke("fl:fetch-remote-mod", { modID, rendered: true });
+		if (!res.success) {
+			logError(`Failed to fetch mod '${modID}': ${res.error}`);
+			setStatusBar(`Failed to fetch mod '${modID}'`, 0, "error");
+			this.setIsLoadingMods(false);
+			return;
+		}
+
+		setConnectionState("online");
+
+		// Convert the fetched mod into modData format
+		const modData = this.convertRemoteModToModData(res.data);
+		this.modRows[modID] = this.createModRow(modData);
+		getElement("mods-tab-table").querySelector("tbody").appendChild(this.modRows[modID].element);
+		getElement("mods-tab-table-empty").style.display = "none";
+
+		// Select the mod
+		await this.selectMod(modID);
+		
+		this.setIsLoadingMods(false);
+	}
+
 	async selectMod(modID) {
 		await this.setViewingModConfig(false);
 
@@ -656,6 +695,7 @@ class ModsTab {
 						<span class="dependency-mod-id">${depModID}</span>
 						<span class="dependency-mod-version">${depVersion}</span>
 					</div>`);
+					depElement.addEventListener("click", (e) => this.onClickDependency(e, depModID));
 					dependenciesList.appendChild(depElement);
 				}
 			} else {
@@ -675,6 +715,15 @@ class ModsTab {
 			}
 			this.setModButtons(buttons);
 		}
+	}
+
+	async onClickDependency(e, modID) {
+		e.preventDefault();
+		if (this.isLoadingMods || this.isPerformingActions) {
+			logWarn("Cannot click dependency as mods are currently loading or actions are being performed.");
+			return;
+		}
+		await this.fetchAndSelectMod(modID);
 	}
 
 	async changeModVersion(modID, e) {
@@ -1650,7 +1699,7 @@ class ModsTab {
 	onSearchChanged() {
 		const searchInput = getElement("mods-tab-search").value.toLowerCase();
 		this.filterInfo.search = searchInput;
-		this.currentModPage = 0;  // Reset to page 0 when search changes
+		this.currentModPage = 0; // Reset to page 0 when search changes
 		this.reloadMods();
 	}
 
