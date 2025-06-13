@@ -31,7 +31,8 @@
 	"loadIntoManager": {
 		"type": "boolean",
 		"description": "Whether to startup into the mod manager or directly into the game",
-		"default": true
+		"default": true,
+		"hidden": true
 	},
 	"closeGameWithManager": {
 		"type": "boolean",
