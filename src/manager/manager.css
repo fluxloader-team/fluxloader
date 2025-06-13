@@ -573,6 +573,10 @@ input[type="checkbox"]:checked::before {
 	background: var(--color-bg-dark);
 }
 
+#mods-tab-content .mods-table td.mod-row-versions {
+	height: 2.7rem; /* We dont want this to change when you do / dont have multiple versions */
+}
+
 #mods-tab-content .mods-table td.mod-row-versions select {
 	width: 100%;
 	height: 1.6rem;

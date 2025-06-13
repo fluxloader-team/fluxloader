@@ -873,16 +873,6 @@ class ModsTab {
 		// They should already be populated from 'reload-installed-mods'
 		const mods = await api.invoke("fl:get-installed-mods", { rendered: true });
 
-		// If told to clear the table then do so now
-		// Doing it here minimizes the flicker rather than doing it inside reloadMods()
-		const tbody = getElement("mods-tab-table").querySelector("tbody");
-		getElement("mods-tab-table-empty").style.display = "block";
-		if (clearTable) {
-			tbody.innerHTML = "";
-			this.modRows = {};
-			this.currentModPage = 0;
-		}
-
 		// If we are connected then also load mod versions
 		let versions = {};
 		if (connectionState === "online") {
@@ -895,6 +885,16 @@ class ModsTab {
 				logDebug(`Fetched ${Object.keys(res.data).length} installed mod versions`);
 				versions = res.data;
 			}
+		}
+
+		// If told to clear the table then do so now
+		// Doing it here minimizes the flicker rather than doing it inside reloadMods()
+		const tbody = getElement("mods-tab-table").querySelector("tbody");
+		getElement("mods-tab-table-empty").style.display = "block";
+		if (clearTable) {
+			tbody.innerHTML = "";
+			this.modRows = {};
+			this.currentModPage = 0;
 		}
 
 		// Now populate the table with the mods, this table should be empty at this point
