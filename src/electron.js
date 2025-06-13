@@ -982,8 +982,20 @@ class ModsManager {
 	}
 
 	async fetchRemoteMods(config) {
-		// Construct request for search, page, and size
-		const query = { "modData.name": { $regex: "", $options: "i" } };
+		// Construct query for search, page, and size, regex, and tags
+		let query = { $and: [] };
+		if (config.search) {
+			query["$and"].push({
+				$or: [{ "modData.name": { $regex: config.search, $options: "i" } }, { "modData.author": { $regex: config.search, $options: "i" } }, { "modData.shortDescription": { $regex: config.search, $options: "i" } }],
+			});
+		}
+		if (config.tags && config.tags.length > 0) {
+			query["$and"].push({ "modData.tags": { $all: config.tags } });
+		}
+		if (query["$and"].length == 0) {
+			query = { "modData.name": { $regex: "", $options: "i" } };
+		}
+		logDebug(`Fetching remote mods with query: ${JSON.stringify(query)}`);
 		const encodedQuery = encodeURIComponent(JSON.stringify(query));
 		const url = `https://fluxloader.app/api/mods?search=${encodedQuery}&verified=null&page=${config.page}&size=${config.pageSize}`;
 
@@ -991,7 +1003,6 @@ class ModsManager {
 		let responseData;
 		let timeTaken;
 		try {
-			logDebug(`Fetching remote mods from API: ${url}`);
 			const listStart = Date.now();
 			const response = await fetch(url);
 			responseData = await response.json();
@@ -1305,11 +1316,15 @@ class ModsManager {
 					}
 				}
 				if (!foundVersion) {
-					return errorResponse(`No version found for mod '${requiredModID}' that satisfies all constraints: ${JSON.stringify(currentModConstraints)}`, {
-						errorModID: requiredModID,
-						errorData: currentModConstraints,
-						errorReason: "version-satisfy",
-					}, false);
+					return errorResponse(
+						`No version found for mod '${requiredModID}' that satisfies all constraints: ${JSON.stringify(currentModConstraints)}`,
+						{
+							errorModID: requiredModID,
+							errorData: currentModConstraints,
+							errorReason: "version-satisfy",
+						},
+						false
+					);
 				}
 				logDebug(`Found version '${foundVersion}' for mod '${requiredModID}' that satisfies all constraints`);
 				nextState[requiredModID] = foundVersion;

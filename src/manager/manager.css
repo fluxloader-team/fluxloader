@@ -353,13 +353,24 @@ input[type="checkbox"]:checked::before {
 	padding: 0.6rem;
 }
 
+#mods-tab-content .main-leftbar h1,
+h2,
+p {
+	color: var(--color-text-primary);
+	font-weight: normal;
+	text-align: center;
+}
+
 #mods-tab-content .main-leftbar h1 {
 	font-size: 1.2rem;
-	color: var(--color-text-primary);
-	text-align: center;
-	margin-bottom: 0.8rem;
 	margin-top: 0.4rem;
-	font-weight: normal;
+	margin-bottom: 0.8rem;
+}
+
+#mods-tab-content .main-leftbar h2 {
+	font-size: 1.1rem;
+	margin-top: 1.2rem;
+	margin-bottom: 0.8rem;
 }
 
 #mods-tab-content .main-leftbar .search-bar {
@@ -411,6 +422,46 @@ input[type="checkbox"]:checked::before {
 	height: 100%;
 	object-fit: contain;
 	filter: brightness(0.8);
+}
+
+#mods-tab-content .main-leftbar .empty-tag-search {
+	color: var(--color-text-muted);
+	font-size: 0.9rem;
+	text-align: center;
+	margin-top: 0.4rem;
+	margin-bottom: 0.6rem;
+}
+
+#mods-tab-content .main-leftbar .tag-search-container {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 1.2rem;
+	padding: 0.4rem 1.5rem;
+}
+
+#mods-tab-content .main-leftbar .tag-search-container .tag {
+	background: var(--color-bg-light2);
+	color: var(--color-text-muted);
+	padding: 0.35rem 0.5rem;
+	border-radius: var(--br-medium);
+	font-size: 0.8rem;
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	gap: 1rem;
+	justify-content: space-between;
+	width: fit-content;
+}
+
+#mods-tab-content .main-leftbar .tag-search-container .tag:hover {
+	background: var(--color-bg-light2-hover-lighter);
+}
+
+#mods-tab-content .main-leftbar .tag-search-container .tag img {
+	width: 0.6rem;
+	height: 0.6rem;
+	object-fit: contain;
+	filter: brightness(0.7);
 }
 
 #mods-tab-content .main-center {
@@ -490,7 +541,7 @@ input[type="checkbox"]:checked::before {
 }
 
 #mods-tab-content .main-center .button-bar div.loading img {
-	filter: brightness(1.0);
+	filter: brightness(1);
 }
 
 #mods-tab-content .mods-table-empty {
@@ -763,10 +814,6 @@ input[type="checkbox"]:checked::before {
 	text-decoration: underline;
 }
 
-#mods-tab-content .main-rightbar .mod-config-container .config-schema-content {
-	margin-top: 0;
-}
-
 #mods-tab-content .main-rightbar .mod-info .row.dependency-mod-info-row {
 	flex-direction: column;
 	justify-content: flex-start;
@@ -812,6 +859,10 @@ input[type="checkbox"]:checked::before {
 	overflow: hidden;
 	white-space: nowrap;
 	color: var(--color-text-secondary);
+}
+
+#mods-tab-content .main-rightbar .mod-config-container .config-schema-content {
+	margin-top: 0;
 }
 
 #mods-tab-content .rightbar-bottom {
@@ -1074,6 +1125,10 @@ input[type="checkbox"]:checked::before {
 	margin: 0.2rem;
 	font-size: 0.8rem;
 	overflow: hidden;
+	cursor: pointer;
+}
+#mods-tab-content .tag:hover {
+	background: var(--color-bg-light2-hover-lighter);
 }
 
 #mod-row-context-menu {

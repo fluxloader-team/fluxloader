@@ -629,6 +629,7 @@ class ModsTab {
 					getElement("mod-info-tags").innerHTML = "";
 					for (const tag of modData.info.tags) {
 						const tagElement = createElement(`<span class="tag">${tag}</span>`);
+						tagElement.addEventListener("click", (e) => this.onClickTag(e, tag));
 						getElement("mod-info-tags").appendChild(tagElement);
 					}
 				}
@@ -916,6 +917,11 @@ class ModsTab {
 				if (mod.info.description) matched |= mod.info.description.toLowerCase().includes(check);
 				if (!matched) continue;
 			}
+			if (this.filterInfo.tags.length > 0) {
+				if (!mod.info.tags) continue;
+				const matched = this.filterInfo.tags.every((tag) => mod.info.tags.includes(tag));
+				if (!matched) continue;
+			}
 
 			// Convert to mod data and save
 			const modData = this.convertInstalledModToModData(mod);
@@ -997,6 +1003,12 @@ class ModsTab {
 			<td>${modData.lastUpdated}</td>
 			<td class="mods-table-tag-list">${tagsList}</td>
 		</tr>`);
+
+		// Add click events to each tag
+		const tagElements = element.querySelectorAll(".tag");
+		for (const tagElement of tagElements) {
+			tagElement.addEventListener("click", (e) => this.onClickTag(e, tagElement.innerText));
+		}
 
 		// Select mod on click
 		element.addEventListener("click", (e) => this.selectMod(modData.modID));
@@ -1613,21 +1625,56 @@ class ModsTab {
 
 	// ------------ FILTERING ------------
 
+	onClickTag(e, tag) {
+		e.stopPropagation();
+		this.selectTag(tag);
+	}
+
+	selectTag(tag) {
+		if (!this.filterInfo.tags.includes(tag)) {
+			this.filterInfo.tags.push(tag);
+			this.updateTagSearchContainer();
+			this.currentModPage = 0; // Reset to page 0 when tags change
+		}
+	}
+
+	deselectTag(tag) {
+		const idx = this.filterInfo.tags.indexOf(tag);
+		if (idx !== -1) {
+			this.filterInfo.tags.splice(idx, 1);
+			this.updateTagSearchContainer();
+			this.currentModPage = 0; // Reset to page 0 when tags change
+		}
+	}
+
 	onSearchChanged() {
 		const searchInput = getElement("mods-tab-search").value.toLowerCase();
 		this.filterInfo.search = searchInput;
-		this.reloadMods();
-	}
-
-	onSelectedTagsChanged() {
-		// TODO
+		this.currentModPage = 0;  // Reset to page 0 when search changes
 		this.reloadMods();
 	}
 
 	removeFiltering() {
 		this.filterInfo.search = null;
 		this.filterInfo.tags = [];
+		this.currentModPage = 0;
+		this.updateTagSearchContainer();
 		this.reloadMods();
+	}
+
+	updateTagSearchContainer() {
+		const container = getElement("tag-search-container");
+		container.innerHTML = "";
+		this.filterInfo.tags.forEach((tag) => {
+			const tagElem = createElement(`<span class="tag selected">${tag}<img src="assets/close.png"></span>`);
+			tagElem.addEventListener("click", (e) => {
+				e.stopPropagation();
+				this.deselectTag(tag);
+			});
+			container.appendChild(tagElem);
+		});
+		container.style.display = this.filterInfo.tags.length > 0 ? "flex" : "none";
+		getElement("empty-tag-search").style.display = this.filterInfo.tags.length > 0 ? "none" : "block";
 	}
 }
 
