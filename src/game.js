@@ -27,7 +27,7 @@ function forwardLogToManager(log) {
 // ------------- MAIN -------------
 
 class GameFluxloaderAPI {
-	static allEvents = ["fl:menu-loaded", "fl:game-loaded"];
+	static allEvents = ["fl:scene-loaded"];
 	environment = "game";
 	events = undefined;
 	modConfig = undefined;
@@ -127,7 +127,12 @@ globalThis.fluxloader_onGameInstanceInitialized = (s) => {
 	fluxloaderAPI.gameInstance = s;
 	const scene = fluxloaderAPI.gameInstance.state.store.scene.active;
 	logInfo(`Game instance loaded with scene ${scene}`);
-	fluxloaderAPI.events.trigger(scene == 1 ? "fl:menu-loaded" : "fl:game-loaded");
+	const sceneLookup = {
+		1: "mainmenu",
+		2: "intro",
+		3: "game",
+	};
+	fluxloaderAPI.events.trigger("fl:scene-loaded", sceneLookup[scene]);
 };
 
 globalThis.fluxloader_onWorkerMessage = (m) => {
