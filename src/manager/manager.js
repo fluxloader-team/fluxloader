@@ -326,7 +326,7 @@ class ConfigSchemaElement {
 					const pathButton = createElement(`<img class="config-input-path-button" src="assets/folder.png" />`);
 					pathButton.addEventListener("click", async () => {
 						const res = await api.invoke("fl:pick-folder", { initialPath: input.value });
-						if (!res.success) return logError(`Failed to pick folder for ${currentPath.join(".")}: ${res.error}`);
+						if (!res.success) return logWarn(`Failed to pick folder for ${currentPath.join(".")}: ${res.error}`);
 						logDebug(`Picked folder for ${currentPath.join(".")}: ${JSON.stringify(res.data)}`);
 						input.value = res.data;
 						this._validateInput(currentPath, input, schemaValue);
@@ -2144,7 +2144,7 @@ function setIsPlaying(playing) {
 	isPlaying = playing;
 	if (isPlaying) addBlockingTask("isPlaying");
 	else removeBlockingTask("isPlaying");
-	getElement("open-game-folder").style.display = isPlaying ? "flex" : "none";
+	getElement("open-extracted-folder").style.display = isPlaying ? "flex" : "none";
 }
 
 function setIsPlayButtonLoading(loading) {
@@ -2369,13 +2369,7 @@ function pingBlockingTask(message) {
 
 	document.querySelectorAll(".resizer").forEach(handleResizer);
 
-	// <div class="open-game-folder" id="open-game-folder">
-	// 	<img src="./assets/foldergame.png" />
-	// </div>
-	// <div class="open-mods-folder" id="open-mods-folder">
-	// 	<img src="./assets/folder.png" />
-
-	getElement("open-game-folder").addEventListener("click", async () => await api.invoke("fl:open-game-folder"));
+	getElement("open-extracted-folder").addEventListener("click", async () => await api.invoke("fl:open-extracted-folder"));
 	getElement("open-mods-folder").addEventListener("click", async () => await api.invoke("fl:open-mods-folder"));
 
 	setStatusBar("", 0);

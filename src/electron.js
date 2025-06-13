@@ -2541,7 +2541,7 @@ function openModFolderNative(modID) {
 	try {
 		shell.openPath(mod.path);
 	} catch (e) {
-		return errorResponse(`Failed to open mod folder for '${modID}': ${e.message}`);
+		return errorResponse(`Failed to open mod folder for '${modID}': ${e.message}`, null, false);
 	}
 	return successResponse(`Opened mod folder for '${modID}'`);
 }
@@ -2551,17 +2551,17 @@ function openModsFolderNative() {
 	try {
 		shell.openPath(modsManager.baseModsPath);
 	} catch (e) {
-		return errorResponse(`Failed to open mods folder: ${e.message}`);
+		return errorResponse(`Failed to open mods folder: ${e.message}`, null, false);
 	}
 	return successResponse(`Opened mods folder`);
 }
 
-function openGameFolderNative() {
-	logDebug(`Opening game folder: ${config.gamePath}`);
+function openExtractedFolderNative() {
+	logDebug(`Opening extracted folder: ${gameFilesManager.tempExtractedPath}`);
 	try {
-		shell.openPath(config.gamePath);
+		shell.openPath(gameFilesManager.tempExtractedPath);
 	} catch (e) {
-		return errorResponse(`Failed to open game folder: ${e.message}`);
+		return errorResponse(`Failed to extracted folder: ${e.message}`, null, false);
 	}
 	return successResponse(`Opened game folder`);
 }
@@ -2577,7 +2577,7 @@ async function pickFolderNative(args) {
 	});
 
 	if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
-		return errorResponse("No folder selected");
+		return errorResponse("No folder selected", null, false);
 	}
 
 	const selectedPath = result.filePaths[0];
@@ -2616,7 +2616,7 @@ function setupElectronIPC() {
 		"fl:request-manager-logs": (_) => logsForManager,
 		"fl:open-mod-folder": (args) => openModFolderNative(args),
 		"fl:open-mods-folder": (_) => openModsFolderNative(),
-		"fl:open-game-folder": (_) => openGameFolderNative(),
+		"fl:open-extracted-folder": (_) => openExtractedFolderNative(),
 		"fl:pick-folder": async (args) => await pickFolderNative(args),
 	};
 
