@@ -8,7 +8,7 @@ import url from "url";
 import vm from "vm";
 import { randomUUID } from "crypto";
 import { marked } from "marked";
-import { EventBus, SchemaValidation, Logging } from "./common.js";
+import { EventBus, SchemaValidation, Logging, FluxloaderSemver } from "./common.js";
 import semver from "semver";
 import AdmZip from "adm-zip";
 import Module from "module";
@@ -1252,7 +1252,7 @@ class ModsManager {
 					const installedVersion = this.installedMods[requiredModID].info.version;
 					let satisfiesAll = true;
 					for (const constraint of currentModConstraints) {
-						if (!this._doesVersionSatisfyDependency(installedVersion, constraint.version)) {
+						if (!FluxloaderSemver.doesVersionSatisfyDependency(installedVersion, constraint.version)) {
 							satisfiesAll = false;
 							break;
 						}
@@ -1290,7 +1290,7 @@ class ModsManager {
 				for (const version of versions) {
 					let satisfiesAll = true;
 					for (const constraint of currentModConstraints) {
-						if (!this._doesVersionSatisfyDependency(version, constraint.version)) {
+						if (!FluxloaderSemver.doesVersionSatisfyDependency(version, constraint.version)) {
 							satisfiesAll = false;
 							break;
 						}
@@ -1309,7 +1309,7 @@ class ModsManager {
 						errorModID: requiredModID,
 						errorData: currentModConstraints,
 						errorReason: "version-satisfy",
-					});
+					}, false);
 				}
 				logDebug(`Found version '${foundVersion}' for mod '${requiredModID}' that satisfies all constraints`);
 				nextState[requiredModID] = foundVersion;
@@ -1734,10 +1734,9 @@ class ModsManager {
 		// https://github.com/npm/node-semver
 		if (modInfo.dependencies) {
 			for (const modID in modInfo.dependencies) {
-				if (!this._isDependencyValid(modInfo.dependencies[modID])) {
+				if (!FluxloaderSemver.isDependencyValid(modInfo.dependencies[modID])) {
 					return errorResponse(`Mod '${modInfo.modID}' has an invalid dependency version for ${modID}: ${modInfo.dependencies[modID]}`);
 				}
-				this.fetchedModCache[modInfo.modID] = this.fetchedModCache[modInfo.modID] || {};
 			}
 		} else modInfo.dependencies = {};
 
@@ -1901,71 +1900,16 @@ class ModsManager {
 			const mod = this.installedMods[modID];
 			if (mod.isEnabled && mod.info.dependencies) {
 				for (const depModID in mod.info.dependencies) {
-					const depVersion = mod.info.dependencies[depModID];
+					const dependency = mod.info.dependencies[depModID];
 					const modVersion = this.isModInstalled(depModID) ? this.installedMods[depModID].info.version : null;
-					if (!this._doesVersionSatisfyDependency(modVersion, depVersion)) {
-						return errorResponse(`Mod '${modID}' depends on '${depModID}' with version ${depVersion}, but installed version is ${modVersion}`);
+					if (!FluxloaderSemver.doesVersionSatisfyDependency(modVersion, dependency)) {
+						return errorResponse(`Mod '${modID}' depends on '${depModID}' with version ${dependency}, but installed version is ${modVersion}`);
 					}
 				}
 			}
 		}
 		logDebug("All mod dependencies verified successfully");
 		return successResponse("All mod dependencies are valid");
-	}
-
-	_isDependencyValid(depVersion) {
-		// If it is `param:version` then we validate param and version seperately
-		if (depVersion.includes(":")) {
-			const splitDepVersion = depVersion.split(":");
-			if (!splitDepVersion || splitDepVersion.length !== 2) return false;
-			const [param, semverDepVersion] = splitDepVersion;
-
-			// Must be one of the valid `param` values
-			const validParams = ["optional", "conflict"];
-			if (!validParams.includes(param)) {
-				logError(`Invalid dependency parameter: ${param}`);
-				return false;
-			}
-
-			// Must be a valid semver `version`
-			if (!semver.valid(semver.coerce(semverDepVersion))) {
-				logError(`Invalid semver dependency format: ${depVersion}`);
-				return false;
-			}
-
-			return true;
-		}
-
-		// Otherwise `version` should be a valid semver version.
-		if (!semver.valid(semver.coerce(depVersion))) {
-			logError(`Invalid semver dependency format: ${depVersion}`);
-			return false;
-		}
-
-		return true;
-	}
-
-	_doesVersionSatisfyDependency(version, depVersion) {
-		// If it is `param:version` then we use custom logic
-		if (depVersion.includes(":")) {
-			const splitDepVersion = depVersion.split(":");
-			const [param, semverDepVersion] = splitDepVersion;
-
-			// `optional:version` means the version should satisfy the dependency if it exists
-			if (param === "optional") {
-				// If the mod is not installed (and therefore version = null) we can skip this check
-				if (!version) return true;
-				else return semver.satisfies(version, semverDepVersion);
-			}
-
-			// `conflict:version` means the version should not satisfy the dependency
-			if (param === "conflict") {
-				return !semver.satisfies(version, semverDepVersion);
-			}
-		}
-
-		// Regular semver dependency check for `version`
-		return semver.satisfies(version, depVersion);
 	}
 
 	_applyModsScriptModifySchema() {
@@ -2660,7 +2604,7 @@ function setupElectronIPC() {
 			return errorResponse(`Failed to ping server: ${e.message}`);
 		}
 	});
-};
+}
 
 function startManager() {
 	if (isManagerStarted) return errorResponse("Cannot start manager, already running");

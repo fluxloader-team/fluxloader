@@ -1351,7 +1351,7 @@ class ModsTab {
 		const res = await this._updateAllActions();
 
 		if (!res.success) {
-			logError(`Failed to queue '${type}' action for mod '${modID}':`, JSON.stringify(res));
+			logWarn(`Failed to queue '${type}' action for mod '${modID}':`, JSON.stringify(res));
 			newMainAction.state = "failed";
 			newMainAction.element.classList.toggle("loading", false);
 			newMainAction.element.classList.toggle("failed", true);

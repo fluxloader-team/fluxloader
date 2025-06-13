@@ -698,11 +698,13 @@ input[type="checkbox"]:checked::before {
 #mods-tab-content .main-rightbar .mod-info .row p {
 	white-space: nowrap;
 	overflow: hidden;
+	user-select: all;
 }
 
 #mods-tab-content .main-rightbar .mod-info .row p.label {
 	overflow: visible;
 	color: var(--color-text-muted);
+	user-select: none;
 }
 
 #mods-tab-content .main-rightbar .mod-info p.empty {

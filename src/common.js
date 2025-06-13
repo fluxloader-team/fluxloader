@@ -54,6 +54,34 @@ export class EventBus {
 	}
 }
 
+export class FluxloaderSemver {
+	static isDependencyValid(dependency) {
+		// If it is `param:version` then we validate param and version seperately
+		if (dependency.includes(":")) {
+			const spitDependency = dependency.split(":");
+			if (spitDependency.length !== 2) return false;
+			const [param, dependencySemver] = spitDependency;
+			if (!["optional", "conflict"].includes(param)) return false;
+			dependency = dependencySemver;
+		}
+		// Now just validate if it is a valid semver value
+		return semver.coerce(dependency) != null || semver.validRange(dependency) != null;
+	}
+
+	static doesVersionSatisfyDependency(version, dependency) {
+		// If it is `param:version` then we use custom logic
+		// `optional:version` means the version should satisfy the dependency if it exists
+		// `conflict:version` means the version should not satisfy the dependency
+		if (dependency.includes(":")) {
+			const [param, dependencySemver] = dependency.split(":");
+			if (param === "optional") return !version || semver.satisfies(version, dependencySemver);
+			if (param === "conflict") return !semver.satisfies(version, dependencySemver);
+		}
+		// Regular semver dependency check for `version`
+		return semver.satisfies(version, dependency);
+	}
+}
+
 export class SchemaValidation {
 	// Errors if the schema is invalid
 	// Return true / false if the target is valid
@@ -132,7 +160,8 @@ export class SchemaValidation {
 
 			case "semver":
 				if (typeof targetValue !== "string") return { success: false, error: `Expected semver string but got ${typeof targetValue}`, source: "target" };
-				if (globalThis.semver.coerce(targetValue) === null) return { success: false, error: `String is not a valid semver version`, source: "target" };
+				var isValid = FluxloaderSemver.isDependencyValid(targetValue);
+				if (!isValid) return { success: false, error: `String '${targetValue}' is not a valid fluxloader semver dependency`, source: "target" };
 				return { success: true };
 
 			case "number":
