@@ -232,7 +232,7 @@ export class Logging {
 		let timestampText = timestamp.toISOString().split("T")[1].split("Z")[0];
 		const levelText = level.toUpperCase();
 		if (!coloured) {
-			return `[${tag ? tag + " " : ""}${levelText} ${timestampText}]`;
+			return `${levelText} ${timestampText}${tag ? ` ${tag}` : ""}`;
 		} else {
 			const levelColour = Logging.levelColours[level] || "white";
 			return Logging.colourText(`${levelText} ${timestampText}`, levelColour) + Logging.colourText(tag ? ` ${tag}` : "", "magenta");

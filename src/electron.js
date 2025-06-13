@@ -62,8 +62,8 @@ function setupLogFile() {
 	}
 	const stat = fs.statSync(logFilePath);
 	const fileSize = stat.size / 1024 / 1024;
-	if (fileSize > 2) {
-		logWarn(`Log file is over 2MB: ${logFilePath} (${fileSize.toFixed(2)}MB)`);
+	if (fileSize > 5) {
+		logWarn(`Log file is over 5MB: ${logFilePath} (${fileSize.toFixed(5)}MB)`);
 	}
 	logDebug(`Fluxloader log path: ${logFilePath}`);
 }
@@ -376,8 +376,8 @@ class GameFilesManager {
 			return errorResponse(`Failed to reset game files to unmodified state: ${e.stack}`);
 		}
 
-		logDebug("Extracted app.asar set to default successfully");
-		return successResponse("Game files reset to unmodified state");
+		logDebug("Extracted game files reset to unmodified state");
+		return successResponse("Extracted game files reset to unmodified state");
 	}
 
 	clearPatches() {
@@ -463,11 +463,13 @@ class GameFilesManager {
 				return errorResponse(`Failed to repatch file '${file}': ${e.message}`);
 			}
 		}
+		logInfo("All game files repatched successfully");
 		return successResponse("All game files repatched successfully");
 	}
 
 	async patchAndRunGameElectron() {
 		if (!this.isGameExtracted) return errorResponse("Game files not extracted cannot process game app");
+		logInfo("Patching and running game electron files...");
 
 		// Here we basically want to isolate createWinow(), setupIpcHandlers(), and loadSettingsSync()
 		// This is potentially very brittle and may need fixing in the future if main.js changes
@@ -543,7 +545,7 @@ class GameFilesManager {
 		try {
 			const mainPath = path.join(this.tempExtractedPath, "main.js");
 			const gameElectronURL = `file://${mainPath}`;
-			logInfo(`Executing modified games electron main.js: ${gameElectronURL}`);
+			logDebug(`Executing modified games electron main.js: ${gameElectronURL}`);
 			await import(gameElectronURL);
 		} catch (e) {
 			return errorResponse(`Error evaluating game main.js: ${e.stack}`);
@@ -671,13 +673,13 @@ class GameFilesManager {
 
 		this.tempExtractedPath = path.join(this.tempBasePath, "extracted");
 		ensureDirectoryExists(this.tempExtractedPath);
-		logInfo(`Extracting game.asar to ${this.tempExtractedPath}`);
+		logDebug(`Extracting game.asar to ${this.tempExtractedPath}`);
 		try {
 			asar.extractAll(this.gameAsarPath, this.tempExtractedPath);
 		} catch (e) {
 			throw new Error(`Error extracting game.asar: ${e.stack}`);
 		}
-		logDebug(`Successfully extracted app.asar`);
+		logDebug(`Successfully extracted app.asar to ${this.tempExtractedPath}`);
 		this.isGameExtracted = true;
 		this.isGameModified = false;
 	}
@@ -739,8 +741,13 @@ class GameFilesManager {
 			return;
 		}
 
+		if (this.fileData[file].usingLatestPatches) {
+			logDebug(`File '${file}' is already using the latest patches, no need to apply again`);
+			return;
+		}
+
 		const fullPath = this.fileData[file].fullPath;
-		logDebug(`Applying ${this.fileData[file].patches.size} patches to file: ${fullPath}`);
+		logInfo(`Applying ${this.fileData[file].patches.size} patches to file: ${fullPath}`);
 
 		let fileContent;
 		try {
@@ -908,11 +915,8 @@ class ModsManager {
 
 		// Final report of installed mods
 		const modCount = Object.keys(this.installedMods).length;
-		const modListMessage = Object.values(this.installedMods)
-			.map((mod) => `${!mod.isEnabled ? "(DISABLED) " : ""}${mod.info.modID} (v${mod.info.version})`)
-			.join(", ");
+		const modListMessage = this.loadOrder.map((modID) => `${!this.installedMods[modID].isEnabled ? "(DISABLED) " : ""}${this.installedMods[modID].info.modID} (v${this.installedMods[modID].info.version})`).join(", ");
 		logInfo(`Successfully initialized ${modCount} mod${modCount == 1 ? "" : "s"}: [${modListMessage}]`);
-		logInfo(`Mod load order: [ ${this.loadOrder.join(", ")} ]`);
 
 		return successResponse(`Found ${modCount} mod${modCount == 1 ? "" : "s"}`);
 	}
@@ -925,9 +929,9 @@ class ModsManager {
 
 		const enabledCount = this.loadOrder.filter((modID) => this.installedMods[modID].isEnabled).length;
 		if (enabledCount == this.loadOrder.length) {
-			logDebug(`Loading ${this.loadOrder.length} mods...`);
+			logInfo(`Loading ${this.loadOrder.length} mods...`);
 		} else {
-			logDebug(`Loading ${enabledCount} / ${this.loadOrder.length} mods...`);
+			logInfo(`Loading ${enabledCount} / ${this.loadOrder.length} mods...`);
 		}
 
 		// Verify dependencies of all mods before starting to load them
@@ -2259,12 +2263,12 @@ function findValidGamePath() {
 		return errorResponse(`Failed to find game app.asar in configured path: ${config.gamePath} - ${e.stack}`);
 	}
 
-	logInfo(`Found game app.asar: ${asarPath}`);
+	logDebug(`Found game app.asar: ${asarPath}`);
 	return successResponse(`Found game app.asar: ${asarPath}`, { fullGamePath, asarPath });
 }
 
 function addFluxloaderPatches() {
-	logDebug("Adding fluxloader patches to game files...");
+	logInfo("Adding fluxloader patches to game files...");
 
 	// All of these set patches are turned into errors so we can deal with them all in 1 go in the catch block
 	// All of these need to be applied successfully for the game to run properly
@@ -2606,6 +2610,24 @@ async function pickFolderNative(args) {
 	return successResponse("Folder selected successfully", selectedPath);
 }
 
+async function pickFileNative(args) {
+	let defaultPath = resolvePathRelativeToExecutable(".");
+	if (args.initialPath) defaultPath = path.resolve(defaultPath, args.initialPath);
+	const result = await dialog.showOpenDialog({
+		title: "Select a file",
+		defaultPath,
+		properties: ["openFile"],
+	});
+
+	if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+		return errorResponse("No file selected", null, false);
+	}
+
+	const selectedPath = result.filePaths[0];
+	logDebug(`Selected file: ${selectedPath}`);
+	return successResponse("File selected successfully", selectedPath);
+}
+
 function setupElectronIPC() {
 	logDebug("Setting up electron IPC handlers");
 
@@ -2640,6 +2662,7 @@ function setupElectronIPC() {
 		"fl:open-mods-folder": (_) => openModsFolderNative(),
 		"fl:open-extracted-folder": (_) => openExtractedFolderNative(),
 		"fl:pick-folder": async (args) => await pickFolderNative(args),
+		"fl:pick-file": async (args) => await pickFileNative(args),
 	};
 
 	for (const [endpoint, handler] of Object.entries(simpleEndpoints)) {
@@ -2723,8 +2746,8 @@ function startManager() {
 		return errorResponse(`Error starting manager window: ${e.stack}`);
 	}
 
-	logInfo(`Manager started successfully at ${new Date().toISOString()}`);
-	return successResponse("Manager started successfully");
+	logInfo(`Manager window opened successfully`);
+	return successResponse("Manager window opened successfully");
 }
 
 function closeManager() {
@@ -2764,7 +2787,7 @@ async function startUnmoddedGame() {
 	}
 
 	fluxloaderAPI.events.trigger("fl:game-started");
-	logInfo(`Unmodded game started successfully at ${new Date().toISOString()}`);
+	logInfo(`Unmodded game window started successfully`);
 	return successResponse("Unmodded game started successfully");
 }
 
@@ -2788,8 +2811,8 @@ async function startGame() {
 		if (config.game.openDevTools) gameWindow.openDevTools();
 
 		fluxloaderAPI.events.trigger("fl:game-started");
-		logInfo(`Game started successfully at ${new Date().toISOString()}`);
-		return successResponse("Game started successfully");
+		logInfo(`Game window started successfully`);
+		return successResponse("Game window started successfully");
 	} catch (e) {
 		logError(`Error starting game window: ${e.stack}`);
 		closeGame();
@@ -2859,6 +2882,8 @@ async function startApp() {
 	gameFilesManager = new GameFilesManager(fullGamePath, asarPath);
 	fluxloaderAPI = new ElectronFluxloaderAPI();
 	modsManager = new ModsManager();
+
+	logInfo(`Successfully initialized fluxloader, game app.asar path: ${asarPath}`);
 
 	responseAsError(await modsManager.reloadInstalledMods());
 	setupElectronIPC();

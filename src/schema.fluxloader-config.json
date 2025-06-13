@@ -3,13 +3,13 @@
 		"type": "string",
 		"description": "Path to the game executable",
 		"default": ".",
-		"display": "path"
+		"display": "pathdir"
 	},
 	"modsPath": {
 		"type": "string",
 		"description": "Directory where mods are stored",
 		"default": "./mods",
-		"display": "path"
+		"display": "pathdir"
 	},
 	"modsEnabled": {
 		"type": "object",
@@ -70,7 +70,8 @@
 		"logFilePath": {
 			"type": "string",
 			"description": "Path to the log file",
-			"default": "fluxloader.log"
+			"default": "fluxloader.log",
+			"display": "pathfile"
 		}
 	},
 	"game": {

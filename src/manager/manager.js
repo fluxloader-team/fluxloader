@@ -321,14 +321,22 @@ class ConfigSchemaElement {
 				container.appendChild(wrapper);
 
 				// If its a path add a button
-				if (schemaValue.type === "string" && schemaValue.display && schemaValue.display === "path") {
-					logDebug(`Adding path button for ${currentPath.join(".")}`);
+				if (schemaValue.type === "string" && schemaValue.display && schemaValue.display.startsWith("path")) {
 					const pathButton = createElement(`<img class="config-input-path-button" src="assets/folder.png" />`);
 					pathButton.addEventListener("click", async () => {
-						const res = await api.invoke("fl:pick-folder", { initialPath: input.value });
-						if (!res.success) return logWarn(`Failed to pick folder for ${currentPath.join(".")}: ${res.error}`);
-						logDebug(`Picked folder for ${currentPath.join(".")}: ${JSON.stringify(res.data)}`);
-						input.value = res.data;
+						let picked;
+						if (schemaValue.display.endsWith("dir")) {
+							const res = await api.invoke("fl:pick-folder", { initialPath: input.value });
+							if (!res.success) return logWarn(`Failed to pick folder for ${currentPath.join(".")}: ${res.error}`);
+							logDebug(`Picked folder for ${currentPath.join(".")}: ${JSON.stringify(res.data)}`);
+							picked = res.data;
+						} else if (schemaValue.display.endsWith("file")) {
+							const res = await api.invoke("fl:pick-file", { initialPath: input.value });
+							if (!res.success) return logWarn(`Failed to pick file for ${currentPath.join(".")}: ${res.error}`);
+							logDebug(`Picked file for ${currentPath.join(".")}: ${JSON.stringify(res.data)}`);
+							picked = res.data;
+						}
+						input.value = picked;
 						this._validateInput(currentPath, input, schemaValue);
 					});
 					inputWrapper.appendChild(pathButton);
@@ -506,11 +514,11 @@ class ModsTab {
 		});
 	}
 
-	selectTab() {
+	async selectTab() {
 		// Only reload the table on the first opening of this tab
 		if (!this.hasLoadedOnce) {
 			this.hasLoadedOnce = true;
-			this.reloadMods();
+			await this.reloadMods();
 		}
 	}
 
@@ -528,6 +536,7 @@ class ModsTab {
 		// Then fetching all remote mods
 
 		// Tell the backend to re-discover installed mods
+		logDebug("Reloading installed mods...");
 		const res = await api.invoke("fl:reload-installed-mods");
 		if (!res.success) {
 			logError("Failed to find installed mods:", res.data);
@@ -617,7 +626,7 @@ class ModsTab {
 
 		// Select the mod
 		await this.selectMod(modID);
-		
+
 		this.setIsLoadingMods(false);
 	}
 
@@ -1903,10 +1912,7 @@ class LogsTab {
 	}
 
 	addLog(log, notifyErrors = true) {
-		if (!this.isSetup) {
-			console.log("Logs tab not setup yet, cannot add log.");
-			return;
-		}
+		if (!this.isSetup) return;
 
 		if (!log || !log.timestamp || !log.level || !log.message) {
 			logWarn(`Invalid log entry: ${JSON.stringify(log)}`);
@@ -1921,7 +1927,6 @@ class LogsTab {
 	}
 
 	setErrorNotification(source, toggled = true) {
-		logDebug(`Setting error notification for source '${source}' to ${toggled}`);
 		if (this.sources[source].hasErrorNotification === toggled) return;
 		this.sources[source].tabElement.querySelector(".logs-tab-icon").style.display = toggled ? "block" : "none";
 		this.sources[source].hasErrorNotification = toggled;
@@ -2166,8 +2171,7 @@ class CreateModTab {
 	}
 
 	async selectTab() {
-		if (!this.renderer) await this.setup();
-		else this.renderer.forceSetConfig(this.modCreateRequestData);
+		this.renderer.forceSetConfig(this.modCreateRequestData);
 	}
 
 	extraValidation(value, schemaValue) {
@@ -2236,7 +2240,7 @@ function tabNameToID(tabName) {
 // =================== MAIN ===================
 
 function setIsPlaying(playing) {
-	if (isPlaying === playing) return pingBlockingTask(`Tried to set isPlaying to ${playing} but it is already set to that.`);
+	if (isPlaying === playing) return logWarn(`Tried to set isPlaying to ${playing} but it is already set to that.`);
 	isPlaying = playing;
 	if (isPlaying) addBlockingTask("isPlaying");
 	else removeBlockingTask("isPlaying");
@@ -2469,7 +2473,7 @@ function pingBlockingTask(message) {
 	getElement("open-mods-folder").addEventListener("click", async () => await api.invoke("fl:open-mods-folder"));
 
 	setStatusBar("", 0);
-	selectTab("mods");
+	await selectTab("mods");
 
-	logDebug("FluxLoader Manager started.");
+	logDebug("FluxLoader Manager started");
 })();
