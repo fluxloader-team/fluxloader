@@ -105,7 +105,7 @@ function catchUnexpectedExits() {
 		logError(`An unexpected error occurred: ${JSON.stringify(event)}`);
 	};
 	window.onunhandledrejection = (event) => {
-		logError(`An unhandled promise rejection occurred: ${JSON.stringify(event)}`);
+		logError(`An unhandled promise rejection occurred: ${event.reason}`);
 	};
 }
 
