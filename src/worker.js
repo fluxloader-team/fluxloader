@@ -8,7 +8,7 @@ globalThis.fluxloaderAPI = undefined;
 globalThis.log = function (level, tag, message) {
 	const timestamp = new Date().toISOString().split("T")[1].split("Z")[0];
 	const levelText = level.toUpperCase();
-	let header = `[${tag ? tag + " " : ""}${levelText} ${timestamp}]`;
+	let header = `${levelText} ${timestamp}${tag ? ` ${tag}` : ""}`;
 	console.log(`${header} ${message}`);
 };
 
