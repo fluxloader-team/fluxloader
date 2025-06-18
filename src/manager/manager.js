@@ -1554,7 +1554,7 @@ class ModsTab {
 	_clearCompletedActions() {
 		// We want to clear out any completed actions that are no longer needed
 		for (const modID in this.allQueuedActions) {
-			const action = this.allQueuedActions[modID];	
+			const action = this.allQueuedActions[modID];
 			if (action.state === "complete" || action.state === "failed") {
 				logDebug(`Removing completed action for mod '${modID}'`);
 				this._removeActionRowElement(action);
@@ -2107,7 +2107,7 @@ class CreateModTab {
 		},
 		fluxloaderVersion: {
 			type: "semver",
-			default: ">=2.0.0",
+			default: "^2.0.0",
 		},
 		shortDescription: {
 			type: "string",
