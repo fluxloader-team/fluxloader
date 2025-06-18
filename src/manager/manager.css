@@ -354,8 +354,8 @@ input[type="checkbox"]:checked::before {
 }
 
 #mods-tab-content .main-leftbar h1,
-h2,
-p {
+#mods-tab-content .main-leftbar h2,
+#mods-tab-content .main-leftbar p {
 	color: var(--color-text-primary);
 	font-weight: normal;
 	text-align: center;
