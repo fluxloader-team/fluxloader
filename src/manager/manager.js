@@ -1554,7 +1554,7 @@ class ModsTab {
 	_clearCompletedActions() {
 		// We want to clear out any completed actions that are no longer needed
 		for (const modID in this.allQueuedActions) {
-			const action = this.allQueuedActions[modID];
+			const action = this.allQueuedActions[modID];	
 			if (action.state === "complete" || action.state === "failed") {
 				logDebug(`Removing completed action for mod '${modID}'`);
 				this._removeActionRowElement(action);
@@ -1627,9 +1627,14 @@ class ModsTab {
 	}
 
 	_updateModRowWithAction(action, enabled) {
-		const statusCheckbox = this.modRows[action.modID].element.querySelector(".mod-row-status input[type='checkbox']");
-		const statusMainImg = this.modRows[action.modID].element.querySelector(".mod-row-status .main-img");
-		const statusHoverImg = this.modRows[action.modID].element.querySelector(".mod-row-status .hover-img");
+		if (!this.modRows[action.modID]) {
+			if (!enabled) return;
+			return logError(`Cannot update mod row with action preview visible for mod '${action.modID}' as it does not exist`);
+		}
+
+		const statusCheckbox = this.modRows[action.modID]?.element.querySelector(".mod-row-status input[type='checkbox']");
+		const statusMainImg = this.modRows[action.modID]?.element.querySelector(".mod-row-status .main-img");
+		const statusHoverImg = this.modRows[action.modID]?.element.querySelector(".mod-row-status .hover-img");
 
 		if (!enabled) {
 			// Action disabled but mod installed, so show checkbox

@@ -232,6 +232,7 @@ input[type="checkbox"] {
 	outline: none;
 	padding: 0;
 	position: relative;
+	cursor: pointer;
 }
 
 input[type="checkbox"]:hover {
@@ -663,6 +664,14 @@ input[type="checkbox"]:checked::before {
 	filter: brightness(0.6);
 }
 
+#mods-tab-content .mods-table td.mod-row-status .main-img.active {
+	filter: brightness(0.8);
+}
+
+#mods-tab-content .mods-table td.mod-row-status .main-img.active:hover {
+	filter: brightness(0.9);
+}
+
 #mods-tab-content .mods-table td.mod-row-status .hover-img {
 	display: none;
 	position: absolute;
@@ -676,10 +685,6 @@ input[type="checkbox"]:checked::before {
 #mods-tab-content .mods-table td.mod-row-status .main-img:hover ~ .hover-img {
 	display: block;
 	filter: brightness(0.6);
-}
-
-#mods-tab-content .mods-table td.mod-row-status .main-img.active {
-	filter: brightness(0.8);
 }
 
 #mods-tab-content .mods-table td.mod-row-status .main-img.active ~ .hover-img {
