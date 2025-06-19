@@ -287,38 +287,39 @@ class ConfigSchemaElement {
 					default:
 						throw new Error(`Unsupported input type: ${schemaValue.type}`);
 				}
+
+				// Create the base elements for the schema row
 				input.classList.add("config-input");
 				const inputWrapper = document.createElement("div");
 				inputWrapper.classList.add("config-input-wrapper");
 				inputWrapper.appendChild(input);
 
-				// Create the elements for the input
-				const wrapper = document.createElement("div");
-				wrapper.classList.add("config-input-wrapper");
-
-				const labelRow = document.createElement("div");
-				labelRow.classList.add("config-input-label-row");
-				const label = document.createElement("label");
+				const label = document.createElement("div");
 				label.classList.add("config-input-label");
 				label.textContent = key;
-				labelRow.appendChild(label);
 
+				let description;
 				if (schemaValue.description) {
-					const desc = document.createElement("span");
-					desc.classList.add("config-input-description");
-					desc.textContent = schemaValue.description;
-					labelRow.appendChild(desc);
+					description = document.createElement("span");
+					description.classList.add("config-input-description");
+					description.textContent = schemaValue.description;
 				}
 
-				if (schemaValue.type === "boolean") {
-					wrapper.classList.add("same-row");
-					wrapper.appendChild(inputWrapper);
-					wrapper.appendChild(labelRow);
+				// Compose them together based on the input type
+				const row = document.createElement("div");
+				row.classList.add("config-schema-row");
+				let inlineInput = schemaValue.type === "boolean";
+				if (inlineInput) {
+					inputWrapper.appendChild(label);
+					row.appendChild(inputWrapper);
+					if (description) row.appendChild(description);
 				} else {
-					wrapper.appendChild(labelRow);
-					wrapper.appendChild(inputWrapper);
+					row.appendChild(label);
+					if (description) row.appendChild(description);
+					row.appendChild(inputWrapper);
+					inputWrapper.classList.add("full");
 				}
-				container.appendChild(wrapper);
+				container.appendChild(row);
 
 				// If its a path add a button
 				if (schemaValue.type === "string" && schemaValue.display && schemaValue.display.startsWith("path")) {

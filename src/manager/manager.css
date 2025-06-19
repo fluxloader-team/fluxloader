@@ -1692,45 +1692,40 @@ input[type="checkbox"]:checked::before {
 	border-bottom: none;
 }
 
-.config-schema-container .config-input-wrapper {
+.config-schema-container .config-schema-row {
 	display: flex;
-	flex-direction: column;
-}
-
-.config-schema-container .config-input-wrapper.same-row {
 	flex-direction: row;
-	gap: 1rem;
-	padding: 0 0.2rem;
-	align-items: center;
-	align-content: center;
-}
-
-.config-schema-container .config-input-wrapper.same-row .config-input-label-row {
-	margin-bottom: 0;
-}
-
-.config-schema-container .config-input-label-row {
-	flex: 1;
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
+	flex-wrap: wrap;
 	gap: 0.4rem;
-	margin-bottom: 0.4rem;
-	overflow: hidden;
+	justify-content: space-between;
 }
 
 .config-schema-container .config-input-label {
 	color: var(--color-text-muted);
 	font-size: 1rem;
+	flex-shrink: 0;
 	min-width: 0;
 }
 
 .config-schema-container .config-input-description {
 	color: var(--color-text-secondary);
 	font-size: 0.9rem;
-	margin-left: 1rem;
-	text-align: right;
-	flex-shrink: 0;
+}
+
+.config-schema-container .config-input-wrapper {
+	position: relative;
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	gap: 0.8rem;
+}
+
+.config-schema-container .config-input-wrapper.full {
+	width: 100%;
+}
+
+.config-schema-container .config-input-wrapper.full .config-input {
+	width: 100%;
 }
 
 .config-schema-container .config-input {
@@ -1742,6 +1737,10 @@ input[type="checkbox"]:checked::before {
 	border: 1px solid transparent;
 }
 
+.config-schema-container .config-input[type="checkbox"] {
+	padding: 0;
+}
+
 .config-schema-container .config-input:hover {
 	border-color: var(--color-bg-light2-hover-lighter);
 }
@@ -1751,16 +1750,8 @@ input[type="checkbox"]:checked::before {
 	border-color: var(--color-control-active-hover-lighter);
 }
 
-.config-schema-container .config-input[type="checkbox"] {
-	padding: 0;
-}
-
 .config-schema-container .config-input.invalid {
 	border: 1px solid var(--color-vivid-red);
-}
-
-.config-schema-container .config-input-wrapper {
-	position: relative;
 }
 
 .config-schema-container .config-input-path-button {
