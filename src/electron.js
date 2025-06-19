@@ -234,13 +234,13 @@ class ElectronFluxloaderAPI {
 	}
 
 	handleGameIPC(channel, handler) {
-		const fullChannel = `fl-mod:${channel}`;
+		const fullChannel = `mod:${channel}`;
 		this._modIPCHandlers.push({ channel: fullChannel, handler });
 		ipcMain.handle(fullChannel, handler);
 	}
 
 	sendGameEvent(event, message) {
-		const fullEvent = `fl-mod:${event}`;
+		const fullEvent = `mod:${event}`;
 		logDebug(`Sending game event: ${fullEvent} with message: ${JSON.stringify(message)}`);
 		globalThis.gameWindow?.webContents.send(fullEvent, message);
 	}
@@ -278,12 +278,12 @@ class ElectronFluxloaderAPI {
 
 class ElectronModConfigAPI {
 	constructor() {
-		ipcMain.handle("fl-mod-config:get", (_, modID) => {
+		ipcMain.handle("fl:mod-config-get", (_, modID) => {
 			logDebug(`Getting mod config remotely for ${modID}`);
 			return this.get(modID);
 		});
 
-		ipcMain.handle("fl-mod-config:set", (_, modID, config) => {
+		ipcMain.handle("fl:mod-config-set", (_, modID, config) => {
 			logDebug(`Setting mod config remotely for ${modID}`);
 			return this.set(modID, config);
 		});
@@ -2287,7 +2287,7 @@ function addFluxloaderPatches() {
 			gameFilesManager.setPatch("js/bundle.js", "fluxloader:loadGameInstance", {
 				type: "replace",
 				from: "}};var r={};",
-				to: "}};fluxloader_onGameInstanceInitialized(__debug);var r={};",
+				to: "}};fluxloader_onGameInstanceCreated(__debug);var r={};",
 			})
 		);
 
@@ -2310,12 +2310,12 @@ function addFluxloaderPatches() {
 		);
 
 		// Expose the games world to bundle.js
+		// This is awkward, as the array [4,init] is the return statement in a switch
 		responseAsError(
 			gameFilesManager.setPatch("js/bundle.js", "fluxloader:gameWorldInitialized", {
 				type: "replace",
-				from: `console.log("initializing workers"),`,
-				to: `$$fluxloader_onGameWorldInitialized(s),`,
-				token: "$$",
+				from: `[4,s.environment.multithreading.simulation.init(s)]`,
+				to: `[4,s.environment.multithreading.simulation.init(s),fluxloader_onGameInitialized()]`
 			})
 		);
 

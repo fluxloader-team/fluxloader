@@ -27,11 +27,10 @@ function forwardLogToManager(log) {
 // ------------- MAIN -------------
 
 class GameFluxloaderAPI {
-	static allEvents = ["fl:scene-loaded"];
+	static allEvents = ["fl:scene-loaded", "fl:world-loaded"];
 	environment = "game";
 	events = undefined;
 	modConfig = undefined;
-	gameWorld = undefined;
 	gameInstance = undefined;
 	messageListeners = {};
 
@@ -50,15 +49,15 @@ class GameFluxloaderAPI {
 	}
 
 	async invokeElectronIPC(channel, ...args) {
-		return await window.electron.invoke(`fl-mod:${channel}`, ...args);
+		return await window.electron.invoke(`mod:${channel}`, ...args);
 	}
 
 	handleElectronEvent(event, handler) {
-		window.electron.on(`fl-mod:${event}`, (event, ...args) => handler(event, ...args));
+		window.electron.on(`mod:${event}`, (event, ...args) => handler(event, ...args));
 	}
 
 	async sendWorkerMessage(channel, ...args) {
-		this.gameWorld.environment.multithreading.simulation.postAll(this.gameWorld, ["fluxloaderMessage", channel, ...args]);
+		this.gameInstance.state.environment.multithreading.simulation.postAll(this.gameInstance.state, ["fluxloaderMessage", channel, ...args]);
 	}
 
 	async listenWorkerMessage(channel, handler) {
@@ -74,11 +73,11 @@ class GameFluxloaderAPI {
 
 class GameModConfigAPI {
 	async get(modName) {
-		return await window.electron.invoke("fl-mod-config:get", modName);
+		return await window.electron.invoke("fl:mod-config-get", modName);
 	}
 
 	async set(modName, config) {
-		return await window.electron.invoke("fl-mod-config:set", modName, config);
+		return await window.electron.invoke("fl:mod-config-set", modName, config);
 	}
 }
 
@@ -117,21 +116,16 @@ globalThis.fluxloader_preloadBundle = async () => {
 	await loadAllMods();
 };
 
-globalThis.fluxloader_onGameWorldInitialized = (s) => {
-	// This is called just before the worker manager is initialized
-	fluxloaderAPI.gameWorld = s;
-	logInfo("Game world initialized");
+globalThis.fluxloader_onGameInstanceCreated = (s) => {
+	// Called during the setup
+	fluxloaderAPI.gameInstance = s;
 };
 
-globalThis.fluxloader_onGameInstanceInitialized = (s) => {
-	fluxloaderAPI.gameInstance = s;
+globalThis.fluxloader_onGameInitialized = () => {
+	// Called after all the setup, but right before simulation.init()
 	const scene = fluxloaderAPI.gameInstance.state.store.scene.active;
+	const sceneLookup = { 1: "mainmenu", 2: "newgame", 3: "loadgame" };
 	logInfo(`Game instance loaded with scene ${scene}`);
-	const sceneLookup = {
-		1: "mainmenu",
-		2: "intro",
-		3: "game",
-	};
 	fluxloaderAPI.events.trigger("fl:scene-loaded", sceneLookup[scene]);
 };
 

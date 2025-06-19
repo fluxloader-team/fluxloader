@@ -1249,12 +1249,12 @@ class ModsTab {
 		modInfoContainer.style.display = "none";
 		configContainer.innerHTML = "";
 
-		const config = await api.invoke("fl-mod-config:get", this.selectedMod);
+		const config = await api.invoke("fl:mod-config-get", this.selectedMod);
 		const schema = modData.info.configSchema;
 
 		this.configRenderer = new ConfigSchemaElement(configContainer, config, schema, async (newConfig) => {
 			logDebug(`Mod ${this.selectedMod} config changed, notifying electron...`);
-			const success = await api.invoke("fl-mod-config:set", this.selectedMod, newConfig);
+			const success = await api.invoke("fl:mod-config-set", this.selectedMod, newConfig);
 			if (!success) {
 				logError(`Failed to set config for mod ${this.selectedMod}`);
 				setStatusBar("Failed to set mod config", 0, "error");
