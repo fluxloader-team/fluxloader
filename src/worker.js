@@ -27,7 +27,7 @@ class WorkerFluxloaderAPI {
 	messageListeners = {};
 
 	constructor() {
-		this.events = new EventBus();
+		this.events = new EventBus(false);
 		for (const event of WorkerFluxloaderAPI.allEvents) {
 			this.events.registerEvent(event);
 		}
@@ -54,7 +54,7 @@ async function loadAllMods() {
 		throw new Error("fluxloaderWorkerEntrypoints is undefined. Electron has failed to expose this to the workers.");
 	}
 	for (const workerEntrypoint of fluxloaderWorkerEntrypoints) {
-		await import(`file://${workerEntrypoint}`);
+		await import(`file://${workerEntrypoint}?${Date.now()}`);
 	}
 }
 
@@ -67,7 +67,7 @@ globalThis.fluxloaderPreloadBundle = async () => {
 
 	// Then immediately load the mods
 	fluxloaderAPI = new WorkerFluxloaderAPI();
-	loadAllMods();
+	await loadAllMods();
 };
 
 globalThis.fluxloaderOnWorkerInitialized = (gameInstanceState) => {
@@ -79,7 +79,7 @@ globalThis.fluxloaderOnWorkerInitialized = (gameInstanceState) => {
 	} else if (gameInstanceState.environment.context === 3) {
 		logInfo(`Worker fluxloader ${fluxloaderVersion} initialized, type=Manager`);
 	} else {
-		  logError(`Worker fluxloader ${fluxloaderVersion} initialized, type=Unknown, context=${gameInstanceState.environment.context}`);
+		logError(`Worker fluxloader ${fluxloaderVersion} initialized, type=Unknown, context=${gameInstanceState.environment.context}`);
 	}
 
 	fluxloaderAPI.events.trigger("fl:worker-initialized");
