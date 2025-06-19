@@ -27,7 +27,7 @@ function forwardLogToManager(log) {
 // ------------- MAIN -------------
 
 class GameFluxloaderAPI {
-	static allEvents = ["fl:scene-loaded", "fl:world-loaded"];
+	static allEvents = ["fl:scene-loaded"];
 	environment = "game";
 	events = undefined;
 	modConfig = undefined;
@@ -37,15 +37,9 @@ class GameFluxloaderAPI {
 	constructor() {
 		this.events = new EventBus();
 		this.modConfig = new GameModConfigAPI();
-
 		for (const event of GameFluxloaderAPI.allEvents) {
 			this.events.registerEvent(event);
 		}
-
-		// fl:get-loaded-mods
-		this.listenWorkerMessage("fl:get-loaded-mods", () => {
-			this.sendWorkerMessage("fl:get-loaded-mods:response", loadedMods);
-		});
 	}
 
 	async invokeElectronIPC(channel, ...args) {
@@ -108,7 +102,7 @@ function catchUnexpectedExits() {
 	};
 }
 
-globalThis.fluxloader_preloadBundle = async () => {
+globalThis.fluxloaderPreloadBundle = async () => {
 	// This is guaranteed to happen before the games bundle.js is loaded
 	logInfo(`Starting Game Sandustry Fluxloader ${fluxloaderVersion}`);
 	fluxloaderAPI = new GameFluxloaderAPI();
@@ -116,12 +110,12 @@ globalThis.fluxloader_preloadBundle = async () => {
 	await loadAllMods();
 };
 
-globalThis.fluxloader_onGameInstanceCreated = (s) => {
+globalThis.fluxloaderOnGameInstanceCreated = (s) => {
 	// Called during the setup
 	fluxloaderAPI.gameInstance = s;
 };
 
-globalThis.fluxloader_onGameInitialized = () => {
+globalThis.fluxloaderOnGameInitialized = () => {
 	// Called after all the setup, but right before simulation.init()
 	const scene = fluxloaderAPI.gameInstance.state.store.scene.active;
 	const sceneLookup = { 1: "mainmenu", 2: "newgame", 3: "loadgame" };
@@ -129,7 +123,7 @@ globalThis.fluxloader_onGameInitialized = () => {
 	fluxloaderAPI.events.trigger("fl:scene-loaded", sceneLookup[scene]);
 };
 
-globalThis.fluxloader_onWorkerMessage = (m) => {
+globalThis.fluxloaderOnWorkerMessage = (m) => {
 	m.data.shift();
 	const channel = m.data.shift();
 	fluxloaderAPI._onWorkerMessage(channel, ...m.data);
