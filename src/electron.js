@@ -2287,7 +2287,7 @@ function addFluxloaderPatches() {
 			gameFilesManager.setPatch("js/bundle.js", "fluxloader:loadGameInstance", {
 				type: "replace",
 				from: "}};var r={};",
-				to: "}};fluxloader_onGameInstanceCreated(__debug);var r={};",
+				to: "}};fluxloaderOnGameInstanceCreated(__debug);var r={};",
 			})
 		);
 
@@ -2297,7 +2297,7 @@ function addFluxloaderPatches() {
 			gameFilesManager.setPatch("js/bundle.js", "fluxloader:preloadBundle", {
 				type: "replace",
 				from: `(()=>{var e,t,n={8916`,
-				to: `import "${gameScriptPath}";fluxloader_preloadBundle().then$$`,
+				to: `import "${gameScriptPath}";fluxloaderPreloadBundle().then$$`,
 				token: "$$",
 			})
 		);
@@ -2315,7 +2315,7 @@ function addFluxloaderPatches() {
 			gameFilesManager.setPatch("js/bundle.js", "fluxloader:gameWorldInitialized", {
 				type: "replace",
 				from: `[4,s.environment.multithreading.simulation.init(s)]`,
-				to: `[4,s.environment.multithreading.simulation.init(s),fluxloader_onGameInitialized()]`
+				to: `[4,s.environment.multithreading.simulation.init(s),fluxloaderOnGameInitialized()]`
 			})
 		);
 
@@ -2324,7 +2324,7 @@ function addFluxloaderPatches() {
 			gameFilesManager.setPatch("js/bundle.js", "fluxloader:onWorkerMessage", {
 				type: "replace",
 				from: "case f.InitFinished:",
-				to: "case 'fluxloaderMessage':fluxloader_onWorkerMessage(r);break;$$",
+				to: "case 'fluxloaderMessage':fluxloaderOnWorkerMessage(r);break;$$",
 				token: "$$",
 			})
 		);
@@ -2336,18 +2336,27 @@ function addFluxloaderPatches() {
 				gameFilesManager.setPatch(`js/${worker}.bundle.js`, "fluxloader:onWorkerMessage", {
 					type: "replace",
 					from: `case i.dD.Init:`,
-					to: `case 'fluxloaderMessage':fluxloader_onWorkerMessage(e);break;$$`,
+					to: `case 'fluxloaderMessage':fluxloaderOnWorkerMessage(e);break;$$`,
 					token: "$$",
 				})
 			);
 
 			// Add worker.js to each worker, and dont start until it is ready
-			const workerScriptPath = resolvePathInsideFluxloader(`worker.js`).replaceAll("\\", "/");
+			// Also make a global list of worker entrypoints to use
+			// Also queue up any messages received before setup
+			const workerEntrypoints = modsManager.getLoadedMods().filter(mod => mod.info.workerEntrypoint).map(mod => path.join(mod.path, mod.info.workerEntrypoint));
+			const workerScriptPath = resolvePathInsideFluxloader(`worker.js`).replaceAll(/\\/g, "/");
 			responseAsError(
 				gameFilesManager.setPatch(`js/${worker}.bundle.js`, "fluxloader:preloadBundle", {
 					type: "replace",
 					from: `(()=>{"use strict"`,
-					to: `importScripts("${workerScriptPath}");fluxloader_preloadBundle().then$$`,
+					to: `
+						globalThis.fluxloaderBasePath="${resolvePathInsideFluxloader(".").replace(/\\/g, "/")}";
+						globalThis.fluxloaderWorkerEntrypoints=${JSON.stringify(workerEntrypoints)};
+						let preloadMessageQueue = [];
+						self.onmessage = (e) => preloadMessageQueue.push(e);
+						importScripts("${workerScriptPath}");
+						fluxloaderPreloadBundle().then$$`,
 					token: "$$",
 				})
 			);
@@ -2360,13 +2369,31 @@ function addFluxloaderPatches() {
 			);
 		}
 
+		// Process the queue messages
+		responseAsError(
+			gameFilesManager.setPatch(`js/336.bundle.js`, "fluxloader:processQueuedMessages", {
+				type: "replace",
+				from: `W.store.upgrades[ee][te].level=re}}`,
+				to: `$$;if (preloadMessageQueue){for (const msg of preloadMessageQueue) self.onmessage(msg);}preloadMessageQueue=undefined;`,
+				token: "$$"
+			})
+		);
+		responseAsError(
+			gameFilesManager.setPatch(`js/546.bundle.js`, "fluxloader:processQueuedMessages", {
+				type: "replace",
+				from: `a.session.paused=e.data[1]}};`,
+				to: `$$if (preloadMessageQueue){for (const msg of preloadMessageQueue) {self.onmessage(msg);}}preloadMessageQueue=undefined;`,
+				token: "$$"
+			})
+		);
+
 		// Notify worker.js when the workers are ready
 		// These are different for each worker
 		responseAsError(
 			gameFilesManager.setPatch(`js/336.bundle.js`, "fluxloader:workerInitialized", {
 				type: "replace",
 				from: `W.environment.postMessage([i.dD.InitFinished]);`,
-				to: `fluxloader_onWorkerInitialized(W);$$`,
+				to: `fluxloaderOnWorkerInitialized(W);$$`,
 				token: "$$",
 			})
 		);
@@ -2374,7 +2401,7 @@ function addFluxloaderPatches() {
 			gameFilesManager.setPatch(`js/546.bundle.js`, "fluxloader:workerInitialized2", {
 				type: "replace",
 				from: `t(performance.now());break;`,
-				to: `t(performance.now());fluxloader_onWorkerInitialized(a);break;`,
+				to: `t(performance.now());fluxloaderOnWorkerInitialized(a);break;`,
 			})
 		);
 
@@ -2802,8 +2829,8 @@ async function startGame() {
 		fluxloaderAPI._initializeEvents();
 		responseAsError(gameFilesManager.resetToBaseFiles());
 		responseAsError(await gameFilesManager.patchAndRunGameElectron());
-		responseAsError(addFluxloaderPatches());
 		responseAsError(await modsManager.loadAllMods());
+		responseAsError(addFluxloaderPatches()); // We need loaded mods for the patches
 		responseAsError(gameFilesManager.repatchAllFiles());
 
 		gameElectronFuncs.createWindow();
