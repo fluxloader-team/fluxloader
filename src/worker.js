@@ -20,17 +20,17 @@ globalThis.logError = (...args) => log("error", "", args.join(" "));
 // ------------- MAIN -------------
 
 class WorkerFluxloaderAPI {
-	// static allEvents = ["fl:worker-initialized"];
+	static allEvents = ["fl:worker-initialized"];
 	environment = "worker";
-	// events = undefined;
+	events = undefined;
 	gameInstanceState = undefined;
 	messageListeners = {};
 
 	constructor() {
-		// this.events = new EventBus();
-		// for (const event of WorkerFluxloaderAPI.allEvents) {
-		// 	this.events.registerEvent(event);
-		// }
+		this.events = new EventBus();
+		for (const event of WorkerFluxloaderAPI.allEvents) {
+			this.events.registerEvent(event);
+		}
 	}
 
 	async sendGameMessage(channel, ...args) {
@@ -59,23 +59,15 @@ async function loadAllMods() {
 }
 
 globalThis.fluxloaderPreloadBundle = async () => {
-	console.log(`Fluxloader worker preload bundle v${fluxloaderVersion} initializing...`);
-
-	// We cannot have a delay here
-	// await new Promise(resolve => setTimeout(resolve, 1000));
+	// logInfo(`Preloading worker fluxloader ${fluxloaderVersion}...`);
 	
-	// This is guaranteed to happen before the workers bundle.js is loaded
-	// const randomNumber =  Math.random();
 	// Import modules here to block the worker before anything else
-	// console.log(`Fluxloader worker preload bundle v${fluxloaderVersion} initialized, randomNumber=${randomNumber}`);
-	// const { EventBus } = await import(fluxloaderBasePath + "/common.js");
-	// globalThis.EventBus = EventBus;
-	// console.log(`Fluxloader worker preload bundle v${fluxloaderVersion} imported EventBus, randomNumber=${randomNumber}`);
+	const { EventBus } = await import(fluxloaderBasePath + "/common.js");
+	globalThis.EventBus = EventBus;
 
 	// Then immediately load the mods
-	// Note that messaging doesnt work until initialized
 	fluxloaderAPI = new WorkerFluxloaderAPI();
-	// loadAllMods();
+	loadAllMods();
 };
 
 globalThis.fluxloaderOnWorkerInitialized = (gameInstanceState) => {
@@ -86,8 +78,11 @@ globalThis.fluxloaderOnWorkerInitialized = (gameInstanceState) => {
 		logInfo(`Worker fluxloader ${fluxloaderVersion} initialized, type=Worker, threadIndex=${gameInstanceState.environment.threadMeta.startingIndex}`);
 	} else if (gameInstanceState.environment.context === 3) {
 		logInfo(`Worker fluxloader ${fluxloaderVersion} initialized, type=Manager`);
+	} else {
+		  logError(`Worker fluxloader ${fluxloaderVersion} initialized, type=Unknown, context=${gameInstanceState.environment.context}`);
 	}
-	// fluxloaderAPI.events.emit("fl:worker-initialized");
+
+	fluxloaderAPI.events.trigger("fl:worker-initialized");
 };
 
 globalThis.fluxloaderOnWorkerMessage = (m) => {

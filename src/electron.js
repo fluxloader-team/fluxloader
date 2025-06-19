@@ -2343,6 +2343,7 @@ function addFluxloaderPatches() {
 
 			// Add worker.js to each worker, and dont start until it is ready
 			// Also make a global list of worker entrypoints to use
+			// Also queue up any messages received before setup
 			const workerEntrypoints = modsManager.getLoadedMods().filter(mod => mod.info.workerEntrypoint).map(mod => path.join(mod.path, mod.info.workerEntrypoint));
 			const workerScriptPath = resolvePathInsideFluxloader(`worker.js`).replaceAll(/\\/g, "/");
 			responseAsError(
@@ -2352,6 +2353,8 @@ function addFluxloaderPatches() {
 					to: `
 						globalThis.fluxloaderBasePath="${resolvePathInsideFluxloader(".").replace(/\\/g, "/")}";
 						globalThis.fluxloaderWorkerEntrypoints=${JSON.stringify(workerEntrypoints)};
+						let preloadMessageQueue = [];
+						self.onmessage = (e) => preloadMessageQueue.push(e);
 						importScripts("${workerScriptPath}");
 						fluxloaderPreloadBundle().then$$`,
 					token: "$$",
@@ -2365,6 +2368,24 @@ function addFluxloaderPatches() {
 				})
 			);
 		}
+
+		// Process the queue messages
+		responseAsError(
+			gameFilesManager.setPatch(`js/336.bundle.js`, "fluxloader:processQueuedMessages", {
+				type: "replace",
+				from: `W.store.upgrades[ee][te].level=re}}`,
+				to: `$$;if (preloadMessageQueue){for (const msg of preloadMessageQueue) self.onmessage(msg);}preloadMessageQueue=undefined;`,
+				token: "$$"
+			})
+		);
+		responseAsError(
+			gameFilesManager.setPatch(`js/546.bundle.js`, "fluxloader:processQueuedMessages", {
+				type: "replace",
+				from: `a.session.paused=e.data[1]}};`,
+				to: `$$if (preloadMessageQueue){for (const msg of preloadMessageQueue) {self.onmessage(msg);}}preloadMessageQueue=undefined;`,
+				token: "$$"
+			})
+		);
 
 		// Notify worker.js when the workers are ready
 		// These are different for each worker
