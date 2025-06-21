@@ -6,42 +6,42 @@ export class EventBus {
 		this.logging = logging;
 	}
 
-	registerEvent(event) {
-		if (this.logging) log("debug", "", `Registering new event '${event}'`);
+	registerEvent(event, toLog = true) {
+		if (toLog && this.logging) log("debug", "", `Registering new event '${event}'`);
 		if (this.events[event]) throw new Error(`Event already registered: ${event}`);
 		this.events[event] = [];
 	}
 
 	trigger(event, data, toLog = true) {
 		// When triggering an event generally if the source is inactive we error, but if the listener is inactive we ignore it
-		if (toLog) if (this.logging) log("debug", "", `Triggering event '${event}'`);
+		if (toLog && this.logging) log("debug", "", `Triggering event '${event}'`);
 		if (!this.events[event]) throw new Error(`Cannot trigger non-existent event: ${event}`);
 		for (const func of this.events[event]) func(data);
 	}
 
-	tryTrigger(event, data) {
+	tryTrigger(event, data, toLog = true) {
 		// This is here in cases for when we cant be sure if the event is registered or not
-		if (this.logging) log("debug", "", `Trying to trigger event '${event}'`);
+		if (toLog && this.logging) log("debug", "", `Trying to trigger event '${event}'`);
 		if (!this.events[event]) return;
 		for (const func of this.events[event]) func(data);
 	}
 
-	on(event, func) {
-		if (this.logging) log("debug", "", `Adding event listener for '${event}'`);
+	on(event, func, toLog = true) {
+		if (toLog && this.logging) log("debug", "", `Adding event listener for '${event}'`);
 		if (!this.events[event]) throw new Error(`Cannot add listener to non-existent event: ${event}`);
 		this.events[event].push(func);
 	}
 
-	off(event, func) {
-		if (this.logging) log("debug", "", `Removing event listener for '${event}'`);
+	off(event, func, toLog = true) {
+		if (toLog && this.logging) log("debug", "", `Removing event listener for '${event}'`);
 		if (!this.events[event]) throw new Error(`Cannot remove listener from non-existent event: ${event}`);
 		const index = this.events[event].indexOf(func);
 		if (index === -1) throw new Error(`Listener not found for event: ${event}`);
 		this.events[event].splice(index, 1);
 	}
 
-	clear() {
-		if (this.logging) log("debug", "", "Clearing EventBus");
+	clear(toLog = true) {
+		if (toLog && this.logging) log("debug", "", "Clearing EventBus");
 		for (const event in this.events) {
 			delete this.events[event];
 		}
