@@ -175,10 +175,9 @@ export class SchemaValidation {
 				if (Object.hasOwn(schemaLeafValue, "max") && targetValue > schemaLeafValue.max) return { success: false, error: `Number is greater than maximum value ${schemaLeafValue.max}`, source: "target" };
 				// If step is given, checks if the value is close enough to the step value
 				if (Object.hasOwn(schemaLeafValue, "step")) {
-					let min = Object.hasOwn(schemaLeafValue, "min") ? schemaLeafValue.min : 0;
-					const step = (targetValue - min) / schemaLeafValue.step;
-					if ((Math.abs(step) % 1) > SchemaValidation.FLOAT_EPSILON) {
-						return { success: false, error: `Number ${targetValue} is not a valid step of ${schemaLeafValue.step} from ${min}`, source: "target" };
+					const step = Math.abs((targetValue - (schemaLeafValue.min || 0)) / schemaLeafValue.step) % 1;
+					if (step > SchemaValidation.FLOAT_EPSILON && 1 - step > SchemaValidation.FLOAT_EPSILON) {
+						return { success: false, error: `Number ${targetValue} is not a valid step of ${schemaLeafValue.step}`, source: "target" };
 					}
 				}
 				return { success: true };
