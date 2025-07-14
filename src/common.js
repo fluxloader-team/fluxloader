@@ -12,18 +12,22 @@ export class EventBus {
 		this.events[event] = [];
 	}
 
-	trigger(event, data, toLog = true) {
+	async trigger(event, data, toLog = true) {
 		// When triggering an event generally if the source is inactive we error, but if the listener is inactive we ignore it
 		if (toLog && this.logging) log("debug", "", `Triggering event '${event}'`);
 		if (!this.events[event]) throw new Error(`Cannot trigger non-existent event: ${event}`);
-		for (const func of this.events[event]) func(data);
+		for (let i = this.events[event].length - 1; i >= 0; i--) {
+			await this.events[event][i](data);
+		}
 	}
 
-	tryTrigger(event, data, toLog = true) {
+	async tryTrigger(event, data, toLog = true) {
 		// This is here in cases for when we cant be sure if the event is registered or not
 		if (toLog && this.logging) log("debug", "", `Trying to trigger event '${event}'`);
 		if (!this.events[event]) return;
-		for (const func of this.events[event]) func(data);
+		for (let i = this.events[event].length - 1; i >= 0; i--) {
+			await this.events[event][i](data);
+		}
 	}
 
 	on(event, func, toLog = true) {

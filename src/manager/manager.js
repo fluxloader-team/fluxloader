@@ -1429,7 +1429,7 @@ class ModsTab {
 			this._updateModRowWithAction(newMainAction, true);
 			this.setIsQueueingAction(false);
 			this.setActionQueueLoading(false);
-			setStatusBar(`Failed to queue '${type}' action for mod '${modID}'${res.data.errorReason ? ": " + res.data.errorReason : ""}`, 0, "failed");
+			setStatusBar(`Failed to queue '${type}' action for mod '${res.data.errorModID || modID}'${res.data.errorReason ? ": " + res.data.errorReason : ""}`, 0, "failed");
 			return false;
 		}
 

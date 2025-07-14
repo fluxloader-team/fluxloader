@@ -1157,7 +1157,7 @@ class ModsManager {
 
 			modVersions[modID] = versionsResData.versions;
 			return successResponse(`Mod versions found for '${modID}'`, modVersions[modID]);
-		};
+		};``
 
 		const modVersionDependencies = {};
 		const getModVersionDependencies = async (modID, version) => {
@@ -2315,7 +2315,7 @@ function addFluxloaderPatches() {
 			gameFilesManager.setPatch("js/bundle.js", "fluxloader:gameWorldInitialized", {
 				type: "replace",
 				from: `[4,s.environment.multithreading.simulation.init(s)]`,
-				to: `[4,s.environment.multithreading.simulation.init(s),fluxloaderOnGameInitialized()]`
+				to: `[4,s.environment.multithreading.simulation.init(s),fluxloaderOnGameInitialized()]`,
 			})
 		);
 
@@ -2344,7 +2344,10 @@ function addFluxloaderPatches() {
 			// Add worker.js to each worker, and dont start until it is ready
 			// Also make a global list of worker entrypoints to use
 			// Also queue up any messages received before setup
-			const workerEntrypoints = modsManager.getLoadedMods().filter(mod => mod.info.workerEntrypoint).map(mod => path.join(mod.path, mod.info.workerEntrypoint));
+			const workerEntrypoints = modsManager
+				.getLoadedMods()
+				.filter((mod) => mod.info.workerEntrypoint)
+				.map((mod) => path.join(mod.path, mod.info.workerEntrypoint));
 			const workerScriptPath = resolvePathInsideFluxloader(`worker.js`).replaceAll(/\\/g, "/");
 			responseAsError(
 				gameFilesManager.setPatch(`js/${worker}.bundle.js`, "fluxloader:preloadBundle", {
@@ -2375,7 +2378,7 @@ function addFluxloaderPatches() {
 				type: "replace",
 				from: `W.store.upgrades[ee][te].level=re}}`,
 				to: `$$;if (preloadMessageQueue){for (const msg of preloadMessageQueue) self.onmessage(msg);}preloadMessageQueue=undefined;`,
-				token: "$$"
+				token: "$$",
 			})
 		);
 		responseAsError(
@@ -2383,7 +2386,7 @@ function addFluxloaderPatches() {
 				type: "replace",
 				from: `a.session.paused=e.data[1]}};`,
 				to: `$$if (preloadMessageQueue){for (const msg of preloadMessageQueue) {self.onmessage(msg);}}preloadMessageQueue=undefined;`,
-				token: "$$"
+				token: "$$",
 			})
 		);
 
