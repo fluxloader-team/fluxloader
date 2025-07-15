@@ -1157,7 +1157,7 @@ class ModsManager {
 
 			modVersions[modID] = versionsResData.versions;
 			return successResponse(`Mod versions found for '${modID}'`, modVersions[modID]);
-		};``
+		};
 
 		const modVersionDependencies = {};
 		const getModVersionDependencies = async (modID, version) => {
@@ -2525,10 +2525,11 @@ globalThis.attachDebuggerToGameWindow = function (window) {
 
 			// We only care about files inside the gameFilesManager.tempExtractedPath
 			if (request.url.startsWith("file://")) {
-				const filePath = url.fileURLToPath(request.url).replace("\\", "/");
+				const filePath = url.fileURLToPath(request.url).replaceAll("\\", "/");
+				const tempExtractedPath = gameFilesManager.tempExtractedPath.replaceAll("\\", "/");
 				await fluxloaderAPI.events.trigger("fl:file-requested", filePath, false);
-				if (filePath.startsWith(gameFilesManager.tempExtractedPath)) {
-					const relativePath = filePath.replace(gameFilesManager.tempExtractedPath + "/", "");
+				if (filePath.startsWith(tempExtractedPath)) {
+					const relativePath = filePath.replace(tempExtractedPath + "/", "");
 					if (relativePath === "index.html") {
 						let queryParams = request.url.split("?");
 						// Make sure query params do exist
