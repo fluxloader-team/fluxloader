@@ -1812,7 +1812,7 @@ class ConfigTab {
 }
 
 class LogsTab {
-	static SOURCE_LOG_LIMIT = 200;
+	static SOURCE_LOG_LIMIT = 400;
 	sources = { manager: {}, electron: {}, game: {} };
 	selectedLogSource = null;
 	remoteLogIndex = 0;
