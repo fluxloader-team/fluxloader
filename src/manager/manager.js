@@ -513,6 +513,8 @@ class ModsTab {
 		getElement("action-execute-button").addEventListener("click", async () => {
 			await this.performQueuedActions();
 		});
+		
+		this.updateActionExecutionButton();
 	}
 
 	async selectTab() {
@@ -1312,9 +1314,6 @@ class ModsTab {
 
 		if (this.isPerformingActions) {
 			addBlockingTask("isPerformingActions");
-			getElement("action-execute-button").innerText = "Executing...";
-			getElement("action-execute-button").classList.add("active");
-			getElement("action-execute-button").classList.add("block-cursor");
 		} else {
 			removeBlockingTask("isPerformingActions");
 			getElement("action-execute-button").innerText = "Execute";
@@ -1430,6 +1429,8 @@ class ModsTab {
 			this.setIsQueueingAction(false);
 			this.setActionQueueLoading(false);
 			setStatusBar(`Failed to queue '${type}' action for mod '${res.data.errorModID || modID}'${res.data.errorReason ? ": " + res.data.errorReason : ""}`, 0, "failed");
+
+			this.updateActionExecutionButton();
 			return false;
 		}
 
@@ -1440,6 +1441,8 @@ class ModsTab {
 		setStatusBar(`Queued action for mod '${modID}'`, 0, "success");
 		logDebug(`Queued main action for mod '${modID}' of type '${type}'`);
 		await this._processActionQueueQueue();
+
+		this.updateActionExecutionButton();
 		return true;
 	}
 
@@ -1448,8 +1451,10 @@ class ModsTab {
 		if (this.isLoadingMods || this.isPerformingActions || this.isQueueingAction) {
 			logWarn(`Cannot unqueue action for mod '${modID}' as we are currently loading mods or performing actions, adding to the queue queue...`);
 			this.actionQueueQueue.push({ what: "unqueue", modID });
+			this.updateActionExecutionButton();
 			return;
 		}
+
 		await this._processActionQueueQueue();
 
 		this._clearCompletedActions();
@@ -1462,6 +1467,7 @@ class ModsTab {
 		this.setIsQueueingAction(false);
 
 		await this._processActionQueueQueue();
+		this.updateActionExecutionButton();
 	}
 
 	async performQueuedActions() {
@@ -1497,6 +1503,8 @@ class ModsTab {
 		this.setIsPerformingActions(false);
 		this.setActionQueueLoading(false);
 		setStatusBar("All actions performed successfully", 0, "success");
+
+		this.updateActionExecutionButton();
 
 		this.reloadMods();
 	}
@@ -1685,6 +1693,25 @@ class ModsTab {
 		this.isActionQueueLoading = loading;
 		const loadingIcon = getElement("action-queue-loading-icon");
 		loadingIcon.style.display = loading ? "block" : "none";
+	}
+
+	updateActionExecutionButton() {
+		if (this.isPerformingActions) {
+			getElement("action-execute-button").innerText = "Executing...";
+			getElement("action-execute-button").classList.add("active");
+			getElement("action-execute-button").classList.add("block-cursor");
+		} else {
+			const anyReady = Object.keys(this.allQueuedActions).some((action) => this.allQueuedActions[action].state !== "complete" && this.allQueuedActions[action].state !== "failed");
+			if (anyReady) {
+				getElement("action-execute-button").innerText = "Execute";
+				getElement("action-execute-button").classList.remove("active");
+				getElement("action-execute-button").classList.remove("block-cursor");
+			} else {
+				getElement("action-execute-button").innerText = "No Actions...";
+				getElement("action-execute-button").classList.add("active");
+				getElement("action-execute-button").classList.add("block-cursor");
+			}
+		}
 	}
 
 	// ------------ FILTERING ------------

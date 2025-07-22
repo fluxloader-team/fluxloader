@@ -942,7 +942,7 @@ input[type="checkbox"]:checked::before {
 	display: flex;
 	justify-content: right;
 	align-items: center;
-	padding: 0.4rem 0.8rem 0.4rem 0.8rem;
+	padding: 0.6rem 0.8rem;
 }
 
 #mods-tab-content .rightbar-bottom .action-queue .selection:hover {
@@ -950,7 +950,7 @@ input[type="checkbox"]:checked::before {
 }
 
 #mods-tab-content .rightbar-bottom .action-queue .selection span {
-	color: var(--color-text-muted2);
+	color: var(--color-text-muted);
 }
 
 #mods-tab-content .rightbar-bottom .action-queue .selection .loading-icon {
@@ -1478,6 +1478,7 @@ input[type="checkbox"]:checked::before {
 	flex-direction: column;
 	padding: 0.4rem 1.5rem 0.8rem 1.5rem;
 }
+
 #create-mod-tab-content .create-mod-footer .create-mod-submit {
 	min-width: 10rem;
 	font-size: 1.1rem;

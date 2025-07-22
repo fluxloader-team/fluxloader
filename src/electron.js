@@ -1865,22 +1865,21 @@ class ModsManager {
 					const customRequire = Module.createRequire(absolutePath);
 					this.modContext.require = customRequire;
 					this.modContext.includeVMScript = includeVMScript;
+
 					script.runInContext(this.modContext);
 					return this.modContext.toplevelAsyncWrapperExport();
 				};
 
 				logDebug(`Loading electron entrypoint: ${mod.info.electronEntrypoint}`);
 
-				(async () => {
-					try {
-						await includeVMScript(mod.info.electronEntrypoint);
-					} catch (e) {
-						let out = `Error evaluating mod electron entrypoint (Mod ID: ${mod.info.modID})`;
-						if (e && e.stack) out += `\n${e.stack}`;
-						else if (e) out += `\n${e}`;
-						logError(out);
-					}
-				})();
+				try {
+					await includeVMScript(mod.info.electronEntrypoint);
+				} catch (e) {
+					let out = `Error evaluating mod electron entrypoint (Mod ID: ${mod.info.modID})`;
+					if (e && e.stack) out += `\n${e.stack}`;
+					else if (e) out += `\n${e}`;
+					logError(out);
+				}
 			} catch (e) {
 				return errorResponse(`Error loading electron entrypoint for mod ${mod.info.modID}: ${e.stack}`);
 			}
