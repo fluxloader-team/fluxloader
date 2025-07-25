@@ -2547,6 +2547,12 @@ globalThis.attachDebuggerToGameWindow = function (window) {
 						}
 					}
 					gameFilesManager.ensureFilePatchesUpToDate(relativePath);
+					if (relativePath === "js/bundle.js") {
+						gameFilesManager.ensureFilePatchesUpToDate("js/153.bundle.js");
+						gameFilesManager.ensureFilePatchesUpToDate("js/336.bundle.js");
+						gameFilesManager.ensureFilePatchesUpToDate("js/515.bundle.js");
+						gameFilesManager.ensureFilePatchesUpToDate("js/546.bundle.js");
+					}
 				}
 			}
 
