@@ -851,7 +851,7 @@ class ModsManager {
 	modInfoSchema = undefined;
 	installedMods = {};
 	loadOrder = [];
-	areModsLoaded = false;
+	areAnyModsLoaded = false;
 	modContext = undefined;
 	isPerformingActions = false;
 	loadedModCount = 0;
@@ -925,7 +925,7 @@ class ModsManager {
 
 	async loadAllMods() {
 		if (this.isPerformingActions) return errorResponse("Cannot load all mods while performing actions");
-		if (this.areModsLoaded) return errorResponse("Cannot load mods, some mods are already loaded");
+		if (this.areAnyModsLoaded) return errorResponse("Cannot load mods, some mods are already loaded");
 
 		this._applyModsScriptModifySchema();
 
@@ -951,10 +951,10 @@ class ModsManager {
 			if (this.installedMods[modID].isEnabled) {
 				const res = await this._loadMod(this.installedMods[modID]);
 				if (!res.success) return errorResponse(`Failed to load mod ${modID}: ${res.message}`);
+				this.areAnyModsLoaded = true;
 			}
 		}
 
-		this.areModsLoaded = true;
 		fluxloaderAPI.events.trigger("fl:all-mods-loaded");
 		logDebug(`All mods loaded successfully`);
 		return successResponse(`Loaded ${this.loadedModCount} mod${this.loadedModCount == 1 ? "" : "s"}`);
@@ -962,7 +962,7 @@ class ModsManager {
 
 	unloadAllMods() {
 		if (this.isPerformingActions) return errorResponse("Cannot unload all mods while performing actions");
-		if (!this.areModsLoaded) {
+		if (!this.areAnyModsLoaded) {
 			logWarn("No mods are currently loaded, nothing to unload");
 			return successResponse("No mods are currently loaded, nothing to unload");
 		}
@@ -974,7 +974,7 @@ class ModsManager {
 			}
 		}
 
-		this.areModsLoaded = false;
+		this.areAnyModsLoaded = false;
 		this.modContext = undefined;
 		this.loadedModCount = 0;
 		this.modScriptsImport = {};

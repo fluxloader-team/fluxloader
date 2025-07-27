@@ -2409,14 +2409,14 @@ async function handleClickPlayButton(unmodded = false) {
 
 		if (!res.success) {
 			logError("Failed to start the game, please check the logs for more details");
-			setStatusBar(`Failed to start game${res.data.errorReason ? ": " + res.data.errorReason : ""}`, 0, "failed");
+			setStatusBar(`Failed to start game: ${res.message}${res.data && res.data.errorReason ? " (" + res.data.errorReason + ")" : ""}`, 0, "failed");
 		} else {
 			setStatusBar("Game started", 0, "success");
 		}
 
 		getElement("play-button").classList.toggle("active", res.success);
 		getElement("footer-dropdown").classList.toggle("active", res.success);
-		setIsPlaying(true);
+		setIsPlaying(res.success);
 		setIsPlayButtonLoading(false);
 		updatePlayButton();
 	} else {
