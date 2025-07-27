@@ -67,11 +67,6 @@ function setupLogFile() {
 	} catch (e) {
 		throw new Error(`Error writing to log files: ${e.stack}`); // Config loading error is catastrophic for now
 	}
-	const stat = fs.statSync(latestLogFilePath);
-	const fileSize = stat.size / 1024 / 1024;
-	if (fileSize > 5) {
-		logWarn(`Log file is over 5MB: ${latestLogFilePath} (${fileSize.toFixed(5)}MB)`);
-	}
 	logDebug(`Fluxloader log path: ${latestLogFilePath}`);
 }
 
