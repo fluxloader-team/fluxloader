@@ -174,7 +174,7 @@ release-job:
       FIRST_ASSET=true
       # Adjusted find command slightly - blockmap only expected from legacy job now
       find . -maxdepth 2 \( -name "*.exe" -o -name "*-Legacy*.blockmap" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.zip" \) -print0 | while IFS= read -r -d $'\0' file; do
-          filepath_relative=$(realpath --relative-to=. "$file")
+          filepath_relative="${file#./}"
           filename=$(basename "$filepath_relative")
           filepath_upload="/$filename"
           display_name=$(echo "$filename" | sed 's/"/\\"/g')
