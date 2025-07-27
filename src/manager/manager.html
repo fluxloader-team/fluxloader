@@ -1,0 +1,231 @@
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<title>Sandustry Fluxloader Manager</title>
+		<link rel="stylesheet" href="manager.css" />
+	</head>
+	<body>
+		<div class="container">
+			<div class="header">
+				<div class="tab-list">
+					<div class="option" id="tab-mods"><p>Mods</p></div>
+					<div class="option" id="tab-config"><p>Config</p></div>
+					<div class="option" id="tab-logs"><p>Logs</p></div>
+					<div class="option" id="tab-load-order"><p>Load Order</p></div>
+					<div class="option" id="tab-create-mod"><p>Create Mod</p></div>
+				</div>
+				<div class="status-container">
+					<div class="blocking-indicator" id="blocking-indicator" style="opacity: 0">
+						<img src="./assets/loading.gif" />
+					</div>
+					<div class="connection-indicator">
+						<div class="connection-button" id="connection-button">Connect</div>
+						<div class="connection-circle offline" id="connection-indicator"></div>
+					</div>
+				</div>
+			</div>
+
+			<div class="tab-content" id="mods-tab-content">
+				<div class="main">
+					<div class="main-leftbar" style="width: 15rem">
+						<h1>Search</h1>
+						<div class="search-bar">
+							<input type="text" id="mods-tab-search" placeholder="Search..." />
+							<div class="search-icon" id="mods-tab-search-button">
+								<img src="./assets/search.png" />
+							</div>
+						</div>
+						<h2>Tags</h2>
+						<p class="empty-tag-search" id="empty-tag-search">No tags selected.</p>
+						<div class="tag-search-container" id="tag-search-container"></div>
+						<div class="resizer"></div>
+					</div>
+					<div class="main-center">
+						<div class="button-bar">
+							<div class="open-extracted-folder" id="open-extracted-folder" style="display: none;">
+								<img src="./assets/foldergame.png" />
+							</div>
+							<div class="open-mods-folder" id="open-mods-folder">
+								<img src="./assets/folder.png" />
+							</div>
+							<div class="reload-mods" id="reload-mods">
+								<img src="./assets/reload.png" />
+							</div>
+						</div>
+						<div class="main-center-scroll">
+							<table class="mods-table" id="mods-tab-table">
+								<thead>
+									<tr>
+										<!-- These widths are just the default, they will be overwritten by inline styles from JS -->
+										<th data-column="enabled" style="width: 2.1rem"></th>
+										<th data-column="name" style="width: 11rem">
+											Name
+											<div class="resizer"></div>
+										</th>
+										<th data-column="author" style="width: 9rem">
+											Author
+											<div class="resizer"></div>
+										</th>
+										<th data-column="version" style="width: 5.5rem">
+											Version
+											<div class="resizer"></div>
+										</th>
+										<th data-column="description" style="width: 19rem">
+											Description
+											<div class="resizer"></div>
+										</th>
+										<th data-column="last-updated" style="width: 9rem">
+											Last Updated
+											<div class="resizer"></div>
+										</th>
+										<th data-column="tags" style="width: 25rem">
+											Tags
+											<div class="resizer"></div>
+										</th>
+										<!-- Empty header row so table doesn't auto-fill the full width -->
+										<th class="gap-filler"></th>
+									</tr>
+								</thead>
+								<tbody></tbody>
+							</table>
+							<div class="mods-table-empty" id="mods-tab-table-empty">No mods installed...</div>
+							<div class="mods-load-button" id="mods-load-button">Load mods</div>
+						</div>
+					</div>
+					<div class="main-rightbar" style="width: 22rem">
+						<div class="resizer left"></div>
+						<div class="rightbar-top">
+							<p class="title" id="mod-info-title">Mod Name</p>
+						</div>
+						<div class="main-rightbar-scroll">
+							<div id="mod-info-container">
+								<div class="mod-info-empty" id="mod-info-empty">
+									<p>No mod selected.</p>
+								</div>
+								<div class="mod-info" id="mod-info" style="display: none">
+									<div class="rows">
+										<div class="row">
+											<p class="label">Mod ID</p>
+											<p id="mod-info-mod-id"></p>
+										</div>
+										<div class="row">
+											<p class="label">Author</p>
+											<p id="mod-info-author"></p>
+										</div>
+										<div class="row">
+											<p class="label">Version</p>
+											<p id="mod-info-version"></p>
+										</div>
+										<div class="row">
+											<p class="label">Last Updated</p>
+											<p id="mod-info-last-updated"></p>
+										</div>
+										<div class="row tags-mod-info-row">
+											<p class="label">Tags</p>
+											<p class="mod-info-tags" id="mod-info-tags"></p>
+										</div>
+										<div class="row dependency-mod-info-row">
+											<p class="label">Dependencies</p>
+											<div class="dependency-list" id="mod-info-dependency-list"></div>
+										</div>
+									</div>
+									<p class="description" id="mod-info-description"></p>
+								</div>
+							</div>
+							<div class="mod-config-container" id="mod-config-container" style="display: none"></div>
+						</div>
+						<div class="rightbar-bottom">
+							<div class="mod-buttons" id="mod-buttons" style="display: none"></div>
+							<div class="action-queue" id="action-queue">
+								<div class="selection" id="action-queue-selection">
+									<span>Action Queue</span>
+									<img class="loading-icon" id="action-queue-loading-icon" src="assets/loading.gif" style="display: none" />
+									<div class="spacer"></div>
+									<img class="open-icon" src="assets/uparrow.png" />
+								</div>
+								<div class="hider" style="display: none">
+									<div class="content" id="action-queue-content"></div>
+									<div class="action-queue-no-content" id="action-queue-no-content">No actions queued.</div>
+									<div class="footer">
+										<div class="action-execute-button" id="action-execute-button">Execute</div>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+			<div class="tab-content" id="config-tab-content">
+				<div class="main">
+					<p class="title">Fluxloader Config</p>
+				</div>
+			</div>
+			<div class="tab-content" id="logs-tab-content">
+				<div class="logs-container">
+					<div class="logs-tab-list"></div>
+					<div class="logs-content-scroll"></div>
+				</div>
+			</div>
+			<div class="tab-content" id="load-order-tab-content">
+				<div class="main">
+					<p class="title">Load Order</p>
+					<div class="load-order-manual-toggle">
+						<p>Manual Load Order</p>
+						<input type="checkbox" id="load-order-manual-toggle" />
+					</div>
+					<div class="load-order-manual-warning" id="load-order-manual-warning">
+						<p>Manual load order is enabled. This could cause errors or unintended behaviour!</p>
+					</div>
+					<div class="load-order-container" id="load-order-container"></div>
+				</div>
+			</div>
+			<div class="tab-content" id="create-mod-tab-content">
+				<div class="main">
+					<p class="title">Create New Mod</p>
+					<div class="create-mod-schema-container" id="create-mod-schema-container"></div>
+					<div class="create-mod-footer">
+						<div id="create-mod-submit" class="create-mod-submit">Create Mod</div>
+					</div>
+				</div>
+			</div>
+
+			<div class="footer">
+				<div class="footer-progress">
+					<div class="footer-progress-text">
+						<p id="footer-progress-text"></p>
+						<img class="footer-progress-icon" id="footer-progress-icon" src="assets/check.png" />
+					</div>
+					<div class="footer-progress-bar">
+						<div class="footer-progress-bar-fill" id="footer-progress-bar"></div>
+					</div>
+				</div>
+				<div class="footer-control">
+					<div class="footer-control-input button" id="play-button"><p>Play</p></div>
+					<div class="footer-control-input dropdown" id="footer-dropdown">
+						<img src="assets/downarrow.png" />
+						<div class="footer-dropdown-menu" id="footer-dropdown-menu" style="display: none">
+							<div class="footer-dropdown-item" id="footer-dropdown-unmodded">Play Unmodded</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<div class="fullscreen-alert" id="fullscreen-alert" style="display: none">
+			<div class="alert-container">
+				<p class="alert-title">Alert title</p>
+				<p class="alert-text">This is an example warning message that will be shown when an error occurs.</p>
+				<div class="alert-buttons">
+					<div class="alert-button" id="fullscreen-alert-close-button">
+						<p>Close</p>
+					</div>
+					<div class="alert-button" id="fullscreen-alert-reload-button">
+						<p>Reload</p>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<script src="manager.js" type="module"></script>
+	</body>
+</html>

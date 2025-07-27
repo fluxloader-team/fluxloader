@@ -1,20 +1,94 @@
 {
-  "name": "mod-loader",
-  "version": "1.0.0",
-  "main": "index.js",
-  "bin": "index.js",
-  "dependencies": {
-    "acorn": "^8.14.0",
-    "escodegen": "^2.1.0",
-    "puppeteer-core": "^20.0.0"
-  },
-  "pkg": {
-    "scripts": [
-      "./index.js"
-    ],
-    "assets": [
-      "assets/modloader.js",
-      "assets/modloader-config.json"
-    ]
-  }
+	"name": "sandustry-fluxloader",
+	"author": {
+		"name": "Fluxloader Team",
+		"email": "thomas.burniston@gmail.com"
+	},
+	"homepage": "https://git.rendezvous.dev/sandustry/modloader",
+	"repository": {
+		"type": "git",
+		"url": "https://git.rendezvous.dev/sandustry/modloader.git"
+	},
+	"description": "A cross-platform modloader for Sandustry",
+	"version": "2.0.0",
+	"main": "src/electron.js",
+	"type": "module",
+	"scripts": {
+		"start": "electron .",
+		"build": "electron-builder --win portable --x64"
+	},
+	"dependencies": {
+		"acorn": "^8.14.0",
+		"adm-zip": "^0.5.16",
+		"asar": "^3.2.0",
+		"marked": "^15.0.11",
+		"semver": "^7.7.2"
+	},
+	"devDependencies": {
+		"electron": "^35.0.2",
+		"electron-builder": "^26.0.12"
+	},
+	"build": {
+		"appId": "app.fluxloader.Fluxloader",
+		"productName": "Fluxloader",
+		"asar": true,
+		"publish": null,
+		"directories": {
+			"output": "dist",
+			"buildResources": "build"
+		},
+		"mac": {
+			"icon": "build/icons/256x256.icns",
+			"identity": null,
+			"target": [
+				{
+					"target": "zip",
+					"arch": [
+						"x64",
+						"arm64"
+					]
+				}
+			]
+		},
+		"win": {
+			"icon": "build/icons/256x256.ico",
+			"target": [
+				{
+					"target": "portable",
+					"arch": [
+						"x64",
+						"arm64"
+					]
+				},
+				{
+					"target": "nsis",
+					"arch": [
+						"x64"
+					]
+				}
+			]
+		},
+		"linux": {
+			"icon": "build/icons/256x256.png",
+			"target": [
+				{
+					"target": "AppImage",
+					"arch": [
+						"x64",
+						"arm64"
+					]
+				},
+				{
+					"target": "deb",
+					"arch": [
+						"x64",
+						"arm64"
+					]
+				}
+			]
+		},
+		"extraMetadata": {
+			"buildResources": "build"
+		}
+	}
 }
