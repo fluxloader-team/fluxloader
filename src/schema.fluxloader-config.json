@@ -67,10 +67,16 @@
 			"default": "debug",
 			"options": ["debug", "info", "warn", "error"]
 		},
-		"logFilePath": {
+		"latestLogFilePath": {
 			"type": "string",
-			"description": "Path to the log file",
-			"default": "fluxloader.log",
+			"description": "Path to the latest log file",
+			"default": "fluxloader-latest.log",
+			"display": "pathfile"
+		},
+		"previousLogFilePath": {
+			"type": "string",
+			"description": "Path to the previous log file",
+			"default": "fluxloader-previous.log",
 			"display": "pathfile"
 		}
 	},

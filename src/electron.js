@@ -37,7 +37,8 @@ let preConfigLogLevel = "debug";
 let configPath = "fluxloader-config.json";
 let configSchemaPath = "schema.fluxloader-config.json";
 let modInfoSchemaPath = "schema.mod-info.json";
-let logFilePath = undefined;
+let latestLogFilePath = undefined;
+let previousLogFilePath = undefined;
 let config = undefined;
 let configSchema = undefined;
 let configLoaded = false;
@@ -53,19 +54,25 @@ let isManagerStarted = false;
 
 function setupLogFile() {
 	if (!configLoaded) return;
-	if (logFilePath) return;
-	logFilePath = resolvePathRelativeToExecutable(config.logging.logFilePath);
+	if (latestLogFilePath) return;
+	latestLogFilePath = resolvePathRelativeToExecutable(config.logging.latestLogFilePath);
+	previousLogFilePath = resolvePathRelativeToExecutable(config.logging.previousLogFilePath);
 	try {
-		fs.appendFileSync(logFilePath, new Date().toISOString() + "\n");
+		// Move all data from the latest log into the previous log if it exists
+		if (fs.existsSync(latestLogFilePath)) {
+			fs.writeFileSync(previousLogFilePath, fs.readFileSync(latestLogFilePath));
+		}
+		// Clear latest log
+		fs.writeFileSync(latestLogFilePath, new Date().toISOString() + "\n");
 	} catch (e) {
-		throw new Error(`Error writing to log file: ${e.stack}`); // Config loading error is catastrophic for now
+		throw new Error(`Error writing to log files: ${e.stack}`); // Config loading error is catastrophic for now
 	}
-	const stat = fs.statSync(logFilePath);
+	const stat = fs.statSync(latestLogFilePath);
 	const fileSize = stat.size / 1024 / 1024;
 	if (fileSize > 5) {
-		logWarn(`Log file is over 5MB: ${logFilePath} (${fileSize.toFixed(5)}MB)`);
+		logWarn(`Log file is over 5MB: ${latestLogFilePath} (${fileSize.toFixed(5)}MB)`);
 	}
-	logDebug(`Fluxloader log path: ${logFilePath}`);
+	logDebug(`Fluxloader log path: ${latestLogFilePath}`);
 }
 
 globalThis.log = function (level, tag, message) {
@@ -78,8 +85,8 @@ globalThis.log = function (level, tag, message) {
 	// Only log to file if defined by the config and level is allowed
 	if (configLoaded && config.logging.logToFile) {
 		if (levelIndex >= logLevels.indexOf(config.logging.fileLogLevel)) {
-			if (!logFilePath) setupLogFile();
-			fs.appendFileSync(logFilePath, `${header} ${message}\n`);
+			if (!latestLogFilePath) setupLogFile();
+			fs.appendFileSync(latestLogFilePath, `${header} ${message}\n`);
 		}
 	}
 

@@ -141,6 +141,7 @@ globalThis.setupModdedSubtitle = function (spawnSolid, imagePath) {
 
 	const img = new Image();
 	let canvas = document.createElement("canvas");
+	canvas.hidden = true;
 	let ctx = canvas.getContext("2d");
 	img.src = imagePath;
 

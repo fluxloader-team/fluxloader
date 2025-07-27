@@ -15,7 +15,7 @@ export class EventBus {
 	async trigger(event, data, toLog = true) {
 		// When triggering an event generally if the source is inactive we error, but if the listener is inactive we ignore it
 		if (toLog && this.logging) log("debug", "", `Triggering event '${event}'`);
-		if (!this.events[event]) throw new Error(`Cannot trigger non-existent event: ${event}`);
+		if (!this.events.hasOwnProperty(event)) throw new Error(`Cannot trigger non-existent event: ${event}`);
 		for (let i = this.events[event].length - 1; i >= 0; i--) {
 			await this.events[event][i](data);
 		}
@@ -24,7 +24,7 @@ export class EventBus {
 	async tryTrigger(event, data, toLog = true) {
 		// This is here in cases for when we cant be sure if the event is registered or not
 		if (toLog && this.logging) log("debug", "", `Trying to trigger event '${event}'`);
-		if (!this.events[event]) return;
+		if (!this.events.hasOwnProperty(event)) return;
 		for (let i = this.events[event].length - 1; i >= 0; i--) {
 			await this.events[event][i](data);
 		}
