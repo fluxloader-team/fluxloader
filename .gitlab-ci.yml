@@ -124,7 +124,6 @@ build-macos-arm64:
         paths:
             - $OUTPUT_DIR/*.zip
         expire_in: 1 week
-
 upload:
     stage: upload
     image: alpine:latest
@@ -154,11 +153,9 @@ upload:
             for f in $OUTPUT_DIR/*; do
                 filename="$(basename "$f")"
                 encoded_name="$(printf '%s' "$filename" | jq -s -R -r @uri)"
-                echo "Uploading $f to ${PACKAGE_REGISTRY_URL}/${encoded_name}"
-                curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "$f" "${PACKAGE_REGISTRY_URL}/${encoded_name}"
+                echo "Uploading '$f' to ${PACKAGE_REGISTRY_URL}/${encoded_name}"
+                curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "$f" "${PACKAGE_REGISTRY_URL}/${encoded_name}"
             done
-
-# Release job
 
 release-job:
     stage: release
@@ -175,10 +172,11 @@ release-job:
           --name "Release $CI_COMMIT_TAG" \
           --tag-name "$CI_COMMIT_TAG" \
           --description "Automated release for $CI_COMMIT_TAG" \
-          --assets-link "{\"name\":\"Windows x64 Portable\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader%202.0.0.exe\"}" \
-          --assets-link "{\"name\":\"Linux x64 AppImage\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-2.0.0.AppImage\"}" \
-          --assets-link "{\"name\":\"Linux arm64 AppImage\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-2.0.0-arm64.AppImage\"}" \
-          --assets-link "{\"name\":\"Linux x64 .deb\",\"url\":\"${PACKAGE_REGISTRY_URL}/sandustry-fluxloader_2.0.0_amd64.deb\"}" \
-          --assets-link "{\"name\":\"Linux arm64 .deb\",\"url\":\"${PACKAGE_REGISTRY_URL}/sandustry-fluxloader_2.0.0_arm64.deb\"}" \
-          --assets-link "{\"name\":\"macOS x64\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-2.0.0-mac.zip\"}" \
-          --assets-link "{\"name\":\"macOS arm64\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-2.0.0-arm64-mac.zip\"}"
+          --assets-link "{\"name\":\"Windows x64 Portable\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-$CI_COMMIT_TAG-win-x64.exe\"}" \
+          --assets-link "{\"name\":\"Windows arm64 Portable\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-$CI_COMMIT_TAG-win-arm64.exe\"}" \
+          --assets-link "{\"name\":\"Linux x64 AppImage\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-$CI_COMMIT_TAG-linux-x64.AppImage\"}" \
+          --assets-link "{\"name\":\"Linux arm64 AppImage\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-$CI_COMMIT_TAG-linux-arm64.AppImage\"}" \
+          --assets-link "{\"name\":\"Linux x64 deb\",\"url\":\"${PACKAGE_REGISTRY_URL}/sandustry-fluxloader_$CI_COMMIT_TAG_linux-x64.deb\"}" \
+          --assets-link "{\"name\":\"Linux arm64 deb\",\"url\":\"${PACKAGE_REGISTRY_URL}/sandustry-fluxloader_$CI_COMMIT_TAG_linux-arm64.deb\"}" \
+          --assets-link "{\"name\":\"macOS x64 Zip\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-$CI_COMMIT_TAG-mac-x64.zip\"}" \
+          --assets-link "{\"name\":\"macOS arm64 Zip\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-$CI_COMMIT_TAG-mac-arm64.zip\"}"
