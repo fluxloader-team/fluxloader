@@ -145,7 +145,7 @@ build-macos-arm64:
 
 release-job:
     stage: release
-    image: registry.gitlab.com/gl-cli/glab:latest
+    image: registry.gitlab.com/gitlab-org/release-cli:latest
     tags:
         - linux
     needs:
@@ -166,28 +166,19 @@ release-job:
     rules:
         - if: $CI_COMMIT_TAG
     script:
-        - echo "Fetching all artifacts to workspace"
-        - glab ci artifact download --path="./artifacts" # Pull artifacts from prior jobs :contentReference[oaicite:1]{index=1}
-
-        - echo "Collecting build files"
+        - echo "Creating GitLab Release for tag $CI_COMMIT_TAG from job artifacts"
         - |
-            LINKS_JSON="["
-            FIRST=true
-            for f in artifacts/*/**/*.{exe,AppImage,deb,zip}; do
-              [ -f "$f" ] || continue
-              name=$(basename "$f")
-              if [ "$FIRST" = true ]; then
-                FIRST=false
-              else
-                LINKS_JSON="${LINKS_JSON},"
-              fi
-              LINKS_JSON="${LINKS_JSON}{\"name\":\"$name\",\"filepath\":\"$f\"}"
-            done
-            LINKS_JSON="${LINKS_JSON}]"
-            echo "Asset links: $LINKS_JSON"
+            asset_args=()
+            while IFS= read -r -d '' file; do
+              filename=$(basename "$file")
+              asset_args+=(--assets-link "{\"name\":\"$filename\",\"filepath\":\"$file\"}")
+            done < <(find . -maxdepth 2 -type f \( -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.zip" -o -name "*-Legacy*.blockmap" \) -print0)
 
-        - echo "Creating or updating release via glab"
-        - glab release create "$CI_COMMIT_TAG" \
-          --name "Release $CI_COMMIT_TAG" \
-          --notes "Automated release for tag $CI_COMMIT_TAG" \
-          --assets-links "$LINKS_JSON"
+            echo "Running release-cli with assets:"
+            printf '%s\n' "${asset_args[@]}"
+
+            release-cli create \
+              --name "Release $CI_COMMIT_TAG" \
+              --tag-name "$CI_COMMIT_TAG" \
+              --description "Automated release for tag $CI_COMMIT_TAG" \
+              "${asset_args[@]}"
