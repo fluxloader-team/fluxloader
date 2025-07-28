@@ -3,7 +3,7 @@
 Welcome the the **Sandustry Fluxloader**!
 
 - **Releases**: https://git.rendezvous.dev/sandustry/modloader/-/releases
-- **Modding Guide**: https://git.rendezvous.dev/sandustry/modloader/-/blob/main/MODDING.md.md
+- **Modding Guide**: https://git.rendezvous.dev/sandustry/modloader/-/blob/main/MODDING.md
 
 ### Usage
 
