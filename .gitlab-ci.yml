@@ -182,6 +182,7 @@ release-job:
             done
 
             LINKS_JSON="${LINKS_JSON}]"
+            echo "Generated links: $LINKS_JSON"
             echo "$LINKS_JSON" > release-assets.json
 
         - echo "Creating GitLab Release with local artifact upload..."
