@@ -152,10 +152,10 @@ upload:
     script:
         - |
             for f in $OUTPUT_DIR/*; do
-              filename="$(basename "$f")"
-              encoded_name="$(echo "$filename" | jq -s -R -r @uri)"
-              echo "Uploading $f to ${PACKAGE_REGISTRY_URL}/${encoded_name}"
-              curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "$f" "${PACKAGE_REGISTRY_URL}/${encoded_name}"
+                filename="$(basename "$f")"
+                encoded_name="$(printf '%s' "$filename" | jq -s -R -r @uri)"
+                echo "Uploading $f to ${PACKAGE_REGISTRY_URL}/${encoded_name}"
+                curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "$f" "${PACKAGE_REGISTRY_URL}/${encoded_name}"
             done
 
 # Release job
