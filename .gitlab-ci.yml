@@ -1,12 +1,13 @@
 stages:
     - build
+    - upload
     - release
 
 variables:
     OUTPUT_DIR: dist
-    APP_ID: "app.fluxloader.Fluxloader"
-    PRODUCT_NAME: "Fluxloader"
-    LEGACY_ELECTRON_VERSION: "22.3.27"
+    PACKAGE_VERSION: "$CI_COMMIT_TAG"
+    PACKAGE_NAME: "fluxloader"
+    PACKAGE_REGISTRY_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${PACKAGE_NAME}/${PACKAGE_VERSION}"
 
 .build_template:
     stage: build
@@ -25,41 +26,22 @@ variables:
             clang libc++-dev libc++abi-dev libgconf-2-4 rpm libx11-dev libxkbfile-dev
             libsecret-1-dev libgbm-dev
             && rm -rf /var/lib/apt/lists/*
-        - echo "--- Wine Debug Info ---"
-        - which wine || echo "wine not found in PATH"
-        - which wine64 || echo "wine64 not found in PATH"
-        - which wine32 || echo "wine32 not found in PATH"
-        - dpkg -l | grep wine || echo "No wine packages found via dpkg"
-        - wine --version || echo "wine --version command failed"
-        - echo "--- Environment PATH ---"
-        - printenv PATH
-        - echo "--- End Debug Info ---"
         - npm install -g npm@latest
-        - echo "Cleaning npm cache..."
         - npm cache clean --force
-        - echo "Installing project dependencies (including electron-builder from package.json)..."
         - npm install --legacy-peer-deps --no-audit --prefer-offline --progress=false
-        - echo "Node modules installed."
-        - ls node_modules || echo "node_modules not found after install!"
-        - echo "Verifying electron-builder version:"
-        - ./node_modules/.bin/electron-builder --version || echo "Cannot get electron-builder version via direct path"
     script:
         - set -eo pipefail
         - |
             if [ -n "$CI_COMMIT_TAG" ]; then
-              echo "Using Git tag for build version: $CI_COMMIT_TAG"
               EFFECTIVE_BUILD_VERSION="$CI_COMMIT_TAG"
             else
-              echo "No Git tag found. Using package.json version."
               EFFECTIVE_BUILD_VERSION=$(node -p "require('./package.json').version" || echo "error")
               if [ "$EFFECTIVE_BUILD_VERSION" == "error" ] || [ -z "$EFFECTIVE_BUILD_VERSION" ]; then
                 echo "Error: Cannot read version from package.json"
                 exit 1
               fi
-              echo "Using package.json version: $EFFECTIVE_BUILD_VERSION"
             fi
             export EFFECTIVE_BUILD_VERSION
-        - echo "Starting build for $CI_JOB_NAME with version $EFFECTIVE_BUILD_VERSION"
         - rm -rf $OUTPUT_DIR && mkdir -p $OUTPUT_DIR
 
 build-windows-x64:
@@ -142,17 +124,18 @@ build-macos-arm64:
         paths:
             - $OUTPUT_DIR/*.zip
         expire_in: 1 week
-release-job:
-    stage: release
-    image: registry.gitlab.com/gitlab-org/release-cli:latest
+
+upload:
+    stage: upload
+    image: curlimages/curl:latest
     tags:
         - linux
     needs:
+        - job: build-windows-x64
+          artifacts: true
         - job: build-linux-x64
           artifacts: true
         - job: build-linux-arm64
-          artifacts: true
-        - job: build-windows-x64
           artifacts: true
         - job: build-windows-arm64
           artifacts: true
@@ -164,19 +147,34 @@ release-job:
           artifacts: true
     rules:
         - if: $CI_COMMIT_TAG
+    script:
+        - |
+            for f in $OUTPUT_DIR/*; do
+              echo "Uploading $f to ${PACKAGE_REGISTRY_URL}/$(basename "$f")"
+              curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "$f" "${PACKAGE_REGISTRY_URL}/$(basename "$f")"
+            done
+
+# Release job
+
+release-job:
+    stage: release
+    image: registry.gitlab.com/gitlab-org/release-cli:latest
+    tags:
+        - linux
+    needs:
+        - job: upload
+    rules:
+        - if: $CI_COMMIT_TAG
           when: always
     script:
-        - echo "Creating GitLab Release for tag $CI_COMMIT_TAG"
-        - echo "Listing contents of $OUTPUT_DIR from all jobs..."
-        - find . -type f | grep -i fluxloader || echo "No Fluxloader artifacts found"
         - release-cli create \
           --name "Release $CI_COMMIT_TAG" \
           --tag-name "$CI_COMMIT_TAG" \
           --description "Automated release for $CI_COMMIT_TAG" \
-          --assets-link "{\"name\":\"Windows x64 Portable\",\"url\":\"$CI_PROJECT_URL/-/jobs/${CI_JOB_ID}/artifacts/file/dist/Fluxloader%20$CI_COMMIT_TAG.exe\"}" \
-          --assets-link "{\"name\":\"Linux x64 .deb\",\"url\":\"$CI_PROJECT_URL/-/jobs/${CI_JOB_ID}/artifacts/file/dist/sandustry-fluxloader_$CI_COMMIT_TAG_amd64.deb\"}" \
-          --assets-link "{\"name\":\"Linux arm64 .deb\",\"url\":\"$CI_PROJECT_URL/-/jobs/${CI_JOB_ID}/artifacts/file/dist/sandustry-fluxloader_$CI_COMMIT_TAG_arm64.deb\"}" \
-          --assets-link "{\"name\":\"Linux x64 AppImage\",\"url\":\"$CI_PROJECT_URL/-/jobs/${CI_JOB_ID}/artifacts/file/dist/Fluxloader-$CI_COMMIT_TAG.AppImage\"}" \
-          --assets-link "{\"name\":\"Linux arm64 AppImage\",\"url\":\"$CI_PROJECT_URL/-/jobs/${CI_JOB_ID}/artifacts/file/dist/Fluxloader-$CI_COMMIT_TAG-arm64.AppImage\"}" \
-          --assets-link "{\"name\":\"macOS x64\",\"url\":\"$CI_PROJECT_URL/-/jobs/${CI_JOB_ID}/artifacts/file/dist/Fluxloader-$CI_COMMIT_TAG-mac.zip\"}" \
-          --assets-link "{\"name\":\"macOS arm64\",\"url\":\"$CI_PROJECT_URL/-/jobs/${CI_JOB_ID}/artifacts/file/dist/Fluxloader-$CI_COMMIT_TAG-arm64-mac.zip\"}"
+          --assets-link "{\"name\":\"Windows x64 Portable\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader%202.0.0.exe\"}" \
+          --assets-link "{\"name\":\"Linux x64 AppImage\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-2.0.0.AppImage\"}" \
+          --assets-link "{\"name\":\"Linux arm64 AppImage\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-2.0.0-arm64.AppImage\"}" \
+          --assets-link "{\"name\":\"Linux x64 .deb\",\"url\":\"${PACKAGE_REGISTRY_URL}/sandustry-fluxloader_2.0.0_amd64.deb\"}" \
+          --assets-link "{\"name\":\"Linux arm64 .deb\",\"url\":\"${PACKAGE_REGISTRY_URL}/sandustry-fluxloader_2.0.0_arm64.deb\"}" \
+          --assets-link "{\"name\":\"macOS x64\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-2.0.0-mac.zip\"}" \
+          --assets-link "{\"name\":\"macOS arm64\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-2.0.0-arm64-mac.zip\"}"
