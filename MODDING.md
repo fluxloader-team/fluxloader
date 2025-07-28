@@ -1,6 +1,8 @@
-# Sandustry Fluxloader Mod Usage Guide
+# Sandustry Fluxloader Modding
 
 This guide explains how to create, structure, and use mods with the **Fluxloader**, a modloader for Sandustry that supports patching and cross-context communication between Electron, Game, and Worker environments.
+
+Above anything in this guide *always consult the sourcecode* as the final truth.
 
 ## Mod Structure
 
@@ -25,7 +27,7 @@ examplemod/
 ├── modinfo.json
 ```
 
-### `modinfo.json` Format
+## `modinfo.json` Format
 
 This is the manifest used by Fluxloader to load and validate your mod.  
 The schema can be found in `src/schema.mod-info.json`, here is an example:
@@ -119,13 +121,15 @@ fluxloaderAPI.events.on("fl:worker-initialized", () => {
 });
 ```
 
-## Configuration API
+## Fluxloader API
+
+### Mod Config
 
 Each mod can define a `configSchema` in `modinfo.json`. Fluxloader handles storage and schema validation automatically.
 
 The electron and game provide async access through `fluxloaderAPI.modConfig`.
 
-## Patch API
+### Patches
 
 Electron mods can modify game files using:
 
@@ -145,9 +149,11 @@ Electron mods can modify game files using:
 }
 ```
 
-## Events
+### Events
 
-### Common Events
+Find the events declared statically at the top of the environments `fluxloaderAPI`.
+
+**Common Events**
 
 -   `fl:mod-loaded`
 -   `fl:mod-unloaded`
@@ -163,38 +169,33 @@ Electron mods can modify game files using:
 fluxloaderAPI.events.on("fl:event-name", handler);
 ```
 
----
+## IPC Messaging
 
-IPC Messaging
+Each of these have specific edge cases and usages, look at the source for more detail.  
+Some are asynchronous, some have callbacks, etc. Be careful with usage.  
 
-### Electron → Game
+### Electron -> Game
 
 ```js
-fluxloaderAPI.sendGameEvent("eventName", data);
+fluxloaderAPI.sendGameEvent("eventName", data); // electron
+fluxloaderAPI.handleElectronEvent("event", data); // game
 ```
 
-### Game → Electron
+### Game -> Electron
 
 ```js
-fluxloaderAPI.invokeElectronIPC("channel", args);
+fluxloaderAPI.invokeElectronIPC("channel", args); // electron
+fluxloaderAPI.handleGameIPC("eventName", handler); // game
 ```
 
-### Game listening to Electron
+### Game <-> Worker
 
 ```js
-fluxloaderAPI.handleElectronEvent("eventName", handler);
-```
+fluxloaderAPI.listenWorkerMessage("channel", handler); // game
+fluxloaderAPI.sendWorkerMessage("channel", ...args); // worker
 
-### Game ↔ Worker
-
-```js
-// Game
-fluxloaderAPI.listenWorkerMessage("channel", handler);
-fluxloaderAPI.sendWorkerMessage("channel", ...args);
-
-// Worker
-fluxloaderAPI.listenGameMessage("channel", handler);
-fluxloaderAPI.sendGameMessage("channel", ...args);
+fluxloaderAPI.listenGameMessage("channel", handler); // worker
+fluxloaderAPI.sendGameMessage("channel", ...args); // game
 ```
 
 ## Logging

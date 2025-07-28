@@ -1,15 +1,14 @@
 # Sandustry Fluxloader
 
-## Notes
+Welcome the the **Sandustry Fluxloader**!
 
-Mods are defined in /mods/<modname> and require a 'modinfo.json' file.
+- **Releases**: https://git.rendezvous.dev/sandustry/modloader/-/releases
+- **Modding Guide**: https://git.rendezvous.dev/sandustry/modloader/-/blob/main/MODDING.md.md
 
-Mods are ran inside the (electron), (game) and (worker) environment with their entrypoints files.
+### Usage
 
-Be aware that the following error is related to an experimental feature in the devtools that is not supported by electron.
+1. Download [Latest Release](https://git.rendezvous.dev/sandustry/modloader/-/releases).
+2. Run and enjoy!
 
--   "Request Autofill.enable failed. {"code":-32601,"message":"'Autofill.enable' wasn't found"}", source: devtools://devtools/bundled/core/protocol_client/protocol_client.js (1)
-
-It is deemed not worthy to fix by the electron team and is not a bug in the fluxloader:
-
--   https://github.com/electron/electron/issues/41614#issuecomment-2006678760
+This will generate a `fluxloader-latest.log`, `fluxloader-config.json`, and a `mods` folder relative to the binary.  
+If it cannot find the games executable, update it manually with `gamePath` in the config.  
