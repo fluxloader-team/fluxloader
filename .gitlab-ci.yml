@@ -169,7 +169,6 @@ release-job:
         - echo "Generating release links..."
         - |
             LINKS_JSON="["
-
             FIRST=true
             for f in $(find . -maxdepth 2 \( -name "*.exe" -o -name "*-Legacy*.blockmap" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.zip" \)); do
               name=$(basename "$f")
@@ -180,13 +179,11 @@ release-job:
               fi
               LINKS_JSON="${LINKS_JSON}{\"name\":\"${name}\",\"filepath\":\"${f}\"}"
             done
-
             LINKS_JSON="${LINKS_JSON}]"
             echo "Generated links: $LINKS_JSON"
-            echo "$LINKS_JSON" > release-assets.json
 
         - echo "Creating GitLab Release with local artifact upload..."
         - release-cli create --name "Release $CI_COMMIT_TAG" \
           --tag-name "$CI_COMMIT_TAG" \
           --description "Automated release for tag $CI_COMMIT_TAG" \
-          --assets-link-file release-assets.json
+          --assets-link '$LINKS_JSON'
