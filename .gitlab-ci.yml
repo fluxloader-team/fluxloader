@@ -79,8 +79,8 @@ build-windows-legacy-x64:
         - ./node_modules/.bin/electron-builder --win nsis --x64 --config.buildVersion="$EFFECTIVE_BUILD_VERSION"
     artifacts:
         paths:
-            - $OUTPUT_DIR/*-Legacy*.exe
-            - $OUTPUT_DIR/*-Legacy*.blockmap
+            - $OUTPUT_DIR/*-legacy.exe
+            - $OUTPUT_DIR/*-legacy.exe.blockmap
         expire_in: 1 week
 
 build-linux-x64:
