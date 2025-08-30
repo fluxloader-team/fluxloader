@@ -2928,7 +2928,7 @@ async function startApp() {
 
 	// Start manager or game window based on config
 	if (config.loadIntoManager) {
-		responseAsError(startManager());
+		responseAsError(await startManager());
 	} else {
 		responseAsError(await startGame());
 	}
