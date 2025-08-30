@@ -960,7 +960,7 @@ class ModsManager {
 		return successResponse(`Loaded ${this.loadedModCount} mod${this.loadedModCount == 1 ? "" : "s"}`);
 	}
 
-	unloadAllMods() {
+	async unloadAllMods() {
 		if (this.isPerformingActions) return errorResponse("Cannot unload all mods while performing actions");
 		if (!this.areModsLoaded) {
 			logWarn("No mods are currently loaded, nothing to unload");
@@ -970,7 +970,7 @@ class ModsManager {
 		logDebug("Unloading all mods...");
 		for (const modID of this.loadOrder) {
 			if (this.installedMods[modID].isLoaded) {
-				this._unloadMod(this.installedMods[modID]);
+				await this._unloadMod(this.installedMods[modID]);
 			}
 		}
 
@@ -1893,11 +1893,11 @@ class ModsManager {
 		return successResponse(`Mod '${mod.info.modID}' loaded successfully`, mod);
 	}
 
-	_unloadMod(mod) {
+	async _unloadMod(mod) {
 		if (!mod.isLoaded) logWarn(`Mod '${mod.info.modID}' is not loaded, cannot unload it`);
 		logDebug(`Unloading mod: ${mod.info.modID}`);
 		delete this.modScriptsImport[mod.info.modID];
-		fluxloaderAPI.events.trigger("fl:mod-unloaded", mod);
+		await fluxloaderAPI.events.trigger("fl:mod-unloaded", mod);
 		mod.isLoaded = false;
 		this.loadedModCount--;
 	}
@@ -2745,7 +2745,7 @@ function setupElectronIPC() {
 	});
 }
 
-function startManager() {
+async function startManager() {
 	if (isManagerStarted) return errorResponse("Cannot start manager, already running");
 	logDebug("Starting manager");
 	isManagerStarted = true;
@@ -2780,7 +2780,7 @@ function startManager() {
 		managerWindow.loadFile(managerPath);
 		if (config.manager.openDevTools) managerWindow.openDevTools();
 	} catch (e) {
-		closeManager();
+		await closeManager();
 		return errorResponse(`Error starting manager window: ${e.stack}`);
 	}
 
@@ -2788,7 +2788,7 @@ function startManager() {
 	return successResponse("Manager window opened successfully");
 }
 
-function closeManager() {
+async function closeManager() {
 	if (!isManagerStarted) throw new Error("Cannot close manager, it is not started");
 	logDebug("Cleaning up manager window");
 	if (managerWindow && !managerWindow.isDestroyed()) {
@@ -2798,7 +2798,7 @@ function closeManager() {
 	managerWindow = null;
 	if (config.closeGameWithManager && gameWindow) {
 		logDebug("Closing game window with fluxloader window");
-		closeGame();
+		await closeGame();
 	}
 	isManagerStarted = false;
 }
@@ -2820,7 +2820,7 @@ async function startUnmoddedGame() {
 		if (config.game.openDevTools) gameWindow.openDevTools();
 	} catch (e) {
 		logError(`Error starting unmodded game window: ${e.stack}`);
-		closeGame();
+		await closeGame();
 		return errorResponse(`Error starting unmodded game window`, null, false);
 	}
 
@@ -2853,12 +2853,12 @@ async function startGame() {
 		return successResponse("Game window started successfully");
 	} catch (e) {
 		logError(`Error starting game window: ${e.stack}`);
-		closeGame();
+		await closeGame();
 		return errorResponse(`Error starting game window`, null, false);
 	}
 }
 
-function closeGame() {
+async function closeGame() {
 	if (!isGameStarted) return errorResponse("Cannot close game, it is not started");
 	logDebug("Closing game window");
 	if (gameWindow && !gameWindow.isDestroyed()) {
@@ -2867,21 +2867,21 @@ function closeGame() {
 	}
 	gameWindow = null;
 	fluxloaderAPI.events.trigger("fl:game-closed");
-	modsManager.unloadAllMods();
+	await modsManager.unloadAllMods();
 	fluxloaderAPI.events.clear();
 	trySendManagerEvent("fl:game-closed");
 	isGameStarted = false;
 }
 
-function closeApp() {
-	cleanupApp();
+async function closeApp() {
+	await cleanupApp();
 	app.quit();
 }
 
-function cleanupApp() {
+async function cleanupApp() {
 	try {
-		if (managerWindow) closeManager();
-		if (gameWindow) closeGame();
+		if (managerWindow) await closeManager();
+		if (gameWindow) await closeGame();
 		gameFilesManager.deleteFiles();
 	} catch (e) {
 		logError(`Error during cleanup: ${e.stack}`);
@@ -2902,10 +2902,10 @@ async function startApp() {
 	await app.whenReady();
 
 	// The electron app as a whole closed when all windows are closed
-	app.on("window-all-closed", () => {
+	app.on("window-all-closed", async () => {
 		logInfo("All windows closed, exiting...");
 		if (process.platform !== "darwin") {
-			closeApp();
+			await closeApp();
 		}
 	});
 
