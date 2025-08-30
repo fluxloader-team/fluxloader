@@ -27,7 +27,7 @@ globalThis.semver = semver;
 
 // =================== VARIABLES ===================
 
-globalThis.fluxloaderVersion = "2.0.0";
+globalThis.fluxloaderVersion = "2.0.1";
 globalThis.fluxloaderAPI = undefined;
 globalThis.gameElectronFuncs = undefined;
 globalThis.gameWindow = undefined;
@@ -2246,7 +2246,7 @@ function findValidGamePath() {
 					logDebug(`Found app.asar in default steam directory for ${OS}: ${steamGamePath}`);
 					break;
 				}
-				logDebug(`app.asar not found in ${OS} steam path: ${gamePath}..`);
+				logDebug(`app.asar not found in ${OS} steam path: ${steamGamePath}..`);
 			}
 
 			if (!asarPath) {

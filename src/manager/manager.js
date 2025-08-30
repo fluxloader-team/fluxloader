@@ -513,7 +513,7 @@ class ModsTab {
 		getElement("action-execute-button").addEventListener("click", async () => {
 			await this.performQueuedActions();
 		});
-		
+
 		this.updateActionExecutionButton();
 	}
 
@@ -2135,7 +2135,7 @@ class CreateModTab {
 		},
 		fluxloaderVersion: {
 			type: "semver",
-			default: "^2.0.0",
+			default: "^2.0.1",
 		},
 		shortDescription: {
 			type: "string",
