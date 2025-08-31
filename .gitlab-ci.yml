@@ -170,16 +170,17 @@ release-job:
         - if: $CI_COMMIT_TAG
           when: always
     script:
+        - echo "Creating release $CI_COMMIT_TAG from packages at $PACKAGE_REGISTRY_URL"
         - release-cli create \
           --name "Release $CI_COMMIT_TAG" \
           --tag-name "$CI_COMMIT_TAG" \
           --description "Automated release for $CI_COMMIT_TAG" \
-          --assets-link "{\"name\":\"Windows x64 Portable\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-$CI_COMMIT_TAG-win-x64.exe\"}" \
-          --assets-link "{\"name\":\"Windows arm64 Portable\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-$CI_COMMIT_TAG-win-arm64.exe\"}" \
-          --assets-link "{\"name\":\"Windows legacy Portable\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-$CI_COMMIT_TAG-win-x64-legacy.exe\"}" \
-          --assets-link "{\"name\":\"Linux x86_64 AppImage\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-$CI_COMMIT_TAG-linux-x86_64.AppImage\"}" \
-          --assets-link "{\"name\":\"Linux arm64 deb\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-$CI_COMMIT_TAG-linux-arm64.deb\"}" \
-          --assets-link "{\"name\":\"Linux arm64 AppImage\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-$CI_COMMIT_TAG-linux-arm64.AppImage\"}" \
-          --assets-link "{\"name\":\"Linux amd64 deb\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-$CI_COMMIT_TAG-linux-amd64.deb\"}" \
-          --assets-link "{\"name\":\"macOS x64 Zip\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-$CI_COMMIT_TAG-mac-x64.zip\"}" \
-          --assets-link "{\"name\":\"macOS arm64 Zip\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-$CI_COMMIT_TAG-mac-arm64.zip\"}"
+          --assets-link "{\"name\":\"Windows x64 Portable\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-${CI_COMMIT_TAG}-win-x64.exe\"}" \
+          --assets-link "{\"name\":\"Windows arm64 Portable\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-${CI_COMMIT_TAG}-win-arm64.exe\"}" \
+          --assets-link "{\"name\":\"Windows legacy Portable\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-${CI_COMMIT_TAG}-win-x64-legacy.exe\"}" \
+          --assets-link "{\"name\":\"Linux x86_64 AppImage\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-${CI_COMMIT_TAG}-linux-x86_64.AppImage\"}" \
+          --assets-link "{\"name\":\"Linux arm64 deb\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-${CI_COMMIT_TAG}-linux-arm64.deb\"}" \
+          --assets-link "{\"name\":\"Linux arm64 AppImage\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-${CI_COMMIT_TAG}-linux-arm64.AppImage\"}" \
+          --assets-link "{\"name\":\"Linux amd64 deb\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-${CI_COMMIT_TAG}-linux-amd64.deb\"}" \
+          --assets-link "{\"name\":\"macOS x64 Zip\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-${CI_COMMIT_TAG}-mac-x64.zip\"}" \
+          --assets-link "{\"name\":\"macOS arm64 Zip\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-${CI_COMMIT_TAG}-mac-arm64.zip\"}"
