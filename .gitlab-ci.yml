@@ -162,21 +162,20 @@ upload:
 release-job:
     stage: release
     image: registry.gitlab.com/gitlab-org/release-cli:latest
-    tags:
-        - linux
     needs:
         - job: upload
     rules:
         - if: $CI_COMMIT_TAG
           when: always
-    script:
-        - echo "Creating release $CI_COMMIT_TAG from packages at $PACKAGE_REGISTRY_URL"
-        - echo "Debug asset data \{\"name\":\"Windows x64 Portable\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-${CI_COMMIT_TAG}-win-x64.exe\"}"
-        - release-cli create \
-          --name "Release $CI_COMMIT_TAG" \
-          --tag-name "$CI_COMMIT_TAG" \
-          --description "Automated release for $CI_COMMIT_TAG" \
-          --assets-link "{\"name\":\"Windows x64 Portable\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-${CI_COMMIT_TAG}-win-x64.exe\"}" \
+    release:
+        name: "Release $CI_COMMIT_TAG"
+        description: "Automated release for $CI_COMMIT_TAG"
+        tag_name: "$CI_COMMIT_TAG"
+        ref: "$CI_COMMIT_TAG"
+        assets:
+            links:
+                - name: "Windows x64 Portable"
+                  url: "${PACKAGE_REGISTRY_URL}/Fluxloader-${CI_COMMIT_TAG}-win-x64.exe"
         #   --assets-link "{\"name\":\"Windows arm64 Portable\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-${CI_COMMIT_TAG}-win-arm64.exe\"}" \
         #   --assets-link "{\"name\":\"Windows legacy Portable\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-${CI_COMMIT_TAG}-win-x64-legacy.exe\"}" \
         #   --assets-link "{\"name\":\"Linux x86_64 AppImage\",\"url\":\"${PACKAGE_REGISTRY_URL}/Fluxloader-${CI_COMMIT_TAG}-linux-x86_64.AppImage\"}" \
