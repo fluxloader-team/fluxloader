@@ -2,13 +2,13 @@
 
 Welcome the the **Sandustry Fluxloader**!
 
-- **Releases**: https://git.rendezvous.dev/sandustry/modloader/-/releases
-- **Modding Guide**: https://git.rendezvous.dev/sandustry/modloader/-/blob/main/MODDING.md
+-   **Releases**: https://git.rendezvous.dev/sandustry/modloader/-/releases/permalink/latest/
+-   **Modding Guide**: https://git.rendezvous.dev/sandustry/modloader/-/blob/main/MODDING.md
 
 ### Usage
 
-1. Download [Latest Release](https://git.rendezvous.dev/sandustry/modloader/-/releases).
+1. Download [Latest Release](https://git.rendezvous.dev/sandustry/modloader/-/releases/permalink/latest/).
 2. Run and enjoy!
 
 This will generate a `fluxloader-latest.log`, `fluxloader-config.json`, and a `mods` folder relative to the binary.  
-If it cannot find the games executable, update it manually with `gamePath` in the config.  
+If it cannot find the games executable, update it manually with `gamePath` in the config.
