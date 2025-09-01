@@ -8,6 +8,7 @@ import url from "url";
 import vm from "vm";
 import { randomUUID } from "crypto";
 import { marked } from "marked";
+import { JSDOM } from "jsdom";
 import { EventBus, SchemaValidation, Logging, FluxloaderSemver } from "./common.js";
 import semver from "semver";
 import AdmZip from "adm-zip";
@@ -163,6 +164,17 @@ function ensureDirectoryExists(dirPath) {
 		fs.mkdirSync(dirPath, { recursive: true });
 		logDebug(`Directory created: ${dirPath}`);
 	}
+}
+
+// Generates HTML from markdown and fixes relative file paths
+function formatMarkdown(text, modname) {
+	// Parse markdown and process resulting HTML
+	let dom = new JSDOM(marked(text));
+	let images = dom.window.document.querySelectorAll("img");
+	for (const image of images) {
+		image.src = image.src.startsWith(".") ? path.join(fluxloaderAPI.getModsPath(), modname, image.src) : image.src;
+	}
+	return dom.serialize();
 }
 
 // =================== MAIN ===================
@@ -1032,7 +1044,7 @@ class ModsManager {
 			const renderStart = Date.now();
 			for (const modEntry of responseData.mods) {
 				if (modEntry.modData && modEntry.modData.description) {
-					modEntry.renderedDescription = marked(modEntry.modData.description);
+					modEntry.renderedDescription = formatMarkdown(modEntry.modData.description, modEntry.modID);
 				} else {
 					modEntry.renderedDescription = "";
 				}
@@ -1092,7 +1104,7 @@ class ModsManager {
 		// Render the description if requested
 		if (config.rendered && mod.modData.description) {
 			try {
-				mod.renderedDescription = marked(mod.modData.description);
+				mod.renderedDescription = formatMarkdown(mod.modData.description, mod.modID);
 			} catch (e) {
 				return errorResponse(`Failed to render mod description for mod '${config.modID}': ${e.stack}`, {
 					errorModID: config.modID,
@@ -2016,7 +2028,7 @@ class ModsManager {
 			const renderStart = Date.now();
 			for (const mod of mods) {
 				if (mod.info.description) {
-					mod.renderedDescription = marked(mod.info.description);
+					mod.renderedDescription = formatMarkdown(mod.info.description, mod.info.modID);
 				} else {
 					mod.renderedDescription = "";
 				}
@@ -2099,7 +2111,7 @@ class ModsManager {
 		// Render the description if requested
 		if (args.rendered && responseData.mod.modData.description) {
 			const renderStart = Date.now();
-			responseData.mod.renderedDescription = marked(responseData.mod.modData.description);
+			responseData.mod.renderedDescription = formatMarkdown(responseData.mod.modData.description, responseData.mod.modData.modID);
 			const renderEnd = Date.now();
 			logDebug(`Rendered description for mod '${args.modID}' (v${args.version}) in ${renderEnd - renderStart}ms`);
 		}

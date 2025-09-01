@@ -21,6 +21,7 @@
 		"acorn": "^8.14.0",
 		"adm-zip": "^0.5.16",
 		"asar": "^3.2.0",
+		"jsdom": "^26.1.0",
 		"marked": "^15.0.11",
 		"semver": "^7.7.2"
 	},
@@ -31,7 +32,7 @@
 	"build": {
 		"appId": "app.fluxloader.Fluxloader",
 		"productName": "Fluxloader",
-  		"artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+		"artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
 		"asar": true,
 		"publish": null,
 		"directories": {
