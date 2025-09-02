@@ -14,7 +14,6 @@ case "$OS" in
     Linux*)
         echo "Linux finishing touches.."
         rm Fluxloader-*.AppImage
-        sleep 1
         mv fluxloader-temp $(basename $1)
         chmod +x $(basename $1)
         ;;

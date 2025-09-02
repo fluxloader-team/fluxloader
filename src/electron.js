@@ -2696,7 +2696,8 @@ async function downloadUpdate(assets) {
 			throw new Error(`Could not find asset for ${config.manager.updateOS}`);
 		}
 		let resources = app.isPackaged ? process.resourcesPath : process.cwd();
-		const child = spawn(path.join(resources, "./updater.sh"), [targetAsset.url], {
+		let script = ["linux", "darwin"].includes(os.platform()) ? "./updater.sh" : "updater.bat";
+		const child = spawn(path.join(resources, script), [targetAsset.url], {
 			detached: true,
 			stdio: "ignore",
 			shell: true,
