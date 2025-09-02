@@ -1,2 +1,12 @@
-@REM Updater for windows - This is dumb, but yes it just launches a ps1 file bc I'm tired of this
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File update.ps1 %1
+@REM Updater for windows
+
+echo Downloading update from %1
+curl -s %1 -o fluxloader-temp
+echo Download complete, closing Fluxloader instance..
+
+taskkill /PID %2 /F
+
+echo Removing old exe..
+del Fluxloader-*.exe
+echo Installing new exe..
+move fluxloader-temp %~nx1

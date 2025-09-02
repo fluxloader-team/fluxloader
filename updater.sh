@@ -2,18 +2,16 @@
 # Updater for mac/linux
 echo "Downloading update from $1"
 curl -s $1 -o fluxloader-temp
-echo "Download complete, waiting for Fluxloader instance to close.."
+echo "Download complete, closing Fluxloader instance.."
 
-while kill -0 $PPID 2>/dev/null; do
-    sleep 1
-done
+kill -9 $2
 
 OS="$(uname -s)"
 
 case "$OS" in
     Linux*)
         echo "Linux finishing touches.."
-        rm Fluxloader-*.AppImage
+        rm Fluxloader-*.{AppImage,deb}
         mv fluxloader-temp $(basename $1)
         chmod +x $(basename $1)
         ;;
