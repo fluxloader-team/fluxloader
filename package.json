@@ -39,7 +39,8 @@
 		"extraResources": [
 			".env",
 			"updater.sh",
-			"updater.bat"
+			"updater.bat",
+			"updater.ps1"
 		],
 		"directories": {
 			"output": "dist",
