@@ -3,17 +3,23 @@ import path from "path";
 import fs from "fs";
 import process from "process";
 import os from "os";
+import { spawn } from "child_process";
 import asar from "asar";
 import url from "url";
 import vm from "vm";
 import { randomUUID } from "crypto";
 import { marked } from "marked";
 import { JSDOM } from "jsdom";
+import dotenv from "dotenv";
 import { EventBus, SchemaValidation, Logging, FluxloaderSemver } from "./common.js";
 import semver from "semver";
 import AdmZip from "adm-zip";
 import Module from "module";
 globalThis.semver = semver;
+
+dotenv.config({
+	path: app.isPackaged ? path.join(process.resourcesPath, ".env") : path.resolve(process.cwd(), ".env"),
+});
 
 // ---- General architecture ----
 //
@@ -2678,6 +2684,32 @@ async function pickFileNative(args) {
 	return successResponse("File selected successfully", selectedPath);
 }
 
+async function downloadUpdate(assets) {
+	try {
+		if (config.manager.updateOS === "None") {
+			if (!process.env.BUILDNAME) throw new Error("No updateOS configured, and could not find BUILDNAME env var");
+			config.manager.updateOS = process.env.BUILDNAME;
+			updateFluxloaderConfig();
+		}
+		let targetAsset = assets.filter((val) => val.name === config.manager.updateOS)[0];
+		if (!targetAsset) {
+			throw new Error(`Could not find asset for ${config.manager.updateOS}`);
+		}
+		let resources = app.isPackaged ? process.resourcesPath : process.cwd();
+		const child = spawn(path.join(resources, "./updater.sh"), [targetAsset.url], {
+			detached: true,
+			stdio: "ignore",
+			shell: true,
+		});
+		child.unref();
+		setTimeout(app.quit, 1000);
+		return true;
+	} catch (error) {
+		logError(`Error downloading update: ${error.message}`);
+		return false;
+	}
+}
+
 function setupElectronIPC() {
 	logDebug("Setting up electron IPC handlers");
 
@@ -2706,6 +2738,7 @@ function setupElectronIPC() {
 		"fl:get-mod-info-schema": (_) => modsManager.modInfoSchema,
 		"fl:get-fluxloader-config-schema": (_) => configSchema,
 		"fl:get-fluxloader-version": (_) => fluxloaderVersion,
+		"fl:download-update": async (args) => await downloadUpdate(args),
 		"fl:forward-log-to-manager": (args) => forwardLogToManager(args),
 		"fl:request-manager-logs": (_) => logsForManager,
 		"fl:open-mod-folder": (args) => openModFolderNative(args),

@@ -10,6 +10,8 @@ globalThis.tabs = { mods: null, config: null, logs: null };
 let selectedTab = null;
 let getElementMemoization = {};
 
+let config = {};
+
 // The following are blocking and should block other tasks
 // When they are changed use addBlockingTask() & removeBlockingTask()
 // When you try to do a blocked action use pingBlockingTask()
@@ -918,8 +920,9 @@ class ModsTab {
 
 			// Create the versions element
 			versionsTD.innerHTML = "";
-			const versionElement = this._createModRowVersions(this.modRows[modID].modData);
-			versionsTD.appendChild(versionElement);
+			const elements = this._createModRowVersions(this.modRows[modID].modData);
+			versionsTD.appendChild(elements.main);
+			if (elements.updateIcon) versionsTD.appendChild(elements.updateIcon);
 		}
 
 		this.setIsLoadingMods(false);
@@ -1082,8 +1085,9 @@ class ModsTab {
 		element.querySelector(".mod-row-status").appendChild(statusElement);
 
 		// Setup version element
-		const versionElement = this._createModRowVersions(modData);
-		element.querySelector(".mod-row-versions").appendChild(versionElement);
+		const versionElements = this._createModRowVersions(modData);
+		element.querySelector(".mod-row-versions").appendChild(versionElements.main);
+		if (versionElements.updateIcon) element.querySelector(".mod-row-versions").appendChild(versionElements.updateIcon);
 
 		// Add listener to right click
 		element.addEventListener("contextmenu", (e) => {
@@ -1121,7 +1125,7 @@ class ModsTab {
 		const containerElement = document.createElement("div");
 
 		// If installed then create a checkbox for enabling / disabling
-		const checkboxElement = createElement(`<input type="checkbox" ${modData.isEnabled ? "checked" : ""}>`);
+		const checkboxElement = createElement(`<input type="checkbox" title="Enable/Disable Mod">`);
 		checkboxElement.addEventListener("click", (e) => e.stopPropagation());
 		checkboxElement.addEventListener("change", (e) => this.changeModEnabled(modData.modID, e));
 		checkboxElement.checked = modData.isEnabled;
@@ -1146,18 +1150,22 @@ class ModsTab {
 	}
 
 	_createModRowVersions(modData) {
-		// If given a single version (or no versions make a span)
+		// If given a single version (or no versions) make a span
 		if (modData.versions == null || modData.versions.length === 0) {
-			return createElement(`<span>${modData.info.version}</span>`);
+			return { main: createElement(`<span>${modData.info.version}</span>`) };
 		}
 
 		// Otherwise make a dropdown with all versions
 		else {
 			const versionToOption = (v) => `<option value="${v}" ${v === modData.info.version ? "selected" : ""}>${v}</option>`;
 			const dropdown = createElement(`<select>${modData.versions.reduce((acc, v) => acc + versionToOption(v), "")}</select>`);
+			// Show update icon if semver shows installed version is lower than latest from db
+			const updateIcon = createElement(
+				`<i class="fa fa-arrow-circle-up" aria-hidden="true" style="visibility: ${api.semver.compare(modData.info.version, modData.versions[0]) < 0 ? "visible" : "hidden"}" title="Update available"></i>`
+			);
 			dropdown.addEventListener("click", (e) => e.stopPropagation());
 			dropdown.addEventListener("change", (e) => this.changeModVersion(modData.modID, e));
-			return dropdown;
+			return { main: dropdown, updateIcon };
 		}
 	}
 
@@ -2354,6 +2362,69 @@ function setConnectionState(state) {
 	connectionState = state;
 }
 
+let latestUpdate;
+async function checkFluxloaderUpdates() {
+	addBlockingTask("checkingUpdates");
+	try {
+		logDebug("Checking for updates to Fluxloader...");
+		setStatusBar("Checking for Fluxloader updates..", 0, "loading");
+		const releases = await (await fetch("https://git.rendezvous.dev/api/v4/projects/33/releases")).json();
+		logDebug(`${releases.length} releases found`);
+		setStatusBar(`${releases.length} versions found..`, 33, "loading");
+		if (releases.length === 0) {
+			throw new Error("Release count returned was 0");
+		}
+		let latestVersion = releases[0].tag_name;
+		if (!semver.valid(latestVersion)) {
+			throw new Error("Latest release version is not valid semver: " + latestVersion);
+		}
+		// spoof it hehe
+		latestVersion = "2.1.0";
+		logDebug(`Latest version is v${latestVersion}`);
+		const installedVersion = await api.invoke("fl:get-fluxloader-version");
+		logDebug(`Installed version is v${installedVersion}`);
+		setStatusBar(`Latest version is v${latestVersion} (v${installedVersion} is installed)`, 66, "loading");
+		// Check if the latest version is newer than the installed one
+		if (semver.compare(latestVersion, installedVersion) <= 0) {
+			logDebug("No update required");
+			setStatusBar("Fluxloader up to date", 0, "success");
+			removeBlockingTask("checkingUpdates");
+			return;
+		}
+		logDebug(`A new version of Fluxloader is available: v${latestVersion} (v${installedVersion} installed)`);
+		setStatusBar("A new version of Fluxloader is available!", 100, "success");
+		latestUpdate = releases[0];
+		let button = getElement("update-button");
+		button.style.visibility = "visible";
+		button.onclick = updateFluxloader;
+	} catch (e) {
+		setStatusBar(`Failed to find updates`, 0, "failed");
+		logError("Error occured while checking for Fluxloader updates: " + e.message);
+	}
+	removeBlockingTask("checkingUpdates");
+}
+
+async function updateFluxloader() {
+	addBlockingTask("updating");
+	try {
+		if (!latestUpdate) checkFluxloaderUpdates();
+		// Check again
+		if (!latestUpdate) throw new Error("No updates available");
+		logDebug(`Downloading update v${latestUpdate.tag_name}...`);
+		setStatusBar(`Downloading Fluxloader v${latestUpdate.tag_name}..`, 10, "loading");
+		let result = await api.invoke("fl:download-update", latestUpdate.assets.links);
+		if (result === true) {
+			setStatusBar(`Shutting down for update..`, 50, "loading");
+			return;
+		}
+		throw new Error("Electron side failed to download update");
+	} catch (e) {
+		setStatusBar(`Failed to update Fluxloader`, 0, "failed");
+		logError("Error occured while updating Fluxloader: " + e.message);
+	}
+	removeBlockingTask("updating");
+}
+
 async function handleClickConnectionButton(e) {
 	if (isPlaying || tabs.mods.isLoadingMods || tabs.mods.isPerformingActions || isPlayButtonLoading) {
 		return pingBlockingTask("Cannot change connection state while playing, loading mods, or performing actions.");
@@ -2381,6 +2452,9 @@ async function handleClickConnectionButton(e) {
 
 			// If succesfully connect then fetch installed mods versions
 			await tabs.mods.loadInstalledModsVersions();
+
+			// Check for updates to the fluxloader
+			checkFluxloaderUpdates();
 		} else {
 			logError("Failed to ping the server, connection is offline");
 			setConnectionState("offline");
@@ -2477,6 +2551,8 @@ function pingBlockingTask(message) {
 (async () => {
 	await setupTabs();
 
+	config = await api.invoke("fl:get-fluxloader-config");
+
 	api.on(`fl:game-closed`, () => {
 		if (!isPlaying) return logWarn("Received game closed event but isPlaying is false, ignoring.");
 		setStatusBar("Game closed", 0, "success");
@@ -2488,6 +2564,9 @@ function pingBlockingTask(message) {
 
 	getElement("play-button").addEventListener("click", () => handleClickPlayButton());
 
+	if (config.manager.autoConnect) {
+		handleClickConnectionButton(); // Let's hope this causes no issues.. for now
+	}
 	getElement("connection-button").addEventListener("click", (e) => handleClickConnectionButton(e));
 
 	getElement("footer-dropdown-unmodded").addEventListener("click", (e) => {

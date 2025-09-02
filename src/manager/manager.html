@@ -3,6 +3,7 @@
 		<meta charset="UTF-8" />
 		<title>Sandustry Fluxloader Manager</title>
 		<link rel="stylesheet" href="manager.css" />
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
 	</head>
 	<body>
 		<div class="container">
@@ -15,6 +16,7 @@
 					<div class="option" id="tab-create-mod"><p>Create Mod</p></div>
 				</div>
 				<div class="status-container">
+					<div class="update-button" id="update-button" style="visibility: hidden"><i class="fa fa-arrow-circle-up" aria-hidden="true" title="Click to Update Fluxloader"></i>Update</div>
 					<div class="blocking-indicator" id="blocking-indicator" style="opacity: 0">
 						<img src="./assets/loading.gif" />
 					</div>
@@ -42,13 +44,13 @@
 					</div>
 					<div class="main-center">
 						<div class="button-bar">
-							<div class="open-extracted-folder" id="open-extracted-folder" style="display: none;">
+							<div class="open-extracted-folder" id="open-extracted-folder" title="Open extracted game folder" style="display: none">
 								<img src="./assets/foldergame.png" />
 							</div>
-							<div class="open-mods-folder" id="open-mods-folder">
+							<div class="open-mods-folder" id="open-mods-folder" title="Open mods folder">
 								<img src="./assets/folder.png" />
 							</div>
-							<div class="reload-mods" id="reload-mods">
+							<div class="reload-mods" id="reload-mods" title="Reload mods">
 								<img src="./assets/reload.png" />
 							</div>
 						</div>
@@ -66,7 +68,7 @@
 											Author
 											<div class="resizer"></div>
 										</th>
-										<th data-column="version" style="width: 5.5rem">
+										<th data-column="version" style="width: 9rem">
 											Version
 											<div class="resizer"></div>
 										</th>
@@ -78,7 +80,7 @@
 											Last Updated
 											<div class="resizer"></div>
 										</th>
-										<th data-column="tags" style="width: 25rem">
+										<th data-column="tags" style="width: 20rem">
 											Tags
 											<div class="resizer"></div>
 										</th>
