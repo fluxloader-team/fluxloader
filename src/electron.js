@@ -2699,7 +2699,7 @@ async function downloadUpdate(assets) {
 		let script = ["linux", "darwin"].includes(process.platform) ? "./updater.sh" : "updater.bat";
 		const child = spawn(path.join(resources, script), [targetAsset.url, process.pid], {
 			detached: true,
-			stdio: "ignore",
+			stdio: "inherit", // Allows for some debugging by passing output back
 			shell: true,
 		});
 		child.unref();
