@@ -19,10 +19,8 @@ case "$OS" in
         chmod +x $(basename $1)
         ;;
     Darwin*)
-        echo "Running macOS updates..."
-        brew update
-        brew upgrade
-        # add more macOS-specific commands here
+        echo "macOS finishing touches.."
+        # Idk what to do here yet
         ;;
     *)
         echo "Unknown OS: $OS"
