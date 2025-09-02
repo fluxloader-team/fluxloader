@@ -2703,7 +2703,6 @@ async function downloadUpdate(assets) {
 			shell: true,
 		});
 		child.unref();
-		setTimeout(app.quit, 1000);
 		return true;
 	} catch (error) {
 		logError(`Error downloading update: ${error.message}`);
