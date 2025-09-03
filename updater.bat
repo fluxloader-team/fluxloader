@@ -14,7 +14,6 @@ echo Removing old exe..
 
 :wait
 del Fluxloader-*.exe 2>nul
-timeout /t 1 >nul
 if exist Fluxloader-*.exe goto wait
 
 echo Installing new exe..
