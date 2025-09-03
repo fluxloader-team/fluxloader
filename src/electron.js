@@ -2698,13 +2698,13 @@ async function downloadUpdate(assets) {
 		let isUnix = ["linux", "darwin"].includes(process.platform);
 		let resources = app.isPackaged ? process.resourcesPath : process.cwd();
 		if (isUnix) {
-			spawn("cmd.exe", ["/c", "start", "", path.join(resources, "updater.bat"), process.cwd(), process.pid, targetAsset.url], {
+			spawn(path.join(resources, "./updater.sh"), [process.cwd(), process.pid, targetAsset.url], {
 				detached: true,
 				stdio: "ignore",
 				shell: true,
 			}).unref();
 		} else {
-			spawn(path.join(resources, "./updater.sh"), [process.cwd(), process.pid, targetAsset.url], {
+			spawn("cmd.exe", ["/c", "start", "", path.join(resources, "updater.bat"), process.cwd(), process.pid, targetAsset.url], {
 				detached: true,
 				stdio: "ignore",
 				shell: true,
