@@ -2701,7 +2701,7 @@ async function downloadUpdate(assets) {
 		logDebug(`Starting update helper with parameters: [${installLoc}, ${process.pid}, ${targetAsset.url}]`);
 		const child = spawn(path.join(resources, script), [installLoc, process.pid, targetAsset.url], {
 			detached: true,
-			stdio: "inherit",
+			stdio: "ignore",
 			shell: true,
 		});
 		child.unref();
