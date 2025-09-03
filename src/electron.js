@@ -2695,16 +2695,23 @@ async function downloadUpdate(assets) {
 		if (!targetAsset) {
 			throw new Error(`Could not find asset for ${config.manager.updateOS}`);
 		}
+		let isUnix = ["linux", "darwin"].includes(process.platform);
 		let resources = app.isPackaged ? process.resourcesPath : process.cwd();
-		let script = ["linux", "darwin"].includes(process.platform) ? "./updater.sh" : "updater.bat";
 		let installLoc = resolvePathRelativeToExecutable(".");
 		logDebug(`Starting update helper with parameters: [${installLoc}, ${process.pid}, ${targetAsset.url}]`);
-		const child = spawn(path.join(resources, script), [installLoc, process.pid, targetAsset.url], {
-			detached: true,
-			stdio: "inherit",
-			shell: true,
-		});
-		child.unref();
+		if (isUnix) {
+			spawn(path.join(resources, "./updater.sh"), [installLoc, process.pid, targetAsset.url], {
+				detached: true,
+				stdio: "ignore",
+				shell: true,
+			}).unref();
+		} else {
+			spawn("cmd.exe", ["/c", "start", "", path.join(resources, "updater.bat"), installLoc, process.pid, targetAsset.url], {
+				detached: true,
+				stdio: "ignore",
+				shell: true,
+			}).unref();
+		}
 		return true;
 	} catch (error) {
 		logError(`Error downloading update: ${error.message}`);
