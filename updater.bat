@@ -11,6 +11,11 @@ echo Download complete, closing Fluxloader instance..
 taskkill /PID %2 /F
 
 echo Removing old exe..
-del Fluxloader-*.exe
+
+:wait
+timeout /t 1 >nul
+del Fluxloader-*.exe 2>nul
+if exist Fluxloader-*.exe goto wait
+
 echo Installing new exe..
 move fluxloader-temp %~nx3
