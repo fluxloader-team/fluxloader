@@ -2697,9 +2697,9 @@ async function downloadUpdate(assets) {
 		}
 		let resources = app.isPackaged ? process.resourcesPath : process.cwd();
 		let script = ["linux", "darwin"].includes(process.platform) ? "./updater.sh" : "updater.bat";
-		const child = spawn(path.join(resources, script), [targetAsset.url, process.pid], {
+		const child = spawn(path.join(resources, script), [process.cwd(), process.pid, targetAsset.url], {
 			detached: true,
-			stdio: "inherit", // Allows for some debugging by passing output back
+			stdio: "inherit",
 			shell: true,
 		});
 		child.unref();
