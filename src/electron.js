@@ -2697,7 +2697,7 @@ async function downloadUpdate(assets) {
 		}
 		let resources = app.isPackaged ? process.resourcesPath : process.cwd();
 		let script = ["linux", "darwin"].includes(process.platform) ? "./updater.sh" : "updater.bat";
-		let installLoc = ["linux", "darwin"].includes(process.platform) ? process.cwd() : path.dirname(app.getPath("exe"));
+		let installLoc = resolvePathRelativeToExecutable(".");
 		logDebug(`Starting update helper with parameters: [${installLoc}, ${process.pid}, ${targetAsset.url}]`);
 		const child = spawn(path.join(resources, script), [installLoc, process.pid, targetAsset.url], {
 			detached: true,
