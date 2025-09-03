@@ -2411,10 +2411,10 @@ async function updateFluxloader() {
 		// Check again
 		if (!latestUpdate) throw new Error("No updates available");
 		logDebug(`Downloading update v${latestUpdate.tag_name}...`);
-		setStatusBar(`Downloading Fluxloader v${latestUpdate.tag_name}..`, 10, "loading");
+		setStatusBar(`Downloading Fluxloader v${latestUpdate.tag_name}..`, 40, "loading");
 		let result = await api.invoke("fl:download-update", latestUpdate.assets.links);
 		if (result === true) {
-			setStatusBar(`Shutting down for update..`, 50, "loading");
+			setStatusBar(`Launching update helper.. Fluxloader will close when done`, 75, "loading");
 			return;
 		}
 		throw new Error("Electron side failed to download update");

@@ -2706,7 +2706,8 @@ async function downloadUpdate(assets) {
 				shell: true,
 			}).unref();
 		} else {
-			spawn("cmd.exe", ["/c", "start", "", path.join(resources, "updater.bat"), installLoc, process.pid, targetAsset.url], {
+			fs.copyFileSync(path.join(resources, "updater.bat"), path.join(installLoc, "updater.bat"));
+			spawn("cmd.exe", ["/c", "start", "", path.join(installLoc, "updater.bat"), installLoc, process.pid, targetAsset.url], {
 				detached: true,
 				stdio: "ignore",
 				shell: true,
