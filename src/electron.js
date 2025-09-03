@@ -2697,14 +2697,16 @@ async function downloadUpdate(assets) {
 		}
 		let isUnix = ["linux", "darwin"].includes(process.platform);
 		let resources = app.isPackaged ? process.resourcesPath : process.cwd();
+		let installLoc = resolvePathRelativeToExecutable(".");
+		logDebug(`Starting update helper with parameters: [${installLoc}, ${process.pid}, ${targetAsset.url}]`);
 		if (isUnix) {
-			spawn(path.join(resources, "./updater.sh"), [process.cwd(), process.pid, targetAsset.url], {
+			spawn(path.join(resources, "./updater.sh"), [installLoc, process.pid, targetAsset.url], {
 				detached: true,
 				stdio: "ignore",
 				shell: true,
 			}).unref();
 		} else {
-			spawn("cmd.exe", ["/c", "start", "", path.join(resources, "updater.bat"), process.cwd(), process.pid, targetAsset.url], {
+			spawn("cmd.exe", ["/c", "start", "", path.join(resources, "updater.bat"), installLoc, process.pid, targetAsset.url], {
 				detached: true,
 				stdio: "ignore",
 				shell: true,
