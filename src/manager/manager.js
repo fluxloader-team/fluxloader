@@ -232,6 +232,7 @@ class ConfigSchemaElement {
 				let value = configSection?.[key] ?? schemaValue.default;
 				if (!value) value = "";
 				let input;
+				let extraInputs = [];
 				switch (schemaValue.type) {
 					case "string":
 						input = document.createElement("input");
@@ -246,12 +247,24 @@ class ConfigSchemaElement {
 						break;
 
 					case "number":
+						// Main number input
 						input = document.createElement("input");
 						input.type = "number";
 						input.value = value;
 						if ("min" in schemaValue) input.min = schemaValue.min;
 						if ("max" in schemaValue) input.max = schemaValue.max;
 						if ("step" in schemaValue) input.step = schemaValue.step;
+						input.style.width = "40%";
+						// Secondary slider input if both min and max are defined
+						if (!(schemaValue.min && schemaValue.max)) break;
+						let slider = document.createElement("input");
+						slider.type = "range";
+						slider.value = value;
+						if ("min" in schemaValue) slider.min = schemaValue.min;
+						if ("max" in schemaValue) slider.max = schemaValue.max;
+						if ("step" in schemaValue) slider.step = schemaValue.step;
+						slider.style.width = "60%";
+						extraInputs.push(slider);
 						break;
 
 					case "boolean":
@@ -295,6 +308,7 @@ class ConfigSchemaElement {
 				const inputWrapper = document.createElement("div");
 				inputWrapper.classList.add("config-input-wrapper");
 				inputWrapper.appendChild(input);
+				extraInputs.forEach((i) => inputWrapper.appendChild(i));
 
 				const label = document.createElement("div");
 				label.classList.add("config-input-label");
@@ -347,6 +361,16 @@ class ConfigSchemaElement {
 
 				this.inputs.set(currentPath.join("."), input);
 				input.addEventListener("change", () => this._validateInput(currentPath, input, schemaValue));
+				for (const _input of extraInputs) {
+					// Change main input when extra input changes
+					_input.addEventListener("input", (event) => {
+						input.value = event.target.value;
+					});
+					// Change extra input when main input changes
+					input.addEventListener("input", (event) => {
+						_input.value = event.target.value;
+					});
+				}
 				this._validateInput(currentPath, input, schemaValue, false);
 			}
 		}

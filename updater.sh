@@ -18,7 +18,16 @@ case "$OS" in
         ;;
     Darwin*)
         echo "macOS finishing touches.."
-        # Idk what to do here yet
+        # Backup old data so we can transfer it
+        mv Fluxloader.app fluxloader-old
+        # Unzip and delete new version
+        unzip fluxloader-temp
+        rm fluxloader-temp
+        # Delete old executable
+        rm -f fluxloader-old/Contents/MacOS/Fluxloader
+        # Move data from old folder into new one
+        mv fluxloader-old/Contents/MacOS Fluxloader.app/Contents/MacOS
+        rm -rf fluxloader-old
         ;;
     *)
         echo "Unknown OS: $OS"
