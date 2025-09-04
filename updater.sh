@@ -1,14 +1,11 @@
 #!/bin/bash
 # Updater for mac/linux
 
-echo "Switching to $1"
-cd "$1"
-
-echo "Downloading update from $3"
-curl -s $3 -o fluxloader-temp
+echo "Downloading update from $2"
+curl -s $2 -o fluxloader-temp
 echo "Download complete, closing Fluxloader instance.."
 
-kill -9 $2
+kill -9 $1
 
 OS="$(uname -s)"
 
@@ -16,8 +13,8 @@ case "$OS" in
     Linux*)
         echo "Linux finishing touches.."
         rm Fluxloader-*.{AppImage,deb}
-        mv fluxloader-temp $(basename $3)
-        chmod +x $(basename $3)
+        mv fluxloader-temp $(basename $2)
+        chmod +x $(basename $2)
         ;;
     Darwin*)
         echo "macOS finishing touches.."

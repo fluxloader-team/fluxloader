@@ -2700,14 +2700,16 @@ async function downloadUpdate(assets) {
 		let installLoc = resolvePathRelativeToExecutable(".");
 		logDebug(`Starting update helper with parameters: [${installLoc}, ${process.pid}, ${targetAsset.url}]`);
 		if (isUnix) {
-			spawn(path.join(resources, "./updater.sh"), [installLoc, process.pid, targetAsset.url], {
+			spawn(path.join(resources, "./updater.sh"), [process.pid, targetAsset.url], {
+				cwd: installLoc,
 				detached: true,
 				stdio: "ignore",
 				shell: true,
 			}).unref();
 		} else {
 			fs.copyFileSync(path.join(resources, "updater.bat"), path.join(installLoc, "updater.bat"));
-			spawn(path.join(installLoc, "updater.bat"), [installLoc, process.pid, targetAsset.url], {
+			spawn("cmd.exe", ["/c", "start", "Fluxloader Updater", path.join(installLoc, "updater.bat"), process.pid, targetAsset.url], {
+				cwd: installLoc,
 				detached: true,
 				stdio: "ignore",
 				shell: true,
