@@ -18,3 +18,7 @@ move fluxloader-temp %~nx2
 
 @REM Remove this file after update is complete
 del updater.bat
+
+echo Update complete!
+pause
+exit

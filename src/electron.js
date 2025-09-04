@@ -2708,7 +2708,8 @@ async function downloadUpdate(assets) {
 			}).unref();
 		} else {
 			fs.copyFileSync(path.join(resources, "updater.bat"), path.join(installLoc, "updater.bat"));
-			spawn("cmd.exe", ["/c", "start", "Fluxloader Updater", path.join(installLoc, "updater.bat"), process.pid, targetAsset.url], {
+			// Spawns the update in a new window, and calls it "Fluxloader Update"
+			spawn("cmd.exe", ["/c", "start", '"Fluxloader Updater"', path.join(installLoc, "updater.bat"), process.pid, targetAsset.url], {
 				cwd: installLoc,
 				detached: true,
 				stdio: "ignore",
