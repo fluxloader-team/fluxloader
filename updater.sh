@@ -18,7 +18,7 @@ case "$OS" in
         ;;
     Darwin*)
         echo "macOS finishing touches.."
-        cd ../../ # Get back to parent directory where the zip will be unzipped
+        cd ../../../ # Get back to parent directory where the zip will be unzipped
         mv Fluxloader.app/Contents/MacOS/fluxloader-temp .
         # Backup old data so we can transfer it
         mv Fluxloader.app fluxloader-old
@@ -30,6 +30,7 @@ case "$OS" in
         # Move data from old folder into new one
         mv fluxloader-old/Contents/MacOS/* Fluxloader.app/Contents/MacOS
         rm -rf fluxloader-old
+        xattr -cr Fluxloader.app
         ;;
     *)
         echo "Unknown OS: $OS"
