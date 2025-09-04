@@ -11,6 +11,7 @@ echo Removing old exe..
 
 :wait
 del Fluxloader-*.exe 1>nul
+timeout /t 1 >nul
 if exist Fluxloader-*.exe goto wait
 
 echo Installing new exe..
@@ -20,5 +21,3 @@ move fluxloader-temp %~nx2
 del updater.bat
 
 echo Update complete!
-pause
-exit
