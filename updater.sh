@@ -26,7 +26,7 @@ case "$OS" in
         # Delete old executable
         rm -f fluxloader-old/Contents/MacOS/Fluxloader
         # Move data from old folder into new one
-        mv fluxloader-old/Contents/MacOS Fluxloader.app/Contents/MacOS
+        mv fluxloader-old/Contents/MacOS/* Fluxloader.app/Contents/MacOS
         rm -rf fluxloader-old
         ;;
     *)
