@@ -18,6 +18,8 @@ case "$OS" in
         ;;
     Darwin*)
         echo "macOS finishing touches.."
+        cd ../../ # Get back to parent directory where the zip will be unzipped
+        mv Fluxloader.app/Contents/MacOS/fluxloader-temp .
         # Backup old data so we can transfer it
         mv Fluxloader.app fluxloader-old
         # Unzip and delete new version
