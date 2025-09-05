@@ -111,6 +111,12 @@
 			"description": "Automatically connect to mod database on startup",
 			"default": true
 		},
+		"minResizerSize": {
+			"type": "number",
+			"description": "The minimum size, in pixels, that resizable windows can shrink to (e.g. mod info panel)",
+			"default": 200,
+			"min": 0
+		},
 		"updateOS": {
 			"type": "dropdown",
 			"description": "Which file to download when downloading updates",

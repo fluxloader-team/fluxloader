@@ -50,6 +50,7 @@ build-windows-x64:
     script:
         - !reference [.build_template, script]
         # Changed: Target is now only 'portable'. Removed nsis config.
+        - echo 'BUILDNAME=Windows x64 Portable' > .env
         - ./node_modules/.bin/electron-builder --win portable --x64 --config.buildVersion="$EFFECTIVE_BUILD_VERSION"
     artifacts:
         paths:
@@ -61,6 +62,7 @@ build-windows-arm64:
     script:
         - !reference [.build_template, script]
         # Changed: Target is now only 'portable'. Removed nsis config.
+        - echo 'BUILDNAME=Windows arm64 Portable' > .env
         - ./node_modules/.bin/electron-builder --win portable --arm64 --config.buildVersion="$EFFECTIVE_BUILD_VERSION"
     artifacts:
         paths:
@@ -77,6 +79,7 @@ build-windows-legacy-x64:
     script:
         - !reference [.build_template, script]
         # This build still produces an NSIS installer by default
+        - echo 'BUILDNAME=Windows legacy Portable' > .env
         - ./node_modules/.bin/electron-builder --win nsis --x64 --config.buildVersion="$EFFECTIVE_BUILD_VERSION"
     artifacts:
         paths:
@@ -88,6 +91,7 @@ build-linux-x64:
     extends: .build_template
     script:
         - !reference [.build_template, script]
+        - echo 'BUILDNAME=Linux x86_64 AppImage' > .env
         - ./node_modules/.bin/electron-builder --linux AppImage deb --x64 --config.buildVersion="$EFFECTIVE_BUILD_VERSION"
     artifacts:
         paths:
@@ -99,6 +103,7 @@ build-linux-arm64:
     extends: .build_template
     script:
         - !reference [.build_template, script]
+        - echo 'BUILDNAME=Linux arm64 AppImage' > .env
         - ./node_modules/.bin/electron-builder --linux AppImage deb --arm64 --config.buildVersion="$EFFECTIVE_BUILD_VERSION"
     artifacts:
         paths:
@@ -110,6 +115,7 @@ build-macos-x64:
     extends: .build_template
     script:
         - !reference [.build_template, script]
+        - echo 'BUILDNAME=macOS x64 Zip' > .env
         - ./node_modules/.bin/electron-builder --mac zip --x64 --config.buildVersion="$EFFECTIVE_BUILD_VERSION" --config.mac.identity=null
     artifacts:
         paths:
@@ -120,6 +126,7 @@ build-macos-arm64:
     extends: .build_template
     script:
         - !reference [.build_template, script]
+        - echo 'BUILDNAME=macOS arm64 Zip' > .env
         - ./node_modules/.bin/electron-builder --mac zip --arm64 --config.buildVersion="$EFFECTIVE_BUILD_VERSION" --config.mac.identity=null
     artifacts:
         paths:

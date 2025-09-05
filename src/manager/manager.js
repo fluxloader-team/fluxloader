@@ -78,7 +78,7 @@ function handleResizer(resizer) {
 
 	function onMouseMove(e) {
 		const newWidth = startWidth + (e.pageX - startX) * (isLeft ? -1 : 1);
-		parent.style.width = newWidth + "px";
+		parent.style.width = Math.max(newWidth, config.manager.minResizerSize) + "px";
 	}
 
 	function onMouseUp() {
@@ -247,6 +247,7 @@ class ConfigSchemaElement {
 						break;
 
 					case "number":
+						let disableSlider = !(schemaValue.min && schemaValue.max);
 						// Main number input
 						input = document.createElement("input");
 						input.type = "number";
@@ -254,9 +255,9 @@ class ConfigSchemaElement {
 						if ("min" in schemaValue) input.min = schemaValue.min;
 						if ("max" in schemaValue) input.max = schemaValue.max;
 						if ("step" in schemaValue) input.step = schemaValue.step;
-						input.style.width = "40%";
+						input.style.width = disableSlider ? "100%" : "40%";
 						// Secondary slider input if both min and max are defined
-						if (!(schemaValue.min && schemaValue.max)) break;
+						if (disableSlider) break;
 						let slider = document.createElement("input");
 						slider.type = "range";
 						slider.value = value;
@@ -2402,8 +2403,6 @@ async function checkFluxloaderUpdates() {
 		if (!semver.valid(latestVersion)) {
 			throw new Error("Latest release version is not valid semver: " + latestVersion);
 		}
-		// spoof it hehe
-		latestVersion = "2.1.0";
 		logDebug(`Latest version is v${latestVersion}`);
 		const installedVersion = await api.invoke("fl:get-fluxloader-version");
 		logDebug(`Installed version is v${installedVersion}`);
