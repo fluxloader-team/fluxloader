@@ -2790,7 +2790,9 @@ async function startManager() {
 		const managerPath = resolvePathInsideFluxloader("manager/manager.html");
 		managerWindow.on("closed", closeManager);
 		managerWindow.loadFile(managerPath);
-		if (config.manager.openDevTools) managerWindow.openDevTools();
+		managerWindow.once("ready-to-show", () => {
+			if (config.manager.openDevTools) managerWindow.openDevTools();
+		});
 	} catch (e) {
 		await closeManager();
 		return errorResponse(`Error starting manager window: ${e.stack}`);
@@ -2829,7 +2831,9 @@ async function startUnmoddedGame() {
 
 		gameElectronFuncs.createWindow();
 		gameWindow.on("closed", closeGame);
-		if (config.game.openDevTools) gameWindow.openDevTools();
+		gameWindow.once("ready-to-show", () => {
+			if (config.game.openDevTools) gameWindow.openDevTools();
+		});
 	} catch (e) {
 		logError(`Error starting unmodded game window: ${e.stack}`);
 		await closeGame();
@@ -2858,7 +2862,9 @@ async function startGame() {
 
 		gameElectronFuncs.createWindow();
 		gameWindow.on("closed", closeGame);
-		if (config.game.openDevTools) gameWindow.openDevTools();
+		gameWindow.once("ready-to-show", () => {
+			if (config.game.openDevTools) gameWindow.openDevTools();
+		});
 
 		fluxloaderAPI.events.trigger("fl:game-started");
 		logInfo(`Game window started successfully`);
