@@ -78,7 +78,8 @@ function handleResizer(resizer) {
 
 	function onMouseMove(e) {
 		const newWidth = startWidth + (e.pageX - startX) * (isLeft ? -1 : 1);
-		parent.style.width = Math.max(newWidth, config.manager.minResizerSize) + "px";
+		let enforceMin = resizer.classList.contains("enforceMin");
+		parent.style.width = Math.max(newWidth, enforceMin ? config.manager.minResizerSize : 0) + "px";
 	}
 
 	function onMouseUp() {
@@ -523,6 +524,16 @@ class ModsTab {
 
 		getElement("mods-tab-search-button").addEventListener("click", () => {
 			this.onSearchChanged();
+		});
+
+		getElement("mods-tab-tag-search").addEventListener("keydown", (e) => {
+			if (e.key === "Enter") {
+				this.onSearchTag();
+			}
+		});
+
+		getElement("mods-tab-tag-search-button").addEventListener("click", () => {
+			this.onSearchTag();
 		});
 
 		getElement("action-queue-selection").addEventListener("click", () => {
@@ -1754,11 +1765,19 @@ class ModsTab {
 		this.selectTag(tag);
 	}
 
+	onSearchTag() {
+		let tag = getElement("mods-tab-tag-search").value;
+		if (tag.length === 0) return;
+		this.selectTag(tag);
+		getElement("mods-tab-tag-search").value = "";
+	}
+
 	selectTag(tag) {
 		if (!this.filterInfo.tags.includes(tag)) {
 			this.filterInfo.tags.push(tag);
 			this.updateTagSearchContainer();
 			this.currentModPage = 0; // Reset to page 0 when tags change
+			this.reloadMods();
 		}
 	}
 
@@ -1768,6 +1787,7 @@ class ModsTab {
 			this.filterInfo.tags.splice(idx, 1);
 			this.updateTagSearchContainer();
 			this.currentModPage = 0; // Reset to page 0 when tags change
+			this.reloadMods();
 		}
 	}
 
@@ -2418,7 +2438,7 @@ async function checkFluxloaderUpdates() {
 		setStatusBar("A new version of Fluxloader is available!", 100, "success");
 		latestUpdate = releases[0];
 		let button = getElement("update-button");
-		button.style.visibility = "visible";
+		button.style.display = "flex";
 		button.onclick = updateFluxloader;
 	} catch (e) {
 		setStatusBar(`Failed to find updates`, 0, "failed");

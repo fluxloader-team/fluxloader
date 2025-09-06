@@ -113,7 +113,7 @@
 		},
 		"minResizerSize": {
 			"type": "number",
-			"description": "The minimum size, in pixels, that resizable windows can shrink to (e.g. mod info panel)",
+			"description": "The minimum size, in pixels, that sidebars can shrink to (e.g. mod info panel)",
 			"default": 200,
 			"min": 0
 		},

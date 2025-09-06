@@ -16,10 +16,10 @@
 					<div class="option" id="tab-create-mod"><p>Create Mod</p></div>
 				</div>
 				<div class="status-container">
-					<div class="update-button" id="update-button" style="visibility: hidden"><i class="fa fa-arrow-circle-up" aria-hidden="true" title="Click to Update Fluxloader"></i>Update</div>
 					<div class="blocking-indicator" id="blocking-indicator" style="opacity: 0">
 						<img src="./assets/loading.gif" />
 					</div>
+					<div class="update-button" id="update-button" style="display: none"><i class="fa fa-arrow-circle-up" aria-hidden="true" title="Click to Update Fluxloader"></i>Update</div>
 					<div class="connection-indicator">
 						<div class="connection-button" id="connection-button">Connect</div>
 						<div class="connection-circle offline" id="connection-indicator"></div>
@@ -38,9 +38,15 @@
 							</div>
 						</div>
 						<h2>Tags</h2>
+						<div class="search-bar">
+							<input type="text" id="mods-tab-tag-search" placeholder="Add tags..." />
+							<div class="search-icon" id="mods-tab-tag-search-button">
+								<img src="./assets/search.png" />
+							</div>
+						</div>
 						<p class="empty-tag-search" id="empty-tag-search">No tags selected.</p>
 						<div class="tag-search-container" id="tag-search-container"></div>
-						<div class="resizer"></div>
+						<div class="resizer enforceMin"></div>
 					</div>
 					<div class="main-center">
 						<div class="button-bar">
@@ -95,7 +101,7 @@
 						</div>
 					</div>
 					<div class="main-rightbar" style="width: 22rem">
-						<div class="resizer left"></div>
+						<div class="resizer left enforceMin"></div>
 						<div class="rightbar-top">
 							<p class="title" id="mod-info-title">Mod Name</p>
 						</div>
