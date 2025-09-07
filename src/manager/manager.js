@@ -2434,7 +2434,7 @@ function updatePlayButton() {
 	if (isPlayButtonLoading) {
 		getElement("play-button").innerText = "Loading...";
 	} else {
-		getElement("play-button").innerText = isPlaying ? "Stop" : "Start";
+		getElement("play-button").innerText = isPlaying ? "Stop" : "Play";
 	}
 }
 
