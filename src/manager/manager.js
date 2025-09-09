@@ -956,9 +956,8 @@ class ModsTab {
 
 			// Create the versions element
 			versionsTD.innerHTML = "";
-			const elements = this._createModRowVersions(this.modRows[modID].modData);
-			versionsTD.appendChild(elements.main);
-			if (elements.updateIcon) versionsTD.appendChild(elements.updateIcon);
+			const versionElement = this._createModRowVersions(this.modRows[modID].modData);
+			versionsTD.appendChild(versionElement);
 		}
 
 		this.setIsLoadingMods(false);
@@ -1121,9 +1120,8 @@ class ModsTab {
 		element.querySelector(".mod-row-status").appendChild(statusElement);
 
 		// Setup version element
-		const versionElements = this._createModRowVersions(modData);
-		element.querySelector(".mod-row-versions").appendChild(versionElements.main);
-		if (versionElements.updateIcon) element.querySelector(".mod-row-versions").appendChild(versionElements.updateIcon);
+		const versionElement = this._createModRowVersions(modData);
+		element.querySelector(".mod-row-versions").appendChild(versionElement);
 
 		// Add listener to right click
 		element.addEventListener("contextmenu", (e) => {
@@ -1188,7 +1186,7 @@ class ModsTab {
 	_createModRowVersions(modData) {
 		// If given a single version (or no versions) make a span
 		if (modData.versions == null || modData.versions.length === 0) {
-			return { main: createElement(`<span>${modData.info.version}</span>`) };
+			return createElement(`<span>${modData.info.version}</span>`);
 		}
 
 		// Otherwise make a dropdown with all versions
@@ -1197,11 +1195,17 @@ class ModsTab {
 			const dropdown = createElement(`<select>${modData.versions.reduce((acc, v) => acc + versionToOption(v), "")}</select>`);
 			// Show update icon if semver shows installed version is lower than latest from db
 			const updateIcon = createElement(
-				`<i class="fa fa-arrow-circle-up" aria-hidden="true" style="visibility: ${api.semver.compare(modData.info.version, modData.versions[0]) < 0 ? "visible" : "hidden"}" title="Update available"></i>`
+				`<img src="./assets/circle-arrow-up.png" style="width: 1.5rem; height: 1.5rem; visibility: ${api.semver.compare(modData.info.version, modData.versions[0]) < 0 ? "visible" : "hidden"}" title="Update available">`
 			);
 			dropdown.addEventListener("click", (e) => e.stopPropagation());
 			dropdown.addEventListener("change", (e) => this.changeModVersion(modData.modID, e));
-			return { main: dropdown, updateIcon };
+			let main = createElement("<div>");
+			main.style.display = "flex";
+			main.style.width = "100%";
+			main.style.gap = "5px";
+			main.appendChild(dropdown);
+			main.appendChild(updateIcon);
+			return main;
 		}
 	}
 
