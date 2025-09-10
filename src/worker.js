@@ -1,6 +1,6 @@
 // ------------- VARIABLES -------------
 
-globalThis.fluxloaderVersion = "2.0.0";
+globalThis.fluxloaderVersion = "2.0.1";
 globalThis.fluxloaderAPI = undefined;
 
 // ------------- UTILTY -------------
@@ -60,7 +60,7 @@ async function loadAllMods() {
 
 globalThis.fluxloaderPreloadBundle = async () => {
 	// logInfo(`Preloading worker fluxloader ${fluxloaderVersion}...`);
-	
+
 	// Import modules here to block the worker before anything else
 	const { EventBus } = await import(fluxloaderBasePath + "/common.js");
 	globalThis.EventBus = EventBus;
