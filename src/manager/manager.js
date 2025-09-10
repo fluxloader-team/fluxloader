@@ -1,4 +1,4 @@
-import { SchemaValidation, Logging } from "../common.js";
+import { SchemaValidation, Logging, EventBus } from "../common.js";
 globalThis.semver = api.semver;
 
 // =================== VARIABLES ===================
@@ -76,10 +76,16 @@ function handleResizer(resizer) {
 		e.stopPropagation();
 	});
 
+	if (resizer.classList.contains("enforceMin")) {
+		resizer.parentElement.style.minWidth = config.manager.minResizerSize || 0;
+		events.on("config-changed", (newConfig) => {
+			parent.style.minWidth = newConfig.manager.minResizerSize || 0;
+		});
+	}
+
 	function onMouseMove(e) {
 		const newWidth = startWidth + (e.pageX - startX) * (isLeft ? -1 : 1);
-		let enforceMin = resizer.classList.contains("enforceMin");
-		parent.style.width = Math.max(newWidth, enforceMin ? config.manager.minResizerSize : 0) + "px";
+		parent.style.width = newWidth + "px";
 	}
 
 	function onMouseUp() {
@@ -1849,6 +1855,7 @@ class ConfigTab {
 				setStatusBar("Failed to set config", 0, "error");
 			} else {
 				logDebug("Config set successfully.");
+				events.trigger("config-changed", newConfig);
 				setStatusBar("Config updated successfully", 0, "success");
 			}
 		});
@@ -2597,6 +2604,13 @@ function pingBlockingTask(message) {
 
 (async () => {
 	await setupTabs();
+
+	globalThis.events = new EventBus();
+	const eventList = ["config-changed"];
+
+	for (const event of eventList) {
+		events.registerEvent(event);
+	}
 
 	config = await api.invoke("fl:get-fluxloader-config");
 
