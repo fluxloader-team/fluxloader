@@ -35,14 +35,17 @@ variables:
         - |
             if [ -n "$CI_COMMIT_TAG" ]; then
               EFFECTIVE_BUILD_VERSION="$CI_COMMIT_TAG"
+              echo "Set build version to commit tag $CI_COMMIT_TAG"
             else
               EFFECTIVE_BUILD_VERSION=$(node -p "require('./package.json').version" || echo "error")
               if [ "$EFFECTIVE_BUILD_VERSION" == "error" ] || [ -z "$EFFECTIVE_BUILD_VERSION" ]; then
                 echo "Error: Cannot read version from package.json"
                 exit 1
               fi
+              echo "Pulled build version from package.json"
             fi
             export EFFECTIVE_BUILD_VERSION
+        - echo "Build prepped for v$EFFECTIVE_BUILD_VERSION"
         - rm -rf $OUTPUT_DIR && mkdir -p $OUTPUT_DIR
 
 build-windows-x64:
