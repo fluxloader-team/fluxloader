@@ -106,6 +106,23 @@
 		}
 	},
 	"manager": {
+		"autoConnect": {
+			"type": "boolean",
+			"description": "Automatically connect to mod database on startup",
+			"default": true
+		},
+		"minResizerSize": {
+			"type": "number",
+			"description": "The minimum size, in pixels, that sidebars can shrink to (e.g. mod info panel)",
+			"default": 200,
+			"min": 0
+		},
+		"updateOS": {
+			"type": "dropdown",
+			"description": "Which file to download when downloading updates",
+			"default": "None",
+			"options": ["None", "Windows x64 Portable", "Windows arm64 Portable", "Windows legacy Portable", "macOS x64 Zip", "macOS arm64 Zip", "Linux x86_64 AppImage", "Linux arm64 AppImage", "Linux arm64 deb"]
+		},
 		"openDevTools": {
 			"type": "boolean",
 			"description": "Open developer tools for the mod manager window",

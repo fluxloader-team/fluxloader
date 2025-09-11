@@ -18,6 +18,7 @@
 					<div class="blocking-indicator" id="blocking-indicator" style="opacity: 0">
 						<img src="./assets/loading.gif" />
 					</div>
+					<div class="update-button" id="update-button" style="display: none;"><img src="./assets/circle-arrow-up.png" style="width: 1.2rem; height: 1.2rem" class="update-img" aria-hidden="true" title="Click to Update Fluxloader" alt=""></i>Update</div>
 					<div class="connection-indicator">
 						<div class="connection-button" id="connection-button">Connect</div>
 						<div class="connection-circle offline" id="connection-indicator"></div>
@@ -36,19 +37,25 @@
 							</div>
 						</div>
 						<h2>Tags</h2>
+						<div class="search-bar">
+							<input type="text" id="mods-tab-tag-search" placeholder="Add tags..." />
+							<div class="search-icon" id="mods-tab-tag-search-button">
+								<img src="./assets/search.png" />
+							</div>
+						</div>
 						<p class="empty-tag-search" id="empty-tag-search">No tags selected.</p>
 						<div class="tag-search-container" id="tag-search-container"></div>
-						<div class="resizer"></div>
+						<div class="resizer enforceMin"></div>
 					</div>
 					<div class="main-center">
 						<div class="button-bar">
-							<div class="open-extracted-folder" id="open-extracted-folder" style="display: none;">
+							<div class="open-extracted-folder" id="open-extracted-folder" title="Open extracted game folder" style="display: none">
 								<img src="./assets/foldergame.png" />
 							</div>
-							<div class="open-mods-folder" id="open-mods-folder">
+							<div class="open-mods-folder" id="open-mods-folder" title="Open mods folder">
 								<img src="./assets/folder.png" />
 							</div>
-							<div class="reload-mods" id="reload-mods">
+							<div class="reload-mods" id="reload-mods" title="Reload mods">
 								<img src="./assets/reload.png" />
 							</div>
 						</div>
@@ -66,7 +73,7 @@
 											Author
 											<div class="resizer"></div>
 										</th>
-										<th data-column="version" style="width: 5.5rem">
+										<th data-column="version" style="width: 9rem">
 											Version
 											<div class="resizer"></div>
 										</th>
@@ -78,7 +85,7 @@
 											Last Updated
 											<div class="resizer"></div>
 										</th>
-										<th data-column="tags" style="width: 25rem">
+										<th data-column="tags" style="width: 20rem">
 											Tags
 											<div class="resizer"></div>
 										</th>
@@ -93,7 +100,7 @@
 						</div>
 					</div>
 					<div class="main-rightbar" style="width: 22rem">
-						<div class="resizer left"></div>
+						<div class="resizer left enforceMin"></div>
 						<div class="rightbar-top">
 							<p class="title" id="mod-info-title">Mod Name</p>
 						</div>
@@ -147,7 +154,7 @@
 									<div class="content" id="action-queue-content"></div>
 									<div class="action-queue-no-content" id="action-queue-no-content">No actions queued.</div>
 									<div class="footer">
-										<div class="action-execute-button" id="action-execute-button">Execute</div>
+										<div class="action-execute-button" id="action-execute-button" title="Execute above actions">Execute</div>
 									</div>
 								</div>
 							</div>
@@ -200,11 +207,11 @@
 					</div>
 				</div>
 				<div class="footer-control">
-					<div class="footer-control-input button" id="play-button"><p>Play</p></div>
+					<div class="footer-control-input button" id="play-button" title="Launch Game Modded"><p>Play</p></div>
 					<div class="footer-control-input dropdown" id="footer-dropdown">
 						<img src="assets/downarrow.png" />
 						<div class="footer-dropdown-menu" id="footer-dropdown-menu" style="display: none">
-							<div class="footer-dropdown-item" id="footer-dropdown-unmodded">Play Unmodded</div>
+							<div class="footer-dropdown-item" id="footer-dropdown-unmodded" title="Launch Game Unmodded">Play Unmodded</div>
 						</div>
 					</div>
 				</div>

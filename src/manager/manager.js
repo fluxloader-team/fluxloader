@@ -1,4 +1,4 @@
-import { SchemaValidation, Logging } from "../common.js";
+import { SchemaValidation, Logging, EventBus } from "../common.js";
 globalThis.semver = api.semver;
 
 // =================== VARIABLES ===================
@@ -9,6 +9,8 @@ const DELAY_RELOAD_MS = 150;
 globalThis.tabs = { mods: null, config: null, logs: null };
 let selectedTab = null;
 let getElementMemoization = {};
+
+let config = {};
 
 // The following are blocking and should block other tasks
 // When they are changed use addBlockingTask() & removeBlockingTask()
@@ -73,6 +75,13 @@ function handleResizer(resizer) {
 	resizer.addEventListener("click", (e) => {
 		e.stopPropagation();
 	});
+
+	if (resizer.classList.contains("enforceMin")) {
+		resizer.parentElement.style.minWidth = config.manager.minResizerSize || 0;
+		events.on("config-changed", (newConfig) => {
+			parent.style.minWidth = newConfig.manager.minResizerSize || 0;
+		});
+	}
 
 	function onMouseMove(e) {
 		const newWidth = startWidth + (e.pageX - startX) * (isLeft ? -1 : 1);
@@ -230,6 +239,7 @@ class ConfigSchemaElement {
 				let value = configSection?.[key] ?? schemaValue.default;
 				if (!value) value = "";
 				let input;
+				let extraInputs = [];
 				switch (schemaValue.type) {
 					case "string":
 						input = document.createElement("input");
@@ -244,12 +254,25 @@ class ConfigSchemaElement {
 						break;
 
 					case "number":
+						let disableSlider = !(schemaValue.min && schemaValue.max);
+						// Main number input
 						input = document.createElement("input");
 						input.type = "number";
 						input.value = value;
 						if ("min" in schemaValue) input.min = schemaValue.min;
 						if ("max" in schemaValue) input.max = schemaValue.max;
 						if ("step" in schemaValue) input.step = schemaValue.step;
+						input.style.width = disableSlider ? "100%" : "40%";
+						// Secondary slider input if both min and max are defined
+						if (disableSlider) break;
+						let slider = document.createElement("input");
+						slider.type = "range";
+						slider.value = value;
+						if ("min" in schemaValue) slider.min = schemaValue.min;
+						if ("max" in schemaValue) slider.max = schemaValue.max;
+						if ("step" in schemaValue) slider.step = schemaValue.step;
+						slider.style.width = "60%";
+						extraInputs.push(slider);
 						break;
 
 					case "boolean":
@@ -293,6 +316,7 @@ class ConfigSchemaElement {
 				const inputWrapper = document.createElement("div");
 				inputWrapper.classList.add("config-input-wrapper");
 				inputWrapper.appendChild(input);
+				extraInputs.forEach((i) => inputWrapper.appendChild(i));
 
 				const label = document.createElement("div");
 				label.classList.add("config-input-label");
@@ -345,6 +369,16 @@ class ConfigSchemaElement {
 
 				this.inputs.set(currentPath.join("."), input);
 				input.addEventListener("change", () => this._validateInput(currentPath, input, schemaValue));
+				for (const _input of extraInputs) {
+					// Change main input when extra input changes
+					_input.addEventListener("input", (event) => {
+						input.value = event.target.value;
+					});
+					// Change extra input when main input changes
+					input.addEventListener("input", (event) => {
+						_input.value = event.target.value;
+					});
+				}
 				this._validateInput(currentPath, input, schemaValue, false);
 			}
 		}
@@ -496,6 +530,16 @@ class ModsTab {
 
 		getElement("mods-tab-search-button").addEventListener("click", () => {
 			this.onSearchChanged();
+		});
+
+		getElement("mods-tab-tag-search").addEventListener("keydown", (e) => {
+			if (e.key === "Enter") {
+				this.onSearchTag();
+			}
+		});
+
+		getElement("mods-tab-tag-search-button").addEventListener("click", () => {
+			this.onSearchTag();
 		});
 
 		getElement("action-queue-selection").addEventListener("click", () => {
@@ -1121,7 +1165,7 @@ class ModsTab {
 		const containerElement = document.createElement("div");
 
 		// If installed then create a checkbox for enabling / disabling
-		const checkboxElement = createElement(`<input type="checkbox" ${modData.isEnabled ? "checked" : ""}>`);
+		const checkboxElement = createElement(`<input type="checkbox" title="Enable/Disable Mod">`);
 		checkboxElement.addEventListener("click", (e) => e.stopPropagation());
 		checkboxElement.addEventListener("change", (e) => this.changeModEnabled(modData.modID, e));
 		checkboxElement.checked = modData.isEnabled;
@@ -1146,7 +1190,7 @@ class ModsTab {
 	}
 
 	_createModRowVersions(modData) {
-		// If given a single version (or no versions make a span)
+		// If given a single version (or no versions) make a span
 		if (modData.versions == null || modData.versions.length === 0) {
 			return createElement(`<span>${modData.info.version}</span>`);
 		}
@@ -1155,9 +1199,19 @@ class ModsTab {
 		else {
 			const versionToOption = (v) => `<option value="${v}" ${v === modData.info.version ? "selected" : ""}>${v}</option>`;
 			const dropdown = createElement(`<select>${modData.versions.reduce((acc, v) => acc + versionToOption(v), "")}</select>`);
+			// Show update icon if semver shows installed version is lower than latest from db
+			const updateIcon = createElement(
+				`<img src="./assets/circle-arrow-up.png" style="width: 1.5rem; height: 1.5rem; visibility: ${api.semver.compare(modData.info.version, modData.versions[0]) < 0 ? "visible" : "hidden"}" title="Update available">`
+			);
 			dropdown.addEventListener("click", (e) => e.stopPropagation());
 			dropdown.addEventListener("change", (e) => this.changeModVersion(modData.modID, e));
-			return dropdown;
+			let main = createElement("<div>");
+			main.style.display = "flex";
+			main.style.width = "100%";
+			main.style.gap = "5px";
+			main.appendChild(dropdown);
+			main.appendChild(updateIcon);
+			return main;
 		}
 	}
 
@@ -1721,11 +1775,19 @@ class ModsTab {
 		this.selectTag(tag);
 	}
 
+	onSearchTag() {
+		let tag = getElement("mods-tab-tag-search").value;
+		if (tag.length === 0) return;
+		this.selectTag(tag);
+		getElement("mods-tab-tag-search").value = "";
+	}
+
 	selectTag(tag) {
 		if (!this.filterInfo.tags.includes(tag)) {
 			this.filterInfo.tags.push(tag);
 			this.updateTagSearchContainer();
 			this.currentModPage = 0; // Reset to page 0 when tags change
+			this.reloadMods();
 		}
 	}
 
@@ -1735,6 +1797,7 @@ class ModsTab {
 			this.filterInfo.tags.splice(idx, 1);
 			this.updateTagSearchContainer();
 			this.currentModPage = 0; // Reset to page 0 when tags change
+			this.reloadMods();
 		}
 	}
 
@@ -1792,6 +1855,7 @@ class ConfigTab {
 				setStatusBar("Failed to set config", 0, "error");
 			} else {
 				logDebug("Config set successfully.");
+				events.trigger("config-changed", newConfig);
 				setStatusBar("Config updated successfully", 0, "success");
 			}
 		});
@@ -2354,6 +2418,67 @@ function setConnectionState(state) {
 	connectionState = state;
 }
 
+let latestUpdate;
+async function checkFluxloaderUpdates() {
+	addBlockingTask("checkingUpdates");
+	try {
+		logDebug("Checking for updates to Fluxloader...");
+		setStatusBar("Checking for Fluxloader updates..", 0, "loading");
+		const releases = await (await fetch("https://git.rendezvous.dev/api/v4/projects/33/releases")).json();
+		logDebug(`${releases.length} releases found`);
+		setStatusBar(`${releases.length} versions found..`, 33, "loading");
+		if (releases.length === 0) {
+			throw new Error("Release count returned was 0");
+		}
+		let latestVersion = releases[0].tag_name;
+		if (!semver.valid(latestVersion)) {
+			throw new Error("Latest release version is not valid semver: " + latestVersion);
+		}
+		logDebug(`Latest version is v${latestVersion}`);
+		const installedVersion = await api.invoke("fl:get-fluxloader-version");
+		logDebug(`Installed version is v${installedVersion}`);
+		setStatusBar(`Latest version is v${latestVersion} (v${installedVersion} is installed)`, 66, "loading");
+		// Check if the latest version is newer than the installed one
+		if (semver.compare(latestVersion, installedVersion) <= 0) {
+			logDebug("No update required");
+			setStatusBar("Fluxloader up to date", 0, "success");
+			removeBlockingTask("checkingUpdates");
+			return;
+		}
+		logDebug(`A new version of Fluxloader is available: v${latestVersion} (v${installedVersion} installed)`);
+		setStatusBar("A new version of Fluxloader is available!", 100, "success");
+		latestUpdate = releases[0];
+		let button = getElement("update-button");
+		button.style.display = "flex";
+		button.onclick = updateFluxloader;
+	} catch (e) {
+		setStatusBar(`Failed to find updates`, 0, "failed");
+		logError("Error occured while checking for Fluxloader updates: " + e.message);
+	}
+	removeBlockingTask("checkingUpdates");
+}
+
+async function updateFluxloader() {
+	addBlockingTask("updating");
+	try {
+		if (!latestUpdate) checkFluxloaderUpdates();
+		// Check again
+		if (!latestUpdate) throw new Error("No updates available");
+		logDebug(`Downloading update v${latestUpdate.tag_name}...`);
+		setStatusBar(`Downloading Fluxloader v${latestUpdate.tag_name}..`, 40, "loading");
+		let result = await api.invoke("fl:download-update", latestUpdate.assets.links);
+		if (result === true) {
+			setStatusBar(`Launching update helper.. Fluxloader will close when done`, 75, "loading");
+			return;
+		}
+		throw new Error("Electron side failed to download update");
+	} catch (e) {
+		setStatusBar(`Failed to update Fluxloader`, 0, "failed");
+		logError("Error occured while updating Fluxloader: " + e.message);
+	}
+	removeBlockingTask("updating");
+}
+
 async function handleClickConnectionButton(e) {
 	if (isPlaying || tabs.mods.isLoadingMods || tabs.mods.isPerformingActions || isPlayButtonLoading) {
 		return pingBlockingTask("Cannot change connection state while playing, loading mods, or performing actions.");
@@ -2381,6 +2506,9 @@ async function handleClickConnectionButton(e) {
 
 			// If succesfully connect then fetch installed mods versions
 			await tabs.mods.loadInstalledModsVersions();
+
+			// Check for updates to the fluxloader
+			checkFluxloaderUpdates();
 		} else {
 			logError("Failed to ping the server, connection is offline");
 			setConnectionState("offline");
@@ -2477,6 +2605,15 @@ function pingBlockingTask(message) {
 (async () => {
 	await setupTabs();
 
+	globalThis.events = new EventBus();
+	const eventList = ["config-changed"];
+
+	for (const event of eventList) {
+		events.registerEvent(event);
+	}
+
+	config = await api.invoke("fl:get-fluxloader-config");
+
 	api.on(`fl:game-closed`, () => {
 		if (!isPlaying) return logWarn("Received game closed event but isPlaying is false, ignoring.");
 		setStatusBar("Game closed", 0, "success");
@@ -2488,6 +2625,9 @@ function pingBlockingTask(message) {
 
 	getElement("play-button").addEventListener("click", () => handleClickPlayButton());
 
+	if (config.manager.autoConnect) {
+		handleClickConnectionButton(); // Let's hope this causes no issues.. for now
+	}
 	getElement("connection-button").addEventListener("click", (e) => handleClickConnectionButton(e));
 
 	getElement("footer-dropdown-unmodded").addEventListener("click", (e) => {

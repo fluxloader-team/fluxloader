@@ -116,6 +116,25 @@ body {
 	padding: 0 1rem;
 }
 
+.status-container .update-button {
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	width: 5.5rem;
+	justify-content: center;
+	border-radius: var(--br-small);
+	background: #415a3e;
+	color: #57c44e;
+	padding: 0.2rem 0;
+	font-size: 0.8rem;
+}
+
+.status-container .update-button:hover {
+	background: #4f6d4d;
+	color: var(--color-text-primary);
+}
+
 .status-container .blocking-indicator {
 	display: flex;
 	align-items: center;
@@ -436,7 +455,7 @@ input[type="checkbox"]:checked::before {
 #mods-tab-content .main-leftbar .tag-search-container {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 1.2rem;
+	gap: 0.1rem;
 	padding: 0.4rem 1.5rem;
 }
 
@@ -627,6 +646,13 @@ input[type="checkbox"]:checked::before {
 
 #mods-tab-content .mods-table td.mod-row-versions {
 	height: 2.7rem; /* We dont want this to change when you do / dont have multiple versions */
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+#mods-tab-content .mods-table .fa-arrow-circle-up {
+	color: rgb(0, 172, 0);
 }
 
 #mods-tab-content .mods-table td.mod-row-versions select {
