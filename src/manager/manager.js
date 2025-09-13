@@ -374,6 +374,10 @@ class ConfigSchemaElement {
 					_input.addEventListener("input", (event) => {
 						input.value = event.target.value;
 					});
+					// Revalidate main input when this finalizes
+					_input.addEventListener("change", () => {
+						this._validateInput(currentPath, input, schemaValue);
+					});
 					// Change extra input when main input changes
 					input.addEventListener("input", (event) => {
 						_input.value = event.target.value;
@@ -1195,24 +1199,36 @@ class ModsTab {
 			return createElement(`<span>${modData.info.version}</span>`);
 		}
 
-		// Otherwise make a dropdown with all versions
-		else {
-			const versionToOption = (v) => `<option value="${v}" ${v === modData.info.version ? "selected" : ""}>${v}</option>`;
-			const dropdown = createElement(`<select>${modData.versions.reduce((acc, v) => acc + versionToOption(v), "")}</select>`);
-			// Show update icon if semver shows installed version is lower than latest from db
-			const updateIcon = createElement(
-				`<img src="./assets/circle-arrow-up.png" style="width: 1.5rem; height: 1.5rem; visibility: ${api.semver.compare(modData.info.version, modData.versions[0]) < 0 ? "visible" : "hidden"}" title="Update available">`
-			);
-			dropdown.addEventListener("click", (e) => e.stopPropagation());
-			dropdown.addEventListener("change", (e) => this.changeModVersion(modData.modID, e));
-			let main = createElement("<div>");
-			main.style.display = "flex";
-			main.style.width = "100%";
-			main.style.gap = "5px";
-			main.appendChild(dropdown);
-			main.appendChild(updateIcon);
-			return main;
+		// Compare local version to all versions, and if it's the latest version
+		// return just a single version text - Helps when working on mods locally
+		let isGreatest = true;
+		for (const version of modData.versions) {
+			// If local version is lower than or equal to server version
+			// then local version is not the greatest, so continue with the dropdown
+			if (semver.compare(modData.info.version, version) < 1) {
+				isGreatest = false;
+				break;
+			}
 		}
+		// If local version is greater than every version on server, give just the local version
+		if (isGreatest) return createElement(`<span>${modData.info.version}</span>`);
+
+		// Otherwise make a dropdown with all versions
+		const versionToOption = (v) => `<option value="${v}" ${v === modData.info.version ? "selected" : ""}>${v}</option>`;
+		const dropdown = createElement(`<select>${modData.versions.reduce((acc, v) => acc + versionToOption(v), "")}</select>`);
+		// Show update icon if semver shows installed version is lower than latest from db
+		const updateIcon = createElement(
+			`<img src="./assets/circle-arrow-up.png" style="width: 1.5rem; height: 1.5rem; visibility: ${api.semver.compare(modData.info.version, modData.versions[0]) < 0 ? "visible" : "hidden"}" title="Update available">`
+		);
+		dropdown.addEventListener("click", (e) => e.stopPropagation());
+		dropdown.addEventListener("change", (e) => this.changeModVersion(modData.modID, e));
+		let main = createElement("<div>");
+		main.style.display = "flex";
+		main.style.width = "100%";
+		main.style.gap = "5px";
+		main.appendChild(dropdown);
+		main.appendChild(updateIcon);
+		return main;
 	}
 
 	createModRowContextMenu(modID) {
