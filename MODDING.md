@@ -179,8 +179,8 @@ All are asynchronous but not all are awaitable. Be careful with usage.
 Only allows one argument when sending. All other IPC messagers allow multiple arguments.
 
 ```js
-fluxloaderAPI.sendGameEvent("eventName", data); // electron
-fluxloaderAPI.handleElectronEvent("event", handler); // game
+fluxloaderAPI.sendGameEvent("channel", data); // electron
+fluxloaderAPI.handleElectronEvent("channel", handler); // game
 ```
 
 ### Game -> Electron
@@ -189,7 +189,7 @@ The handler can return a value, this is the only handler that can do so. A promi
 
 ```js
 fluxloaderAPI.invokeElectronIPC("channel", ...args); // game
-fluxloaderAPI.handleGameIPC("eventName", handler); // electron
+fluxloaderAPI.handleGameIPC("channel", handler); // electron
 ```
 
 ### Game <-> Worker
