@@ -197,10 +197,10 @@ fluxloaderAPI.handleGameIPC("channel", handler); // electron
 The worker can only recieve events after `fl:worker-initialized`, otherwise it is unable to recieve IPC. **It can still send and start listening for IPC messages before this event**.
 
 ```js
-fluxloaderAPI.sendWorkerMessage("channel", ...args); // worker
+fluxloaderAPI.sendGameMessage("channel", ...args); // worker
 fluxloaderAPI.listenWorkerMessage("channel", handler); // game
 
-fluxloaderAPI.sendGameMessage("channel", ...args); // game
+fluxloaderAPI.sendWorkerMessage("channel", ...args); // game
 fluxloaderAPI.listenGameMessage("channel", handler); // worker
 ```
 
