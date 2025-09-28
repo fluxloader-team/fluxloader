@@ -111,16 +111,16 @@ export class SchemaValidation {
 			let nextPath = path.concat(configKey);
 			if (schema[configKey] === undefined) {
 				if (!config.unknownKeyMethod || config.unknownKeyMethod === "ignore") {
-					log("warn", "", `Target warning: Key '${nextPath.join("/")}' is not in the schema, ignoring...`);
+					log("warn", "", `Target warning: Key '${nextPath.join(".")}' is not in the schema, ignoring...`);
 				} else if (config.unknownKeyMethod === "delete") {
-					log("warn", "", `Target warning: Key '${nextPath.join("/")}' is not in the schema, deleting...`);
+					log("warn", "", `Target warning: Key '${nextPath.join(".")}' is not in the schema, deleting...`);
 					delete target[configKey];
 				} else if (config.unknownKeyMethod === "error") {
 					return {
 						success: false,
 						error: {
 							id: "notInSchema",
-							message: `Key '${nextPath.join("/")}' is not in the schema`,
+							message: `Key '${nextPath.join(".")}' is not in the schema`,
 							path: nextPath,
 							key: configKey,
 						},
@@ -139,7 +139,7 @@ export class SchemaValidation {
 					success: false,
 					error: {
 						id: "notObject",
-						message: `Key '${nextPath.join("/")}' is not an object`,
+						message: `Key '${nextPath.join(".")}' is not an object`,
 						path: nextPath,
 						key: schemaKey,
 					},
@@ -157,13 +157,14 @@ export class SchemaValidation {
 							success: false,
 							error: {
 								id: "keyRequired",
-								message: `Key '${nextPath.join("/")}' is required by the schema`,
+								message: `Key '${nextPath.join(".")}' is required by the schema`,
 								path: nextPath,
 								key: schemaKey,
 							},
 							source: "target",
 						};
 					}
+					log("debug", "", `Key '${nextPath.join(".")}' has no value. Using default: ${JSON.stringify(schemaValue.default)}`);
 					target[schemaKey] = schemaValue.default;
 				}
 				let res = this.validateValue(target[schemaKey], schemaValue);
@@ -184,7 +185,7 @@ export class SchemaValidation {
 							success: false,
 							error: {
 								id: "keyInvalid",
-								message: `Key '${nextPath.join("/")}' is invalid, ${res.error}`,
+								message: `Key '${nextPath.join(".")}' is invalid, ${res.error}`,
 								path: nextPath,
 								key: schemaKey,
 								leaf: schemaValue,
