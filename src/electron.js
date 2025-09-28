@@ -336,8 +336,8 @@ class ElectronModConfigAPI {
 		if (!ignoreSchema) {
 			// Silent fail if mod isn't installed, which shouldn't be the case *ever*
 			if (!modsManager.installedMods.hasOwnProperty(modID)) return;
-			const res = SchemaValidation.validate(_config, modsManager.installedMods[modID].info.configSchema, { unknownKeyMethod: "ignore" });
-			if (!res.success) return errorResponse(`Mod info schema validation failed when being set: (${res.source}) ${res.error}`);
+			const res = SchemaValidation.validate({ target: _config, schema: modsManager.installedMods[modID].info.configSchema, config: { unknownKeyMethod: "ignore" } });
+			if (!res.success) return errorResponse(`Mod info schema validation failed when being set: (${res.source}) ${res.error.message}`);
 		}
 
 		// If this fails treat it as catastrophic for now
@@ -1783,8 +1783,8 @@ class ModsManager {
 		}
 
 		// Validate it against the schema
-		const res = SchemaValidation.validate(modInfo, this.modInfoSchema, { unknownKeyMethod: "ignore" });
-		if (!res.success) return errorResponse(`Mod info schema validation failed: (${res.source}) ${res.error}`);
+		const res = SchemaValidation.validate({ target: modInfo, schema: this.modInfoSchema, config: { unknownKeyMethod: "ignore" } });
+		if (!res.success) return errorResponse(`Mod info schema validation failed: (${res.source}) ${res.error.message}`);
 
 		// Store the base schema
 		try {
@@ -1862,10 +1862,24 @@ class ModsManager {
 		// if it defines a config schema then we need to validate it first
 		if (mod.info.configSchema && Object.keys(mod.info.configSchema).length > 0) {
 			logDebug(`Validating schema for mod: ${mod.info.modID}`);
-			let config = fluxloaderAPI.modConfig.get(mod.info.modID);
-			const res = SchemaValidation.validate(config, mod.info.configSchema);
-			if (!res.success) return errorResponse(`Mod '${mod.info.modID}' config schema validation failed: (${res.source}) ${res.error}`);
-			fluxloaderAPI.modConfig.set(mod.info.modID, config);
+			let modConfig = fluxloaderAPI.modConfig.get(mod.info.modID);
+			let temp = this; // Not sure what reference to use here, but `this` in the callback will be the SchemaValidation itself
+			const res = SchemaValidation.validate({
+				target: modConfig,
+				schema: mod.info.configSchema,
+				validateCallback: function (data) {
+					if (temp.modScriptsImport && temp.modScriptsImport[mod.info.modID] && temp.modScriptsImport[mod.info.modID].resolveInvalidSchemaValue) {
+						return temp.modScriptsImport[mod.info.modID].resolveInvalidSchemaValue(data);
+					}
+					if (config.manager.defaultSchemaFallback) {
+						return data.leaf.default;
+					}
+				},
+			});
+			if (!res.success) {
+				return errorResponse(`Mod '${mod.info.modID}' config schema validation failed: (${res.source}) ${res.error.message}`);
+			}
+			fluxloaderAPI.modConfig.set(mod.info.modID, modConfig);
 		}
 
 		if (mod.info.electronEntrypoint) {
@@ -2177,14 +2191,14 @@ function loadFluxloaderConfig() {
 	}
 
 	// Validating against the schema will also set default values for any missing fields
-	let res = SchemaValidation.validate(config, configSchema, { unknownKeyMethod: "delete" });
+	let res = SchemaValidation.validate({ target: config, schema: configSchema, config: { unknownKeyMethod: "delete" } });
 	if (!res.success) {
 		// Applying the schema to an empty {} will set the default values
-		logDebug(`Config file ${configPath} is invalid: (${res.source}) ${res.error}`);
+		logDebug(`Config file ${configPath} is invalid: (${res.source}) ${res.error.message}`);
 		config = {};
-		res = SchemaValidation.validate(config, configSchema);
+		res = SchemaValidation.validate({ target: config, schema: configSchema });
 		if (!res.success) {
-			throw new Error(`Failed to validate empty config file: (${res.source}) ${res.error}`);
+			throw new Error(`Failed to validate empty config file: (${res.source}) ${res.error.message}`);
 		}
 	}
 
@@ -2780,8 +2794,8 @@ function setupElectronIPC() {
 		if (!configLoaded) {
 			return errorResponse("Config not loaded yet");
 		}
-		const res = SchemaValidation.validate(args, configSchema);
-		if (!res.success) return errorResponse(`Invalid config data provided: (${res.source}) ${res.error}`);
+		const res = SchemaValidation.validate({ target: args, schema: configSchema });
+		if (!res.success) return errorResponse(`Invalid config data provided: (${res.source}) ${res.error.message}`);
 		config = args;
 		return updateFluxloaderConfig();
 	});

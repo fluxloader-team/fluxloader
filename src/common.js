@@ -97,34 +97,54 @@ export class SchemaValidation {
 
 	static FLOAT_EPSILON = 1e-8;
 
-	static validate(target, schema, config = {}) {
+	static validate({ target, schema, config = {}, path = [], validateCallback }) {
 		// Recursively validates the target object against the schema object
 		if (typeof schema !== "object") {
-			return { success: false, error: "Schema must be an object", source: "schema" };
+			return { success: false, error: { id: "schemaNotObject", message: "Schema must be an object" }, source: "schema" };
 		}
 		if (typeof target !== "object") {
-			return { success: false, error: "Target must be an object", source: "target" };
+			return { success: false, error: { id: "targetNotObject", message: "Target must be an object" }, source: "target" };
 		}
 
 		// Ensure every key in target is also in the schema
 		for (const configKey of Object.keys(target)) {
+			let nextPath = path.concat(configKey);
 			if (schema[configKey] === undefined) {
 				if (!config.unknownKeyMethod || config.unknownKeyMethod === "ignore") {
-					log("warn", "", `Target warning: Key '${configKey}' is not in the schema, ignoring...`);
+					log("warn", "", `Target warning: Key '${nextPath.join("/")}' is not in the schema, ignoring...`);
 				} else if (config.unknownKeyMethod === "delete") {
-					log("warn", "", `Target warning: Key '${configKey}' is not in the schema, deleting...`);
+					log("warn", "", `Target warning: Key '${nextPath.join("/")}' is not in the schema, deleting...`);
 					delete target[configKey];
 				} else if (config.unknownKeyMethod === "error") {
-					return { success: false, error: `Key '${configKey}' is not in the schema`, source: "target" };
+					return {
+						success: false,
+						error: {
+							id: "notInSchema",
+							message: `Key '${nextPath.join("/")}' is not in the schema`,
+							path: nextPath,
+							key: configKey,
+						},
+						source: "target",
+					};
 				}
 			}
 		}
 
 		for (const [schemaKey, schemaValue] of Object.entries(schema)) {
+			let nextPath = path.concat(schemaKey);
 			// The schema value must be an object
 			if (typeof schemaValue !== "object") {
 				// throw new Error(`Schema invalid: Key '${schemaKey}' is not an object`);
-				return { success: false, error: `Key '${schemaKey}' is not an object`, source: "schema" };
+				return {
+					success: false,
+					error: {
+						id: "notObject",
+						message: `Key '${nextPath.join("/")}' is not an object`,
+						path: nextPath,
+						key: schemaKey,
+					},
+					source: "schema",
+				};
 			}
 
 			// Validate the target value against the schema leaf node
@@ -133,18 +153,53 @@ export class SchemaValidation {
 			if (res.isLeaf) {
 				if (!Object.hasOwn(target, schemaKey)) {
 					if (!Object.hasOwn(schemaValue, "default")) {
-						return { success: false, error: `Key '${schemaKey}' is required by the schema`, source: "target" };
+						return {
+							success: false,
+							error: {
+								id: "keyRequired",
+								message: `Key '${nextPath.join("/")}' is required by the schema`,
+								path: nextPath,
+								key: schemaKey,
+							},
+							source: "target",
+						};
 					}
 					target[schemaKey] = schemaValue.default;
 				}
-				const res = this.validateValue(target[schemaKey], schemaValue);
-				if (!res.success) return { success: false, error: `Key '${schemaKey}' is invalid, ${res.error}`, source: res.source };
+				let res = this.validateValue(target[schemaKey], schemaValue);
+				if (!res.success) {
+					if (validateCallback) {
+						target[schemaKey] = validateCallback({
+							path: nextPath,
+							key: schemaKey,
+							leaf: schemaValue,
+							value: target[schemaKey],
+						});
+						// re-validate
+						res = this.validateValue(target[schemaKey], schemaValue);
+					}
+					// Check if res still failed (in case validateCallback worked)
+					if (!res.success) {
+						return {
+							success: false,
+							error: {
+								id: "keyInvalid",
+								message: `Key '${nextPath.join("/")}' is invalid, ${res.error}`,
+								path: nextPath,
+								key: schemaKey,
+								leaf: schemaValue,
+								value: target[schemaKey],
+							},
+							source: res.source,
+						};
+					}
+				}
 			}
 
 			// Otherwise recurse into the target and schema object
 			else {
 				if (!Object.hasOwn(target, schemaKey)) target[schemaKey] = {};
-				const res = this.validate(target[schemaKey], schemaValue);
+				const res = this.validate({ target: target[schemaKey], schema: schemaValue, path: nextPath, validateCallback });
 				if (!res.success) return res;
 			}
 		}

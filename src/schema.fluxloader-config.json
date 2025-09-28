@@ -111,6 +111,11 @@
 			"description": "Automatically connect to mod database on startup",
 			"default": true
 		},
+		"defaultSchemaFallback": {
+			"type": "boolean",
+			"description": "When a config value is invalid, try to use the default value from the schema instead of erroring",
+			"default": true
+		},
 		"minResizerSize": {
 			"type": "number",
 			"description": "The minimum size, in pixels, that sidebars can shrink to (e.g. mod info panel)",

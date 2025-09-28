@@ -2268,7 +2268,7 @@ class CreateModTab {
 
 	async setup() {
 		this.modCreateRequestData = {};
-		SchemaValidation.validate(this.modCreateRequestData, CreateModTab.modCreateRequestSchema);
+		SchemaValidation.validate({ target: this.modCreateRequestData, schema: CreateModTab.modCreateRequestSchema });
 
 		const submitButton = getElement("create-mod-submit");
 		submitButton.addEventListener("click", async () => this.submitModInfo());
@@ -2297,7 +2297,7 @@ class CreateModTab {
 	}
 
 	async submitModInfo() {
-		if (!SchemaValidation.validate(this.modCreateRequestData, CreateModTab.modCreateRequestSchema)) {
+		if (!SchemaValidation.validate({ target: this.modCreateRequestData, schema: CreateModTab.modCreateRequestSchema }).success) {
 			setStatusBar("Mod creation data is invalid, please check the fields.", 0, "failed");
 			logError("Mod creation data is invalid:", this.modCreateRequestData);
 			return;
