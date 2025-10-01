@@ -190,7 +190,6 @@ class ElectronFluxloaderAPI {
 	environment = "electron";
 	events = undefined;
 	modConfig = undefined;
-	fileManager = gameFilesManager;
 
 	constructor() {
 		this.events = new EventBus();
@@ -198,54 +197,66 @@ class ElectronFluxloaderAPI {
 	}
 
 	addPatch(file, patch) {
+		if (!gameFilesManager) throw new Error("Cannot add patch before file manager is initialized");
 		const tag = randomUUID();
 		gameFilesManager.setPatch(file, tag, patch);
 		return tag;
 	}
 
 	setPatch(file, tag, patch) {
+		if (!gameFilesManager) throw new Error("Cannot set patch before file manager is initialized");
 		gameFilesManager.setPatch(file, tag, patch);
 	}
 
 	addMappedPatch(fileMap, mapFunction) {
+		if (!gameFilesManager) throw new Error("Cannot add mapped patch before file manager is initialized");
 		const tag = randomUUID();
 		gameFilesManager.setMappedPatch(fileMap, tag, mapFunction);
 		return tag;
 	}
 
 	setMappedPatch(fileMap, tag, mapFunction) {
+		if (!gameFilesManager) throw new Error("Cannot set mapped patch before file manager is initialized");
 		gameFilesManager.setMappedPatch(fileMap, tag, mapFunction);
 	}
 
 	patchExists(file, tag) {
+		if (!gameFilesManager) throw new Error("Cannot check patch before file manager is initialized");
 		gameFilesManager.patchExists(file, tag);
 	}
 
 	removePatch(file, tag) {
+		if (!gameFilesManager) throw new Error("Cannot remove patch before file manager is initialized");
 		gameFilesManager.removePatch(file, tag);
 	}
 
 	repatchAllFiles() {
+		if (!gameFilesManager) throw new Error("Cannot repatch all files before file manager is initialized");
 		gameFilesManager.repatchAllFiles();
 	}
 
 	repatchFile(file) {
+		if (!gameFilesManager) throw new Error("Cannot repatch file before file manager is initialized");
 		gameFilesManager._repatchFile(file);
 	}
 
 	getGameBasePath() {
+		if (!gameFilesManager) throw new Error("Cannot get game base path before file manager is initialized");
 		return gameFilesManager.gameBasePath;
 	}
 
 	getGameAsarPath() {
+		if (!gameFilesManager) throw new Error("Cannot get game asar path before file manager is initialized");
 		return gameFilesManager.gameAsarPath;
 	}
 
 	getTempBasePath() {
+		if (!gameFilesManager) throw new Error("Cannot get temp base path before file manager is initialized");
 		return gameFilesManager.tempBasePath;
 	}
 
 	getTempExtractedPath() {
+		if (!gameFilesManager) throw new Error("Cannot get temp extracted path before file manager is initialized");
 		return gameFilesManager.tempExtractedPath;
 	}
 
@@ -2163,6 +2174,7 @@ class ModsManager {
 	}
 }
 
+// Deprecated?
 function setupFluxloaderEvents() {
 	logDebug("Setting up fluxloader events");
 	fluxloaderEvents = new EventBus();
@@ -2877,6 +2889,16 @@ async function closeManager() {
 	isManagerStarted = false;
 }
 
+function setupFirstStart() {
+	if (gameFilesManager) return true; // Already setup
+	let res = findValidGamePath();
+	if (!res.success) return false;
+	const { fullGamePath, asarPath } = res.data;
+
+	gameFilesManager = new GameFilesManager(fullGamePath, asarPath);
+	return true;
+}
+
 async function startUnmoddedGame() {
 	if (isGameStarted) return errorResponse("Cannot start game, already running");
 
@@ -2885,6 +2907,8 @@ async function startUnmoddedGame() {
 
 	// Startup the events, files, and mods
 	try {
+		if (!setupFirstStart()) return errorResponse("Error starting game window: Cannot setup game files manager. Ensure gamePath is configured correctly.", null, false);
+
 		fluxloaderAPI._initializeEvents();
 		responseAsError(gameFilesManager.resetToBaseFiles());
 		responseAsError(await gameFilesManager.patchAndRunGameElectron());
@@ -2913,6 +2937,8 @@ async function startGame() {
 
 	// Startup the events, files, and mods
 	try {
+		if (!setupFirstStart()) return errorResponse("Error starting game window: Cannot setup game files manager. Ensure gamePath is configured correctly.", null, false);
+
 		fluxloaderAPI._initializeEvents();
 		responseAsError(gameFilesManager.resetToBaseFiles());
 		responseAsError(await gameFilesManager.patchAndRunGameElectron());
@@ -2960,7 +2986,7 @@ async function cleanupApp() {
 	try {
 		if (managerWindow) await closeManager();
 		if (gameWindow) await closeGame();
-		gameFilesManager.deleteFiles();
+		if (gameFilesManager) gameFilesManager.deleteFiles();
 	} catch (e) {
 		logError(`Error during cleanup: ${e.stack}`);
 	}
@@ -2992,14 +3018,11 @@ async function startApp() {
 	loadFluxloaderConfig();
 	setupFluxloaderEvents();
 
-	let res = responseAsError(findValidGamePath());
-	const { fullGamePath, asarPath } = res.data;
-
-	gameFilesManager = new GameFilesManager(fullGamePath, asarPath);
 	fluxloaderAPI = new ElectronFluxloaderAPI();
+
 	modsManager = new ModsManager();
 
-	logInfo(`Successfully initialized fluxloader, game app.asar path: ${asarPath}`);
+	logInfo(`Successfully initialized fluxloader`);
 
 	responseAsError(await modsManager.reloadInstalledMods());
 	setupElectronIPC();
