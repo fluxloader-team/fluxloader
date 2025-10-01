@@ -34,7 +34,8 @@ dotenv.config({
 
 // =================== VARIABLES ===================
 
-globalThis.fluxloaderVersion = "2.1.0";
+// -- CHANGE VERSION SEARCH : Search this to find where to change version
+globalThis.fluxloaderVersion = "2.2.0";
 globalThis.fluxloaderAPI = undefined;
 globalThis.gameElectronFuncs = undefined;
 globalThis.gameWindow = undefined;
