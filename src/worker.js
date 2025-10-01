@@ -1,7 +1,7 @@
 // ------------- VARIABLES -------------
 
 // -- CHANGE VERSION SEARCH : Search this to find where to change version
-globalThis.fluxloaderVersion = "2.2.0";
+globalThis.fluxloaderVersion = "2.2.1";
 globalThis.fluxloaderAPI = undefined;
 
 // ------------- UTILTY -------------

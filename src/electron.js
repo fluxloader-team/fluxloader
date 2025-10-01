@@ -35,7 +35,7 @@ dotenv.config({
 // =================== VARIABLES ===================
 
 // -- CHANGE VERSION SEARCH : Search this to find where to change version
-globalThis.fluxloaderVersion = "2.2.0";
+globalThis.fluxloaderVersion = "2.2.1";
 globalThis.fluxloaderAPI = undefined;
 globalThis.gameElectronFuncs = undefined;
 globalThis.gameWindow = undefined;
@@ -2736,7 +2736,7 @@ async function downloadUpdate(assets) {
 		} else {
 			fs.copyFileSync(path.join(resources, "updater.bat"), path.join(installLoc, "updater.bat"));
 			// Spawns the update in a new window, and calls it "Fluxloader Update"
-			spawn("cmd.exe", ["/c", "start", '"Fluxloader Updater"', path.join(installLoc, "updater.bat"), process.pid, targetAsset.url], {
+			spawn("cmd.exe", ["/c", "start", '"Fluxloader Updater"', '"' + path.join(installLoc, "updater.bat") + '"', process.pid, targetAsset.url], {
 				cwd: installLoc,
 				detached: true,
 				stdio: "ignore",
