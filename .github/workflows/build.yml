@@ -1,0 +1,63 @@
+name: Build & Release
+
+on:
+    push:
+        tags:
+            - "*"
+
+env:
+    OUTPUT_DIR: dist
+    LEGACY_ELECTRON_VERSION: 22.3.27
+
+jobs:
+    build-windows-x64:
+        runs-on: ubuntu-latest
+        container: node:20
+        steps:
+            - uses: actions/checkout@v4
+            - name: Setup build deps
+              run: |
+                  dpkg --add-architecture i386
+                  apt-get update && apt-get install -y --no-install-recommends \
+                    wine wine32:i386 build-essential gcc g++ make git python3 dpkg fakeroot \
+                    libarchive-tools icnsutils graphicsmagick xz-utils \
+                    clang libc++-dev libc++abi-dev libgconf-2-4 rpm libx11-dev libxkbfile-dev \
+                    libsecret-1-dev libgbm-dev \
+                    && rm -rf /var/lib/apt/lists/*
+                  npm install -g npm@latest
+                  npm install --legacy-peer-deps --no-audit
+
+            - name: Build
+              run: |
+                  EFFECTIVE_BUILD_VERSION=${GITHUB_REF_NAME}
+                  mkdir -p $OUTPUT_DIR
+                  ./node_modules/.bin/electron-builder --win portable --x64 --config.buildVersion="$EFFECTIVE_BUILD_VERSION"
+
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: windows-x64
+                  path: dist/*.exe
+
+    release:
+        needs: build-windows-x64
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/download-artifact@v4
+              with:
+                  path: dist
+
+            - uses: actions/create-release@v1
+              id: create_release
+              with:
+                  tag_name: ${{ github.ref_name }}
+                  release_name: Release ${{ github.ref_name }}
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Upload assets
+              uses: actions/upload-release-asset@v1
+              with:
+                  upload_url: ${{ steps.create_release.outputs.upload_url }}
+                  asset_path: dist/Fluxloader-${{ github.ref_name }}-win-x64.exe
+                  asset_name: Fluxloader-${{ github.ref_name }}-win-x64.exe
+                  asset_content_type: application/octet-stream
