@@ -2,11 +2,14 @@ name: Build & Release
 
 on:
     push:
-        branches:
-            - "main"
+        tags:
+            - "*"
 
 env:
     OUTPUT_DIR: dist
+
+permissions:
+  contents: write
 
 jobs:
     build-windows-x64:
@@ -31,6 +34,7 @@ jobs:
             - name: Download artifact
               uses: actions/download-artifact@v4
               with:
+                  name: windows-x64
                   path: dist
             
             - name: Create Release
