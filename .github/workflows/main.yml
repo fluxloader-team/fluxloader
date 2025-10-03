@@ -46,7 +46,7 @@ jobs:
               with:
                   upload_url: ${{ steps.create_release.outputs.upload_url }}
                   asset_path: dist/Fluxloader-win-x64.exe
-                  asset_name: Fluxloader Windows x64
+                  asset_name: fluxloader-windows-x64.exe
                   asset_content_type: application/octet-stream
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
