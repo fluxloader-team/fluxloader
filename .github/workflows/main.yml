@@ -10,35 +10,26 @@ env:
 
 jobs:
     build-windows-x64:
-        runs-on: ubuntu-latest
-        container: node:20
+        runs-on: windows-latest
         steps:
-            - name: Checkout code
-              uses: actions/checkout@v4
+            - uses: actions/checkout@v4
 
-            - name: Setup build deps
-              run: |
-                  dpkg --add-architecture i386
-                  apt-get update && apt-get install -y --no-install-recommends \
-                    wine wine32:i386 build-essential gcc g++ make git python3 dpkg fakeroot \
-                    libarchive-tools icnsutils graphicsmagick xz-utils \
-                    clang libc++-dev libc++abi-dev libgconf-2-4 rpm libx11-dev libxkbfile-dev \
-                    libsecret-1-dev libgbm-dev \
-                    && rm -rf /var/lib/apt/lists/*
-                  npm install -g npm@latest
-                  npm install --legacy-peer-deps --no-audit
+            - uses: actions/setup-node@v4
+              with:
+                node-version: 20
 
-            - name: Build
-              run: |
-                  EFFECTIVE_BUILD_VERSION=${GITHUB_REF_NAME}
-                  mkdir -p $OUTPUT_DIR
-                  ./node_modules/.bin/electron-builder --win portable --x64 --config.buildVersion="$EFFECTIVE_BUILD_VERSION"
+            - run: npm install --legacy-peer-deps --no-audit
+
+            - run: |
+                EFFECTIVE_BUILD_VERSION=${GITHUB_REF_NAME}
+                mkdir -p dist
+                npx electron-builder --win portable --x64 --config.buildVersion="%EFFECTIVE_BUILD_VERSION%"
 
             - name: Upload artifact
               uses: actions/upload-artifact@v4
               with:
                   name: windows-x64
-                  path: dist/*.exe
+                  path: dist/*.exe     
 
     release:
         needs:
