@@ -33,7 +33,7 @@
 	"build": {
 		"appId": "app.fluxloader.Fluxloader",
 		"productName": "Fluxloader",
-		"artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+		"artifactName": "${productName}-${os}-${arch}.${ext}",
 		"asar": true,
 		"publish": null,
 		"extraResources": [
