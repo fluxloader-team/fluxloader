@@ -1,5 +1,8 @@
 name: Build & Release
 
+permissions:
+  contents: write
+
 on:
     push:
         tags:
@@ -7,9 +10,6 @@ on:
 
 env:
     OUTPUT_DIR: dist
-
-permissions:
-  contents: write
 
 jobs:
     build-windows-x64:
@@ -53,3 +53,5 @@ jobs:
                   asset_path: dist/Fluxloader-win-x64.exe
                   asset_name: Fluxloader Windows x64
                   asset_content_type: application/octet-stream
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
