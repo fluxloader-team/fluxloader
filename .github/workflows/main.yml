@@ -13,21 +13,12 @@ jobs:
         runs-on: windows-latest
         steps:
             - uses: actions/checkout@v4
-
             - uses: actions/setup-node@v4
               with:
                 node-version: 20
-
-            - run: npm install --legacy-peer-deps --no-audit
-
-            - run: |
-                EFFECTIVE_BUILD_VERSION=${GITHUB_REF_NAME}
-                mkdir -p dist
-                npx electron-builder --win portable --x64 --config.buildVersion="%EFFECTIVE_BUILD_VERSION%"
-              shell: bash
-
-            - name: Upload artifact
-              uses: actions/upload-artifact@v4
+            - run: npm ci --legacy-peer-deps --no-audit
+            - run: npx electron-builder --win portable --x64
+            - uses: actions/upload-artifact@v4
               with:
                   name: windows-x64
                   path: dist/*.exe     
