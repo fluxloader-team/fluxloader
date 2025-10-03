@@ -36,7 +36,8 @@ jobs:
                   name: windows-x64
                   path: dist/*.exe
     release:
-        needs: build-windows-x64
+        needs:
+            - build-windows-x64
         runs-on: ubuntu-latest
         steps:
             - uses: actions/download-artifact@v4
