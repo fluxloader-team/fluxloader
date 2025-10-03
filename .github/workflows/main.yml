@@ -13,7 +13,9 @@ jobs:
         runs-on: ubuntu-latest
         container: node:20
         steps:
-            - uses: actions/checkout@v4
+            - name: Checkout code
+              uses: actions/checkout@v4
+
             - name: Setup build deps
               run: |
                   dpkg --add-architecture i386
@@ -25,30 +27,38 @@ jobs:
                     && rm -rf /var/lib/apt/lists/*
                   npm install -g npm@latest
                   npm install --legacy-peer-deps --no-audit
+
             - name: Build
               run: |
                   EFFECTIVE_BUILD_VERSION=${GITHUB_REF_NAME}
                   mkdir -p $OUTPUT_DIR
                   ./node_modules/.bin/electron-builder --win portable --x64 --config.buildVersion="$EFFECTIVE_BUILD_VERSION"
-            - uses: actions/upload-artifact@v4
+
+            - name: Upload artifact
+              uses: actions/upload-artifact@v4
               with:
                   name: windows-x64
                   path: dist/*.exe
+
     release:
         needs:
             - build-windows-x64
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/download-artifact@v4
+            - name: Download artifact
+              uses: actions/download-artifact@v4
               with:
                   path: dist
-            - uses: actions/create-release@v1
+            
+            - name: Create Release
+              uses: actions/create-release@v1
               id: create_release
               with:
                   tag_name: ${{ github.ref_name }}
                   release_name: Release ${{ github.ref_name }}
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
             - name: Upload assets
               uses: actions/upload-release-asset@v1
               with:
