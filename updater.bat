@@ -1,4 +1,4 @@
-@REM Updater for windows - This is dumb, but yes it just launches a ps1 file bc I'm tired of this
+@REM
 @echo off
 
 echo Downloading update from %2
