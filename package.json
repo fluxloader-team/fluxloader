@@ -39,7 +39,8 @@
 		"extraResources": [
 			".env",
 			"updater.sh",
-			"updater.bat"
+			"updater.bat",
+			"build"
 		],
 		"directories": {
 			"output": "dist",
@@ -77,7 +78,7 @@
 			]
 		},
 		"nsis": {
-			"artifactName": "Fluxloader-${version}-setup-${arch}-legacy.${ext}"
+			"artifactName": "${productName}-${os}-${arch}-legacy.${ext}"
 		},
 		"linux": {
 			"icon": "build/icons/256x256.png",
@@ -97,9 +98,6 @@
 					]
 				}
 			]
-		},
-		"extraMetadata": {
-			"buildResources": "build"
 		}
 	}
 }

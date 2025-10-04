@@ -1,7 +1,7 @@
 name: Build & Release
 
 permissions:
-  contents: write
+    contents: write
 
 on:
     push:
@@ -18,22 +18,114 @@ jobs:
             - uses: actions/checkout@v4
             - uses: actions/setup-node@v4
               with:
-                node-version: 20
+                  node-version: 20
             - run: npm install --legacy-peer-deps --no-audit
             - run: npx electron-builder --win portable --x64
             - uses: actions/upload-artifact@v4
               with:
                   name: windows-x64
-                  path: dist/*.exe     
+                  path: dist/*.exe
+
+    build-windows-arm64:
+        runs-on: windows-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+            - run: npm install --legacy-peer-deps --no-audit
+            - run: npx electron-builder --win portable --arm64
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: windows-arm64
+                  path: dist/*.exe
+
+    build-windows-legacy-x64:
+        runs-on: windows-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+            - run: npm install --legacy-peer-deps --no-audit
+            - run: npm install --save-dev electron@22.3.27 --legacy-peer-deps --no-audit
+            - run: npx electron-builder --win nsis --x64
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: windows-legacy-x64
+                  path: dist/*.exe
+
+    build-linux-x64:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+            - run: sudo apt-get update && sudo apt-get install -y icnsutils graphicsmagick xz-utils rpm
+            - run: npm install --legacy-peer-deps --no-audit
+            - run: npx electron-builder --linux AppImage deb --x64
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: linux-x64
+                  path: dist/*.{AppImage,deb}
+
+    build-linux-arm64:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+            - run: sudo apt-get update && sudo apt-get install -y icnsutils graphicsmagick xz-utils rpm
+            - run: npm install --legacy-peer-deps --no-audit
+            - run: npx electron-builder --linux AppImage deb --arm64
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: linux-arm64
+                  path: dist/*.{AppImage,deb}
+
+    build-macos-x64:
+        runs-on: macos-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+            - run: npm install --legacy-peer-deps --no-audit
+            - run: npx electron-builder --mac zip --x64 --config.mac.identity=null
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: macos-x64
+                  path: dist/*.zip
+
+    build-macos-arm64:
+        runs-on: macos-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+            - run: npm install --legacy-peer-deps --no-audit
+            - run: npx electron-builder --mac zip --arm64 --config.mac.identity=null
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: macos-arm64
+                  path: dist/*.zip
 
     release:
         needs:
             - build-windows-x64
+            - build-windows-arm64
+            - build-windows-legacy-x64
+            - build-linux-x64
+            - build-linux-arm64
+            - build-macos-x64
+            - build-macos-arm64
         runs-on: ubuntu-latest
         steps:
             - uses: actions/download-artifact@v4
               with:
-                  name: windows-x64
                   path: dist
             - uses: actions/create-release@v1
               id: create_release
@@ -42,11 +134,11 @@ jobs:
                   release_name: ${{ github.ref_name }}
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-            - uses: actions/upload-release-asset@v1
-              with:
-                  upload_url: ${{ steps.create_release.outputs.upload_url }}
-                  asset_path: dist/Fluxloader-win-x64.exe
-                  asset_name: fluxloader-windows-x64.exe
-                  asset_content_type: application/octet-stream
+            - name: Upload all assets
+              run: |
+                  for f in dist/*/*; do
+                    filename=$(basename "$f")
+                    echo "Uploading $filename"
+                    gh release upload "${{ github.ref_name }}" "$f" --repo ${{ github.repository }} --clobber
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
