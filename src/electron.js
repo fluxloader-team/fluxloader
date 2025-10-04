@@ -53,7 +53,6 @@ let configLoaded = false;
 let modsManager = undefined;
 let gameFilesManager = undefined;
 let managerWindow = undefined;
-let fluxloaderEvents = undefined;
 let logsForManager = [];
 let isGameStarted = false;
 let isManagerStarted = false;
@@ -2175,13 +2174,6 @@ class ModsManager {
 	}
 }
 
-// Deprecated?
-function setupFluxloaderEvents() {
-	logDebug("Setting up fluxloader events");
-	fluxloaderEvents = new EventBus();
-	fluxloaderEvents.registerEvent("game-cleanup");
-}
-
 function loadFluxloaderConfig() {
 	configSchema = {};
 	logDebug(`Reading config from: ${configPath}`);
@@ -3040,7 +3032,6 @@ async function startApp() {
 	// One-time fluxloader setup
 	handleUncaughtErrors();
 	loadFluxloaderConfig();
-	setupFluxloaderEvents();
 
 	fluxloaderAPI = new ElectronFluxloaderAPI();
 

@@ -12,7 +12,7 @@ echo Removing old exe..
 set /a counter=0
 :wait
 del Fluxloader-*.exe 1>nul
-timeout /t 1 >nul
+C:\Windows\System32\timeout.exe /t 1 >nul
 if exist Fluxloader-*.exe (
   set /a counter+=1
   if %counter% geq 10 (
