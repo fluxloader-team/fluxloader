@@ -68,7 +68,9 @@ jobs:
             - uses: actions/upload-artifact@v4
               with:
                   name: linux-x64
-                  path: dist/*.{AppImage,deb}
+                  path: |
+                        dist/*.AppImage
+                        dist/*.deb
 
     build-linux-arm64:
         runs-on: ubuntu-latest
@@ -83,7 +85,9 @@ jobs:
             - uses: actions/upload-artifact@v4
               with:
                   name: linux-arm64
-                  path: dist/*.{AppImage,deb}
+                  path: |
+                        dist/*.AppImage
+                        dist/*.deb
 
     build-macos-x64:
         runs-on: macos-latest
