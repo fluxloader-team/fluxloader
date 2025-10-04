@@ -2,35 +2,47 @@
 # Updater for mac / linux
 
 echo "Downloading update from $2"
-curl -s $2 -o fluxloader-temp
+curl -s -L "$2" -o fluxloader-temp
 
-echo "Download complete, closing Fluxloader instance.."
+echo "Download complete, closing Fluxloader instance..."
 kill -9 $1
 
 OS="$(uname -s)"
 
 case "$OS" in
     Linux*)
-        echo "Linux finishing touches.."
+        echo "Linux finishing touches..."
+        
+        echo "Removing old exe..."
         rm Fluxloader-*.{AppImage,deb}
+        
+        echo "Renaming new exe..."
         mv fluxloader-temp $(basename $2)
         chmod +x $(basename $2)
     ;;
     Darwin*)
-        echo "macOS finishing touches.."
-        cd ../../../ # Get back to parent directory where the zip will be unzipped
+        echo "macOS finishing touches..."
+        
+        echo "Moving up to parent directory..."
+        cd ../../../
         mv Fluxloader.app/Contents/MacOS/fluxloader-temp .
-        # Backup old data so we can transfer it
+        
+        echo "Backing up old data..."
         mv Fluxloader.app fluxloader-old
-        # Unzip and delete new version
+        
+        echo "Unzipping new version..."
         unzip fluxloader-temp
         rm fluxloader-temp
-        # Delete old executable
+        
+        echo "Deleting old exe..."
         rm -f fluxloader-old/Contents/MacOS/Fluxloader
-        # Move data from old folder into new one
+        
+        echo "Renaming new exe..."
         mv fluxloader-old/Contents/MacOS/* Fluxloader.app/Contents/MacOS
-        rm -rf fluxloader-old
         xattr -cr Fluxloader.app
+        
+        echo "Deleting backed up old data..."
+        rm -rf fluxloader-old
     ;;
     *)
         echo "Unknown OS: $OS"

@@ -2,7 +2,7 @@
 @echo off
 
 echo Downloading update from %2
-curl -s %2 -o fluxloader-temp
+curl -s -L "%2" -o fluxloader-temp
 
 echo Download complete, closing Fluxloader instance...
 taskkill /PID %1 /F
@@ -22,8 +22,8 @@ if exist fluxloader-*.exe (
   goto wait
 )
 
-echo Installing new exe..
+echo Renaming new exe..
 move fluxloader-temp %~nx2
 
-echo Removing self...
+echo Update finished. Removing self...
 del updater.bat 1>nul 2>nul

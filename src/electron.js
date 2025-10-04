@@ -2739,20 +2739,20 @@ async function downloadUpdate(release) {
 		let isUnix = ["linux", "darwin"].includes(process.platform);
 		let resources = app.isPackaged ? process.resourcesPath : process.cwd();
 		const downloadUrl = targetAsset.browser_download_url;
-		let installLoc = resolvePathRelativeToExecutable(".");
-		logDebug(`Starting update helper with parameters: [${installLoc}, ${process.pid}, ${downloadUrl}]`);
+		let installPath = resolvePathRelativeToExecutable(".");
+		logDebug(`Starting update helper with parameters: [${installPath}, ${process.pid}, ${downloadUrl}]`);
 
 		if (isUnix) {
 			spawn(path.join(resources, "./updater.sh"), [process.pid, downloadUrl], {
-				cwd: installLoc,
+				cwd: installPath,
 				detached: true,
 				stdio: "ignore",
 				shell: true,
 			}).unref();
 		} else {
-			fs.copyFileSync(path.join(resources, "updater.bat"), path.join(installLoc, "updater.bat"));
-			spawn("cmd.exe", ["/c", "start", '"Fluxloader Updater"', '"' + path.join(installLoc, "updater.bat") + '"', process.pid, downloadUrl], {
-				cwd: installLoc,
+			fs.copyFileSync(path.join(resources, "updater.bat"), path.join(installPath, "updater.bat"));
+			spawn("cmd.exe", ["/c", "start", '"Fluxloader Updater"', '"' + path.join(installPath, "updater.bat") + '"', process.pid, downloadUrl], {
+				cwd: installPath,
 				detached: true,
 				stdio: "ignore",
 				shell: true,
