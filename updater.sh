@@ -1,5 +1,5 @@
 #!/bin/bash
-# Updater for mac/linux
+# Updater for mac / linux
 
 echo "Downloading update from $2"
 curl -s $2 -o fluxloader-temp
