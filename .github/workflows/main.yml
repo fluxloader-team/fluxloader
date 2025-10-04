@@ -136,9 +136,10 @@ jobs:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
             - name: Upload all assets
               run: |
-                  for f in dist/*/*; do
-                    filename=$(basename "$f")
-                    echo "Uploading $filename"
-                    gh release upload "${{ github.ref_name }}" "$f" --repo ${{ github.repository }} --clobber
+                    for f in dist/*/*; do
+                      filename=$(basename "$f")
+                      echo "Uploading $filename"
+                      gh release upload "${{ github.ref_name }}" "$f" --repo ${{ github.repository }} --clobber
+                    done
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
