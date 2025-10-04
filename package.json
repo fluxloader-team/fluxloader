@@ -31,7 +31,7 @@
 		"electron-builder": "^26.0.12"
 	},
 	"build": {
-		"appId": "app.fluxloader.Fluxloader",
+		"appId": "app.fluxloader.fluxloader",
 		"productName": "fluxloader",
 		"artifactName": "${productName}-${os}-${arch}.${ext}",
 		"asar": true,
