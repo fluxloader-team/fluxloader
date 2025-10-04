@@ -10,7 +10,7 @@
 		"url": "https://git.rendezvous.dev/sandustry/modloader.git"
 	},
 	"description": "A cross-platform modloader for Sandustry",
-	"version": "2.2.1",
+	"version": "2.2.2",
 	"main": "src/electron.js",
 	"type": "module",
 	"scripts": {
