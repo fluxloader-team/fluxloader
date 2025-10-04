@@ -20,7 +20,7 @@ jobs:
               with:
                   node-version: 20
             - run: npm install --legacy-peer-deps --no-audit
-            - run: echo "BUILDNAME=Linux x86_64 AppImage" > .env
+            - run: echo "BUILDNAME=Windows x64 Portable" > .env
             - run: npx electron-builder --win portable --x64
             - uses: actions/upload-artifact@v4
               with:
@@ -35,6 +35,7 @@ jobs:
               with:
                   node-version: 20
             - run: npm install --legacy-peer-deps --no-audit
+            - run: echo "BUILDNAME=Windows arm64 Portable" > .env
             - run: npx electron-builder --win portable --arm64
             - uses: actions/upload-artifact@v4
               with:
@@ -50,6 +51,7 @@ jobs:
                   node-version: 20
             - run: npm install --legacy-peer-deps --no-audit
             - run: npm install --save-dev electron@22.3.27 --legacy-peer-deps --no-audit
+            - run: echo "BUILDNAME=Windows legacy Portable" > .env
             - run: npx electron-builder --win nsis --x64
             - uses: actions/upload-artifact@v4
               with:
@@ -65,13 +67,22 @@ jobs:
                   node-version: 20
             - run: sudo apt-get update && sudo apt-get install -y icnsutils graphicsmagick xz-utils rpm
             - run: npm install --legacy-peer-deps --no-audit
-            - run: npx electron-builder --linux AppImage deb --x64
+
+            # Build AppImage
+            - run: echo "BUILDNAME=Linux x86_64 AppImage" > .env
+            - run: npx electron-builder --linux AppImage --x64
             - uses: actions/upload-artifact@v4
               with:
-                  name: linux-x64
-                  path: |
-                      dist/*.AppImage
-                      dist/*.deb
+                  name: linux-x64-appimage
+                  path: dist/*.AppImage
+
+            # Build deb
+            - run: echo "BUILDNAME=Linux x86_64 deb" > .env
+            - run: npx electron-builder --linux deb --x64
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: linux-x64-deb
+                  path: dist/*.deb
 
     build-linux-arm64:
         runs-on: ubuntu-latest
@@ -82,13 +93,22 @@ jobs:
                   node-version: 20
             - run: sudo apt-get update && sudo apt-get install -y icnsutils graphicsmagick xz-utils rpm
             - run: npm install --legacy-peer-deps --no-audit
-            - run: npx electron-builder --linux AppImage deb --arm64
+
+            # Build AppImage
+            - run: echo "BUILDNAME=Linux arm64 AppImage" > .env
+            - run: npx electron-builder --linux AppImage --arm64
             - uses: actions/upload-artifact@v4
               with:
-                  name: linux-arm64
-                  path: |
-                      dist/*.AppImage
-                      dist/*.deb
+                  name: linux-arm64-appimage
+                  path: dist/*.AppImage
+
+            # Build deb
+            - run: echo "BUILDNAME=Linux arm64 deb" > .env
+            - run: npx electron-builder --linux deb --arm64
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: linux-arm64-deb
+                  path: dist/*.deb
 
     build-macos-x64:
         runs-on: macos-latest
@@ -98,6 +118,7 @@ jobs:
               with:
                   node-version: 20
             - run: npm install --legacy-peer-deps --no-audit
+            - run: echo "BUILDNAME=macOS x64 Zip" > .env
             - run: npx electron-builder --mac zip --x64 --config.mac.identity=null
             - uses: actions/upload-artifact@v4
               with:
@@ -112,6 +133,7 @@ jobs:
               with:
                   node-version: 20
             - run: npm install --legacy-peer-deps --no-audit
+            - run: echo "BUILDNAME=macOS arm64 Zip" > .env
             - run: npx electron-builder --mac zip --arm64 --config.mac.identity=null
             - uses: actions/upload-artifact@v4
               with:
@@ -143,25 +165,8 @@ jobs:
               run: |
                   for f in dist/*/*; do
                     filename=$(basename "$f")
-
-                    case "$filename" in
-                        *win-x64.exe)      asset_name="Windows x64 Portable" ;;
-                        *win-arm64.exe)    asset_name="Windows arm64 Portable" ;;
-                        *win-x64-legacy.exe) asset_name="Windows legacy Portable" ;;
-                        *mac-x64.zip)      asset_name="macOS x64 Zip" ;;
-                        *mac-arm64.zip)    asset_name="macOS arm64 Zip" ;;
-                        *linux-x86_64.AppImage) asset_name="Linux x86_64 AppImage" ;;
-                        *linux-arm64.AppImage)  asset_name="Linux arm64 AppImage" ;;
-                        *linux-arm64.deb)  asset_name="Linux arm64 deb" ;;
-                        *linux-amd64.deb)  asset_name="Linux amd64 deb" ;;
-                        *) asset_name="$filename" ;;
-                    esac
-
-                    echo "Uploading $filename as $asset_name"
-                    gh release upload "${{ github.ref_name }}" "$f" \
-                        --repo ${{ github.repository }} \
-                        --clobber \
-                        --name "$asset_name"
+                    echo "Uploading $filename"
+                    gh release upload "${{ github.ref_name }}" "$f" --repo ${{ github.repository }} --clobber
                   done
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

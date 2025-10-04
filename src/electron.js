@@ -2719,18 +2719,39 @@ async function downloadUpdate(release) {
 			updateFluxloaderConfig();
 		}
 
-		let targetAsset = release.assets.filter(r => r.name === config.manager.updateOS)[0];
+		// Map from readable OS string to filename pattern
+		const assetNameMap = {
+			"Windows x64 Portable": `${productName}-${os}-x64.exe`,
+			"Windows arm64 Portable": `${productName}-${os}-arm64.exe`,
+			"Windows legacy Portable": `${productName}-${os}-x64-legacy.exe`,
+			"macOS x64 Zip": `${productName}-${os}-x64.zip`,
+			"macOS arm64 Zip": `${productName}-${os}-arm64.zip`,
+			"Linux x86_64 AppImage": `${productName}-${os}-x86_64.AppImage`,
+			"Linux arm64 AppImage": `${productName}-${os}-arm64.AppImage`,
+			"Linux arm64 deb": `${productName}-${os}-arm64.deb`,
+			None: null,
+		};
+
+		// Lookup the filename from config.manager.updateOS
+		const filename = assetNameMap[config.manager.updateOS];
+		if (!filename) {
+			throw new Error(`No asset mapping for ${config.manager.updateOS}`);
+		}
+
+		// Find the asset by its uploaded name
+		const targetAsset = release.assets.find((r) => r.name === filename);
 		if (!targetAsset) {
-			throw new Error(`Could not find asset for ${config.manager.updateOS}`);
+			throw new Error(`Could not find asset for ${config.manager.updateOS} (expected filename: ${filename})`);
 		}
 
 		let isUnix = ["linux", "darwin"].includes(process.platform);
 		let resources = app.isPackaged ? process.resourcesPath : process.cwd();
+		const downloadUrl = targetAsset.browser_download_url;
 		let installLoc = resolvePathRelativeToExecutable(".");
-		logDebug(`Starting update helper with parameters: [${installLoc}, ${process.pid}, ${targetAsset.url}]`);
-		
+		logDebug(`Starting update helper with parameters: [${installLoc}, ${process.pid}, ${downloadUrl}]`);
+
 		if (isUnix) {
-			spawn(path.join(resources, "./updater.sh"), [process.pid, targetAsset.url], {
+			spawn(path.join(resources, "./updater.sh"), [process.pid, downloadUrl], {
 				cwd: installLoc,
 				detached: true,
 				stdio: "ignore",
@@ -2738,7 +2759,7 @@ async function downloadUpdate(release) {
 			}).unref();
 		} else {
 			fs.copyFileSync(path.join(resources, "updater.bat"), path.join(installLoc, "updater.bat"));
-			spawn("cmd.exe", ["/c", "start", '"Fluxloader Updater"', '"' + path.join(installLoc, "updater.bat") + '"', process.pid, targetAsset.url], {
+			spawn("cmd.exe", ["/c", "start", '"Fluxloader Updater"', '"' + path.join(installLoc, "updater.bat") + '"', process.pid, downloadUrl], {
 				cwd: installLoc,
 				detached: true,
 				stdio: "ignore",
