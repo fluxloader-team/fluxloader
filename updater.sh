@@ -4,7 +4,7 @@
 echo "Downloading update from $2"
 curl -s -L "$2" -o fluxloader-temp
 
-echo "Download complete, closing Fluxloader instance..."
+echo "Download complete, closing fluxloader instance..."
 kill -9 $1
 
 OS="$(uname -s)"
@@ -14,7 +14,7 @@ case "$OS" in
         echo "Linux finishing touches..."
         
         echo "Removing old exe..."
-        rm Fluxloader-*.{AppImage,deb}
+        rm fluxloader-*.{AppImage,deb}
         
         echo "Renaming new exe..."
         mv fluxloader-temp $(basename $2)
@@ -25,21 +25,21 @@ case "$OS" in
         
         echo "Moving up to parent directory..."
         cd ../../../
-        mv Fluxloader.app/Contents/MacOS/fluxloader-temp .
+        mv fluxloader.app/Contents/MacOS/fluxloader-temp .
         
         echo "Backing up old data..."
-        mv Fluxloader.app fluxloader-old
+        mv fluxloader.app fluxloader-old
         
         echo "Unzipping new version..."
         unzip fluxloader-temp
         rm fluxloader-temp
         
         echo "Deleting old exe..."
-        rm -f fluxloader-old/Contents/MacOS/Fluxloader
+        rm -f fluxloader-old/Contents/MacOS/fluxloader
         
         echo "Renaming new exe..."
-        mv fluxloader-old/Contents/MacOS/* Fluxloader.app/Contents/MacOS
-        xattr -cr Fluxloader.app
+        mv fluxloader-old/Contents/MacOS/* fluxloader.app/Contents/MacOS
+        xattr -cr fluxloader.app
         
         echo "Deleting backed up old data..."
         rm -rf fluxloader-old
