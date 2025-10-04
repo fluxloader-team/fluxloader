@@ -2711,21 +2711,24 @@ async function pickFileNative(args) {
 	return successResponse("File selected successfully", selectedPath);
 }
 
-async function downloadUpdate(assets) {
+async function downloadUpdate(release) {
 	try {
 		if (config.manager.updateOS === "None") {
 			if (!process.env.BUILDNAME) throw new Error("No updateOS configured, and could not find BUILDNAME env var");
 			config.manager.updateOS = process.env.BUILDNAME;
 			updateFluxloaderConfig();
 		}
-		let targetAsset = assets.filter((val) => val.name === config.manager.updateOS)[0];
+
+		let targetAsset = release.assets.filter(r => r.name === config.manager.updateOS)[0];
 		if (!targetAsset) {
 			throw new Error(`Could not find asset for ${config.manager.updateOS}`);
 		}
+
 		let isUnix = ["linux", "darwin"].includes(process.platform);
 		let resources = app.isPackaged ? process.resourcesPath : process.cwd();
 		let installLoc = resolvePathRelativeToExecutable(".");
 		logDebug(`Starting update helper with parameters: [${installLoc}, ${process.pid}, ${targetAsset.url}]`);
+		
 		if (isUnix) {
 			spawn(path.join(resources, "./updater.sh"), [process.pid, targetAsset.url], {
 				cwd: installLoc,
@@ -2735,7 +2738,6 @@ async function downloadUpdate(assets) {
 			}).unref();
 		} else {
 			fs.copyFileSync(path.join(resources, "updater.bat"), path.join(installLoc, "updater.bat"));
-			// Spawns the update in a new window, and calls it "Fluxloader Update"
 			spawn("cmd.exe", ["/c", "start", '"Fluxloader Updater"', '"' + path.join(installLoc, "updater.bat") + '"', process.pid, targetAsset.url], {
 				cwd: installLoc,
 				detached: true,

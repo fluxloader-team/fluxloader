@@ -5,12 +5,9 @@ globalThis.semver = api.semver;
 
 const DELAY_LOAD_REMOTE_MS = 150;
 const DELAY_RELOAD_MS = 150;
+const FLUXLOADER_RELEASES_URL = "https://api.github.com/repos/fluxloader-team/fluxloader/releases";
 
 globalThis.tabs = { mods: null, config: null, logs: null };
-let selectedTab = null;
-let getElementMemoization = {};
-
-let config = {};
 
 // The following are blocking and should block other tasks
 // When they are changed use addBlockingTask() & removeBlockingTask()
@@ -19,10 +16,15 @@ let blockingTasks = new Set();
 let isPlaying = false;
 let isPlayButtonLoading = false;
 let isFullscreenAlertVisible = false;
-// tabs.isLoadingMods
-// tabs.isQueueingActions
-// tabs.isPerformingActions
+// ^ tabs.isLoadingMods
+// ^ tabs.isQueueingActions
+// ^ tabs.isPerformingActions
+
+let selectedTab = null;
+let getElementMemoization = {};
+let config = {};
 let connectionState = "offline";
+let newVersionRelease;
 
 // =================== LOGGING ===================
 
@@ -2434,26 +2436,30 @@ function setConnectionState(state) {
 	connectionState = state;
 }
 
-let latestUpdate;
 async function checkFluxloaderUpdates() {
 	addBlockingTask("checkingUpdates");
 	try {
 		logDebug("Checking for updates to Fluxloader...");
-		setStatusBar("Checking for Fluxloader updates..", 0, "loading");
-		const releases = await (await fetch("https://git.rendezvous.dev/api/v4/projects/33/releases")).json();
-		logDebug(`${releases.length} releases found`);
-		setStatusBar(`${releases.length} versions found..`, 33, "loading");
+		setStatusBar("Checking for Fluxloader updates...", 0, "loading");
+
+		const releases = await (await fetch(FLUXLOADER_RELEASES_URL)).json();
+		logDebug(`${releases.length} fluxloader versions received`);
+		setStatusBar(`${releases.length} fluxloader versions received...`, 33, "loading");
+
 		if (releases.length === 0) {
 			throw new Error("Release count returned was 0");
 		}
+
+		const installedVersion = await api.invoke("fl:get-fluxloader-version");
 		let latestVersion = releases[0].tag_name;
 		if (!semver.valid(latestVersion)) {
-			throw new Error("Latest release version is not valid semver: " + latestVersion);
+			throw new Error("Latest version is not valid semver: " + latestVersion);
 		}
-		logDebug(`Latest version is v${latestVersion}`);
-		const installedVersion = await api.invoke("fl:get-fluxloader-version");
+
 		logDebug(`Installed version is v${installedVersion}`);
+		logDebug(`Latest version is v${latestVersion}`);
 		setStatusBar(`Latest version is v${latestVersion} (v${installedVersion} is installed)`, 66, "loading");
+
 		// Check if the latest version is newer than the installed one
 		if (semver.compare(latestVersion, installedVersion) <= 0) {
 			logDebug("No update required");
@@ -2461,44 +2467,52 @@ async function checkFluxloaderUpdates() {
 			removeBlockingTask("checkingUpdates");
 			return;
 		}
+
 		logDebug(`A new version of Fluxloader is available: v${latestVersion} (v${installedVersion} installed)`);
 		setStatusBar("A new version of Fluxloader is available!", 100, "success");
-		latestUpdate = releases[0];
+		newVersionRelease = releases[0];
+
 		let button = getElement("update-button");
 		button.style.display = "flex";
-		button.onclick = updateFluxloader;
+		button.onclick = () => updateFluxloader();
 	} catch (e) {
 		setStatusBar(`Failed to find updates`, 0, "failed");
 		logError("Error occured while checking for Fluxloader updates: " + e.message);
+	} finally {
+		removeBlockingTask("checkingUpdates");
 	}
-	removeBlockingTask("checkingUpdates");
 }
 
 async function updateFluxloader() {
 	addBlockingTask("updating");
 	try {
-		if (!latestUpdate) checkFluxloaderUpdates();
-		// Check again
-		if (!latestUpdate) throw new Error("No updates available");
-		logDebug(`Downloading update v${latestUpdate.tag_name}...`);
-		setStatusBar(`Downloading Fluxloader v${latestUpdate.tag_name}..`, 40, "loading");
-		let result = await api.invoke("fl:download-update", latestUpdate.assets.links);
+		// Check once if called without a version otherwise error
+		if (newVersionRelease == null) checkFluxloaderUpdates();
+		if (newVersionRelease == null) throw new Error("No updates available");
+
+		logDebug(`Downloading update v${newVersionRelease.tag_name}...`);
+		setStatusBar(`Downloading Fluxloader v${newVersionRelease.tag_name}..`, 40, "loading");
+
+		let result = await api.invoke("fl:download-update", newVersionRelease);
 		if (result === true) {
-			setStatusBar(`Launching update helper.. Fluxloader will close when done`, 75, "loading");
+			setStatusBar(`Launching update helper... Fluxloader will close when done`, 75, "loading");
 			return;
 		}
+
 		throw new Error("Electron side failed to download update");
 	} catch (e) {
 		setStatusBar(`Failed to update Fluxloader`, 0, "failed");
 		logError("Error occured while updating Fluxloader: " + e.message);
+	} finally {
+		removeBlockingTask("updating");
 	}
-	removeBlockingTask("updating");
 }
 
-async function handleClickConnectionButton(e) {
+async function tryConnect(e) {
 	if (isPlaying || tabs.mods.isLoadingMods || tabs.mods.isPerformingActions || isPlayButtonLoading) {
 		return pingBlockingTask("Cannot change connection state while playing, loading mods, or performing actions.");
 	}
+
 	// Instantly disconnect
 	if (connectionState === "online") {
 		logDebug("Disconnecting from the server...");
@@ -2515,12 +2529,13 @@ async function handleClickConnectionButton(e) {
 		addBlockingTask("connecting");
 		setConnectionState("connecting");
 		logDebug("Attempting to connect to the server...");
+
 		const res = await api.invoke("fl:ping-server");
 		if (res.success) {
 			logDebug("Successfully pinged the server, connection is online.");
 			setConnectionState("online");
 
-			// If succesfully connect then fetch installed mods versions
+			// If successfully connected then fetch versions for installed mods
 			await tabs.mods.loadInstalledModsVersions();
 
 			// Check for updates to the fluxloader
@@ -2642,9 +2657,10 @@ function pingBlockingTask(message) {
 	getElement("play-button").addEventListener("click", () => handleClickPlayButton());
 
 	if (config.manager.autoConnect) {
-		handleClickConnectionButton(); // Let's hope this causes no issues.. for now
+		tryConnect();
 	}
-	getElement("connection-button").addEventListener("click", (e) => handleClickConnectionButton(e));
+
+	getElement("connection-button").addEventListener("click", (e) => tryConnect(e));
 
 	getElement("footer-dropdown-unmodded").addEventListener("click", (e) => {
 		e.stopPropagation();

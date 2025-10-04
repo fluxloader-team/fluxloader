@@ -14,12 +14,12 @@ set /a counter=0
 del Fluxloader-*.exe 1>nul
 timeout /t 1 >nul
 if exist Fluxloader-*.exe (
-    set /a counter+=1
-    if %counter% geq 10 (
-        echo Failed to delete old exe. Please manually rename fluxloader-temp to %~nx2
-        exit /b 1
-    )
-    goto wait
+  set /a counter+=1
+  if %counter% geq 10 (
+    echo Failed to delete old exe. Please manually rename fluxloader-temp to %~nx2
+    exit /b 1
+  )
+  goto wait
 )
 
 echo Installing new exe..

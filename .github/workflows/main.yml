@@ -20,6 +20,7 @@ jobs:
               with:
                   node-version: 20
             - run: npm install --legacy-peer-deps --no-audit
+            - run: echo "BUILDNAME=Linux x86_64 AppImage" > .env
             - run: npx electron-builder --win portable --x64
             - uses: actions/upload-artifact@v4
               with:
@@ -69,8 +70,8 @@ jobs:
               with:
                   name: linux-x64
                   path: |
-                        dist/*.AppImage
-                        dist/*.deb
+                      dist/*.AppImage
+                      dist/*.deb
 
     build-linux-arm64:
         runs-on: ubuntu-latest
@@ -86,8 +87,8 @@ jobs:
               with:
                   name: linux-arm64
                   path: |
-                        dist/*.AppImage
-                        dist/*.deb
+                      dist/*.AppImage
+                      dist/*.deb
 
     build-macos-x64:
         runs-on: macos-latest
@@ -140,10 +141,27 @@ jobs:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
             - name: Upload all assets
               run: |
-                    for f in dist/*/*; do
-                      filename=$(basename "$f")
-                      echo "Uploading $filename"
-                      gh release upload "${{ github.ref_name }}" "$f" --repo ${{ github.repository }} --clobber
-                    done
+                  for f in dist/*/*; do
+                    filename=$(basename "$f")
+
+                    case "$filename" in
+                        *win-x64.exe)      asset_name="Windows x64 Portable" ;;
+                        *win-arm64.exe)    asset_name="Windows arm64 Portable" ;;
+                        *win-x64-legacy.exe) asset_name="Windows legacy Portable" ;;
+                        *mac-x64.zip)      asset_name="macOS x64 Zip" ;;
+                        *mac-arm64.zip)    asset_name="macOS arm64 Zip" ;;
+                        *linux-x86_64.AppImage) asset_name="Linux x86_64 AppImage" ;;
+                        *linux-arm64.AppImage)  asset_name="Linux arm64 AppImage" ;;
+                        *linux-arm64.deb)  asset_name="Linux arm64 deb" ;;
+                        *linux-amd64.deb)  asset_name="Linux amd64 deb" ;;
+                        *) asset_name="$filename" ;;
+                    esac
+
+                    echo "Uploading $filename as $asset_name"
+                    gh release upload "${{ github.ref_name }}" "$f" \
+                        --repo ${{ github.repository }} \
+                        --clobber \
+                        --name "$asset_name"
+                  done
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
