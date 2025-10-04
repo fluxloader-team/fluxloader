@@ -3,8 +3,8 @@
 
 echo "Downloading update from $2"
 curl -s $2 -o fluxloader-temp
-echo "Download complete, closing Fluxloader instance.."
 
+echo "Download complete, closing Fluxloader instance.."
 kill -9 $1
 
 OS="$(uname -s)"
