@@ -12,4 +12,3 @@ Welcome the the **Sandustry Fluxloader**!
 
 This will generate a `fluxloader-latest.log`, `fluxloader-config.json`, and a `mods` folder relative to the binary.  
 If it cannot find the games executable, update it manually with `gamePath` in the config.
-
