@@ -2721,14 +2721,14 @@ async function downloadUpdate(release) {
 
 		// Map from readable OS string to filename pattern
 		const assetNameMap = {
-			"Windows x64 Portable": `${productName}-${os}-x64.exe`,
-			"Windows arm64 Portable": `${productName}-${os}-arm64.exe`,
-			"Windows legacy Portable": `${productName}-${os}-x64-legacy.exe`,
-			"macOS x64 Zip": `${productName}-${os}-x64.zip`,
-			"macOS arm64 Zip": `${productName}-${os}-arm64.zip`,
-			"Linux x86_64 AppImage": `${productName}-${os}-x86_64.AppImage`,
-			"Linux arm64 AppImage": `${productName}-${os}-arm64.AppImage`,
-			"Linux arm64 deb": `${productName}-${os}-arm64.deb`,
+			"Windows x64 Portable": `fluxloader-win-x64.exe`,
+			"Windows legacy Portable": `fluxloader-win-x64-legacy.exe`,
+			"Windows arm64 Portable": `fluxloader-win-arm64.exe`,
+			"macOS x64 Zip": `fluxloader-macos-x64.zip`,
+			"macOS arm64 Zip": `fluxloader-macos-arm64.zip`,
+			"Linux x86_64 AppImage": `fluxloader-linux-x86_64.AppImage`,
+			"Linux arm64 AppImage": `fluxloader-linux-arm64.AppImage`,
+			"Linux arm64 deb": `fluxloader-linux-arm64.deb`,
 			None: null,
 		};
 
