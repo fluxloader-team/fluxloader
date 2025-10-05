@@ -25,7 +25,7 @@ jobs:
                   node-version: 12
 
             - name: Install Node.js dependencies
-              run: npm install prettier
+              run: npm install prettier eslint
 
             - name: Run linters
               uses: wearerequired/lint-action@v2
