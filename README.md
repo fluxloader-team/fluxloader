@@ -13,3 +13,7 @@ Welcome the the **Sandustry Fluxloader**!
 This will generate a `fluxloader-latest.log`, `fluxloader-config.json`, and a `mods` folder relative to the binary.  
 If it cannot find the games executable, update it manually with `gamePath` in the config.
 
+### Development
+
+1. Clone this repo: `git clone https://github.com/fluxloader-team/fluxloader.git`
+2. Install `npm i` and run `npm start`
