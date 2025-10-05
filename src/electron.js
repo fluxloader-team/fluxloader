@@ -2908,7 +2908,10 @@ async function closeManager() {
 function setupFirstStart() {
 	if (gameFilesManager) return true; // Already setup
 	let res = findValidGamePath();
-	if (!res.success) return false;
+	if (!res.success) {
+		isGameStarted = false;
+		return false;
+	}
 	const { fullGamePath, asarPath } = res.data;
 
 	gameFilesManager = new GameFilesManager(fullGamePath, asarPath);
