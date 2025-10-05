@@ -15,14 +15,9 @@ import { EventBus, SchemaValidation, Logging, FluxloaderSemver } from "./common.
 import semver from "semver";
 import AdmZip from "adm-zip";
 import Module from "module";
-globalThis.semver = semver;
 
-dotenv.config({
-	path: app.isPackaged ? path.join(process.resourcesPath, ".env") : path.resolve(process.cwd(), ".env"),
-});
+// =================== GENERAL ARCHITECTURE ===================
 
-// ---- General architecture ----
-//
 // Top level functions of classes / the fluxloader should not throw errors in cases where it is not catastrophic
 // Instead use successResponse() or errorResponse() to return a response object
 //
@@ -34,11 +29,11 @@ dotenv.config({
 
 // =================== VARIABLES ===================
 
-// -- CHANGE VERSION SEARCH : Search this to find where to change version
 globalThis.fluxloaderVersion = "2.2.4";
 globalThis.fluxloaderAPI = undefined;
 globalThis.gameElectronFuncs = undefined;
 globalThis.gameWindow = undefined;
+globalThis.semver = semver;
 
 let logLevels = ["debug", "info", "warn", "error"];
 let preConfigLogLevel = "debug";
@@ -172,9 +167,8 @@ function ensureDirectoryExists(dirPath) {
 	}
 }
 
-// Generates HTML from markdown and fixes relative file paths
 function formatMarkdown(text, modname) {
-	// Parse markdown and process resulting HTML
+	// Generates HTML from markdown and fixes relative file paths
 	let dom = new JSDOM(marked(text));
 	let images = dom.window.document.querySelectorAll("img");
 	for (const image of images) {
@@ -3054,6 +3048,10 @@ async function startApp() {
 }
 
 // =================== MAIN ===================
+
+dotenv.config({
+	path: app.isPackaged ? path.join(process.resourcesPath, ".env") : path.resolve(process.cwd(), ".env"),
+});
 
 (async () => {
 	await startApp();

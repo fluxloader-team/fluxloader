@@ -1,14 +1,13 @@
 import { EventBus, Logging } from "./common.js";
 
-// ------------- VARIABLES -------------
+// =================== VARIABLES ===================
 
-// -- CHANGE VERSION SEARCH : Search this to find where to change version
 globalThis.fluxloaderVersion = "2.2.4";
 globalThis.fluxloaderAPI = undefined;
 
 let loadedMods = [];
 
-// ------------- LOGGING -------------
+// =================== LOGGING ===================
 
 globalThis.log = function (level, tag, message) {
 	const timestamp = new Date();
@@ -25,7 +24,7 @@ function forwardLogToManager(log) {
 	window.electron.invoke("fl:forward-log-to-manager", log);
 }
 
-// ------------- MAIN -------------
+// =================== MAIN ===================
 
 class GameFluxloaderAPI {
 	static allEvents = ["fl:scene-loaded"];
@@ -130,8 +129,8 @@ globalThis.fluxloaderOnWorkerMessage = (m) => {
 	fluxloaderAPI._onWorkerMessage(channel, ...m.data);
 };
 
-// Should definitely be changed to load from an image in the future
 globalThis.setupModdedSubtitle = function (spawnSolid, imagePath) {
+	// Should definitely be changed to load from an image in the future
 	let title = [];
 	let interval;
 
