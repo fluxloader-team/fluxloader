@@ -564,7 +564,7 @@ class ModsTab {
 		});
 
 		this.updateActionExecutionButton();
-		
+
 		this.loadMoreModsBoundFunc = this.loadMoreMods.bind(this);
 	}
 
@@ -2682,7 +2682,7 @@ function pingBlockingTask(message) {
 
 	getElement("open-extracted-folder").addEventListener("click", async () => await api.invoke("fl:open-extracted-folder"));
 	getElement("open-mods-folder").addEventListener("click", async () => await api.invoke("fl:open-mods-folder"));
-	
+
 	setStatusBar("", 0);
 
 	if (config.manager.autoConnect) {
