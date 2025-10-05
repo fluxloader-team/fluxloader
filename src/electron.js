@@ -35,7 +35,7 @@ dotenv.config({
 // =================== VARIABLES ===================
 
 // -- CHANGE VERSION SEARCH : Search this to find where to change version
-globalThis.fluxloaderVersion = "2.2.3";
+globalThis.fluxloaderVersion = "2.2.4";
 globalThis.fluxloaderAPI = undefined;
 globalThis.gameElectronFuncs = undefined;
 globalThis.gameWindow = undefined;
@@ -549,7 +549,7 @@ class GameFilesManager {
 				`invoke: (msg, ...args) => ipcRenderer.invoke(msg, ...args),
 				handle: (msg, func) => ipcRenderer.handle(msg, func),
 				on: (msg, func) => ipcRenderer.on(msg, func),
-				save: (id, name, data)`
+				save: (id, name, data)`,
 			);
 
 			// Hook into the debugger
@@ -1420,7 +1420,7 @@ class ModsManager {
 							errorData: currentModConstraints,
 							errorReason: "version-satisfy",
 						},
-						false
+						false,
 					);
 				}
 				logDebug(`Found version '${foundVersion}' for mod '${requiredModID}' that satisfies all constraints`);
@@ -2317,7 +2317,7 @@ function addFluxloaderPatches() {
 				type: "replace",
 				from: "debug:{active:!1",
 				to: "debug:{active:1",
-			})
+			}),
 		);
 
 		// Puts __debug into fluxloaderAPI.gameInstance
@@ -2326,7 +2326,7 @@ function addFluxloaderPatches() {
 				type: "replace",
 				from: "}};var r={};",
 				to: "}};fluxloaderOnGameInstanceCreated(__debug);var r={};",
-			})
+			}),
 		);
 
 		// Add game.js to bundle.js, and dont start game until it is ready
@@ -2337,14 +2337,14 @@ function addFluxloaderPatches() {
 				from: `(()=>{var e,t,n={8916`,
 				to: `import "${gameScriptPath}";fluxloaderPreloadBundle().then$$`,
 				token: "$$",
-			})
+			}),
 		);
 		responseAsError(
 			gameFilesManager.setPatch("js/bundle.js", "fluxloader:preloadBundleFinalize", {
 				type: "replace",
 				from: `)()})();`,
 				to: `)()});`,
-			})
+			}),
 		);
 
 		// Expose the games world to bundle.js
@@ -2354,7 +2354,7 @@ function addFluxloaderPatches() {
 				type: "replace",
 				from: `[4,s.environment.multithreading.simulation.init(s)]`,
 				to: `[4,s.environment.multithreading.simulation.init(s),fluxloaderOnGameInitialized()]`,
-			})
+			}),
 		);
 
 		// Listen for fluxloader worker messages in bundle.js
@@ -2364,7 +2364,7 @@ function addFluxloaderPatches() {
 				from: "case f.InitFinished:",
 				to: "case 'fluxloaderMessage':fluxloaderOnWorkerMessage(r);break;$$",
 				token: "$$",
-			})
+			}),
 		);
 
 		const workers = ["546", "336"];
@@ -2376,7 +2376,7 @@ function addFluxloaderPatches() {
 					from: `case i.dD.Init:`,
 					to: `case 'fluxloaderMessage':fluxloaderOnWorkerMessage(e);break;$$`,
 					token: "$$",
-				})
+				}),
 			);
 
 			// Add worker.js to each worker, and dont start until it is ready
@@ -2399,14 +2399,14 @@ function addFluxloaderPatches() {
 						importScripts("${workerScriptPath}");
 						fluxloaderPreloadBundle().then$$`,
 					token: "$$",
-				})
+				}),
 			);
 			responseAsError(
 				gameFilesManager.setPatch(`js/${worker}.bundle.js`, "fluxloader:preloadBundleFinalize", {
 					type: "replace",
 					from: `()})();`,
 					to: `()});`,
-				})
+				}),
 			);
 		}
 
@@ -2417,7 +2417,7 @@ function addFluxloaderPatches() {
 				from: `W.store.upgrades[ee][te].level=re}}`,
 				to: `$$;if (preloadMessageQueue){for (const msg of preloadMessageQueue) self.onmessage(msg);}preloadMessageQueue=undefined;`,
 				token: "$$",
-			})
+			}),
 		);
 		responseAsError(
 			gameFilesManager.setPatch(`js/546.bundle.js`, "fluxloader:processQueuedMessages", {
@@ -2425,7 +2425,7 @@ function addFluxloaderPatches() {
 				from: `a.session.paused=e.data[1]}};`,
 				to: `$$if (preloadMessageQueue){for (const msg of preloadMessageQueue) {self.onmessage(msg);}}preloadMessageQueue=undefined;`,
 				token: "$$",
-			})
+			}),
 		);
 
 		// Notify worker.js when the workers are ready
@@ -2436,14 +2436,14 @@ function addFluxloaderPatches() {
 				from: `W.environment.postMessage([i.dD.InitFinished]);`,
 				to: `fluxloaderOnWorkerInitialized(W);$$`,
 				token: "$$",
-			})
+			}),
 		);
 		responseAsError(
 			gameFilesManager.setPatch(`js/546.bundle.js`, "fluxloader:workerInitialized2", {
 				type: "replace",
 				from: `t(performance.now());break;`,
 				to: `t(performance.now());fluxloaderOnWorkerInitialized(a);break;`,
-			})
+			}),
 		);
 
 		// Add React to globalThis
@@ -2452,7 +2452,7 @@ function addFluxloaderPatches() {
 				type: "replace",
 				from: `var Cl,kl=i(6540)`,
 				to: `globalThis.React=i(6540);var Cl,kl=React`,
-			})
+			}),
 		);
 
 		if (config.game.enableDebugMenu) {
@@ -2463,7 +2463,7 @@ function addFluxloaderPatches() {
 					from: 'className:"fixed bottom-2 right-2 w-96 pt-12 text-white"',
 					to: `$$,style:{zoom:"${config.game.debugMenuZoom * 100}%"}`,
 					token: "$$",
-				})
+				}),
 			);
 		} else {
 			// Disables the debug menu
@@ -2473,7 +2473,7 @@ function addFluxloaderPatches() {
 					from: "function _m(t){",
 					to: "$$return;",
 					token: "$$",
-				})
+				}),
 			);
 
 			// Disables the debug keybinds
@@ -2483,7 +2483,7 @@ function addFluxloaderPatches() {
 					from: "spawnElements:function(n,r){",
 					to: "$$return false;",
 					token: "$$",
-				})
+				}),
 			);
 
 			// Disables the pause camera keybind
@@ -2493,7 +2493,7 @@ function addFluxloaderPatches() {
 					from: "e.debug.active&&(t.session.overrideCamera",
 					to: "return;$$",
 					token: "$$",
-				})
+				}),
 			);
 
 			// Disables the pause keybind
@@ -2503,7 +2503,7 @@ function addFluxloaderPatches() {
 					from: "e.debug.active&&(t.session.paused",
 					to: "return;$$",
 					token: "$$",
-				})
+				}),
 			);
 		}
 
@@ -2512,7 +2512,7 @@ function addFluxloaderPatches() {
 				type: "replace",
 				from: `try{(Hg=require("@emotion/is-prop-valid").default)&&(Vg=e=>e.startsWith("on")?!Gg(e):Hg(e))}catch(Cl){}`,
 				to: "",
-			})
+			}),
 		);
 
 		if (!config.game.disableMenuSubtitle) {
@@ -2526,7 +2526,7 @@ function addFluxloaderPatches() {
 					// this relies on minified name "Od" which places blocks
 					// If this breaks search the code for "e" for placing blocks in debug
 					replace: `if(t.store.scene.active===x.MainMenu){globalThis.setupModdedSubtitle(Od,"${image}");$1}else`,
-				})
+				}),
 			);
 		}
 	} catch (e) {
@@ -2908,7 +2908,10 @@ async function closeManager() {
 function setupFirstStart() {
 	if (gameFilesManager) return true; // Already setup
 	let res = findValidGamePath();
-	if (!res.success) return false;
+	if (!res.success) {
+		isGameStarted = false;
+		return false;
+	}
 	const { fullGamePath, asarPath } = res.data;
 
 	gameFilesManager = new GameFilesManager(fullGamePath, asarPath);

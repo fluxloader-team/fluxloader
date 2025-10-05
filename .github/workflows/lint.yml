@@ -1,0 +1,38 @@
+name: Lint w/ Prettier
+
+on:
+    # Trigger the workflow on push or pull request,
+    # but only for the main branch
+    push:
+        branches:
+            - main
+    pull_request:
+        branches:
+            - main
+
+permissions:
+    checks: write
+    contents: write
+
+jobs:
+    run-linters:
+        name: Run linters
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Check out Git repository
+              uses: actions/checkout@v4
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+
+            - name: Install prettier
+              run: npm install prettier
+
+            - name: Run linters
+              uses: wearerequired/lint-action@v2
+              with:
+                  continue_on_error: false
+                  prettier: true

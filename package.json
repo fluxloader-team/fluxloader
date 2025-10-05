@@ -10,7 +10,7 @@
 		"url": "https://git.rendezvous.dev/sandustry/modloader.git"
 	},
 	"description": "A cross-platform modloader for Sandustry",
-	"version": "2.2.3",
+	"version": "2.2.4",
 	"main": "src/electron.js",
 	"type": "module",
 	"scripts": {
@@ -28,7 +28,8 @@
 	},
 	"devDependencies": {
 		"electron": "^35.0.2",
-		"electron-builder": "^26.0.12"
+		"electron-builder": "^26.0.12",
+		"prettier": "^3.6.2"
 	},
 	"build": {
 		"appId": "app.fluxloader.fluxloader",

@@ -3,7 +3,7 @@ import { EventBus, Logging } from "./common.js";
 // ------------- VARIABLES -------------
 
 // -- CHANGE VERSION SEARCH : Search this to find where to change version
-globalThis.fluxloaderVersion = "2.2.3";
+globalThis.fluxloaderVersion = "2.2.4";
 globalThis.fluxloaderAPI = undefined;
 
 let loadedMods = [];
