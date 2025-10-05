@@ -1220,7 +1220,7 @@ class ModsTab {
 		const dropdown = createElement(`<select>${modData.versions.reduce((acc, v) => acc + versionToOption(v), "")}</select>`);
 		// Show update icon if semver shows installed version is lower than latest from db
 		const updateIcon = createElement(
-			`<img src="./assets/circle-arrow-up.png" style="width: 1.5rem; height: 1.5rem; visibility: ${api.semver.compare(modData.info.version, modData.versions[0]) < 0 ? "visible" : "hidden"}" title="Update available">`
+			`<img src="./assets/circle-arrow-up.png" style="width: 1.5rem; height: 1.5rem; visibility: ${api.semver.compare(modData.info.version, modData.versions[0]) < 0 ? "visible" : "hidden"}" title="Update available">`,
 		);
 		dropdown.addEventListener("click", (e) => e.stopPropagation());
 		dropdown.addEventListener("change", (e) => this.changeModVersion(modData.modID, e));
@@ -2281,7 +2281,7 @@ class CreateModTab {
 			this.modCreateRequestData,
 			CreateModTab.modCreateRequestSchema,
 			(newConfig) => (this.modCreateRequestData = newConfig),
-			(value, schemaValue) => this.extraValidation(value, schemaValue)
+			(value, schemaValue) => this.extraValidation(value, schemaValue),
 		);
 	}
 
