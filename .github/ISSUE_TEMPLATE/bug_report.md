@@ -26,8 +26,10 @@ A clear and concise description of what you expected to happen.
 **Actual behavior**
 What happened instead of the expected behavior?
 
-**Screenshots / Videos**
+**Screenshots / Evidence**
 If applicable, include screenshots or videos to help illustrate your issue.
+
+And ***ATTACH A LOG***. This is a crucial step in determining what may have gone wrong. This can be found relative to the main program as `fluxloader-latest.log`.
 
 **System (please complete the following information):**
  - OS: [e.g. Windows]
