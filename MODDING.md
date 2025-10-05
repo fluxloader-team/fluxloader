@@ -1,23 +1,25 @@
-# Sandustry Fluxloader Modding
+# Fluxloader Modding
 
 This guide explains how to create, structure, and use mods with the **Fluxloader**, a modloader for Sandustry that supports patching and cross-context communication between Electron, Game, and Worker environments.
 
-Above anything in this guide *always consult the sourcecode* as the final truth.
+Above anything in this guide _always consult the sourcecode_ as the final truth.
 
-## Mod Structure
+## Overview
 
-Each mod is a directory containing:
+The fluxloader places mods inside the `/mods` folder. The mods are structured as following:
 
 -   A `modinfo.json` metadata file (required)
 -   Up to three entrypoints:
-
     -   `entry.electron.js`
     -   `entry.game.js`
     -   `entry.worker.js`
+-   Optional assets, scripts, and config files.
 
--   Optional assets, scripts, or config files
+The fluxloader can be configured with `fluxloader-config.json`, and outputs logs to `fluxloader-latest.log` and `fluxloader-previous.log`.
 
-**Example structure:**
+The manager window that opens allows you to manage and control all of this. This includes browsing, installing, and configuring mods,configuring the fluxloader and viewing the logs, changing the load order, and more.
+
+**Example Mod Structure**
 
 ```
 examplemod/
@@ -30,7 +32,7 @@ examplemod/
 ## `modinfo.json` Format
 
 This is the manifest used by Fluxloader to load and validate your mod.  
-The schema can be found in `src/schema.mod-info.json`, here is an example:
+The schema can be found in `src/schema.mod-info.json`. Here is an example:
 
 ```json
 {
@@ -62,32 +64,22 @@ The schema can be found in `src/schema.mod-info.json`, here is an example:
 
 ## Environment Entrypoints
 
-Each environment receives its own Fluxloader API instance:
+There are 3 "environments" your mod can run in:
 
--   `fluxloaderAPI.environment` is `"electron"`, `"game"`, or `"worker"`
+-   The fluxloader itself runs inside an `electron` node environment.
+-   When the game open its javascript code runs in the `game` environment.
+-   The workers are each in a `worker` environment.
+
+Your code will have access to an environment specific `fluxloaderAPI` instance in each.
 
 ### Electron Entrypoint (`entry.electron.js`)
 
-Runs in a `vm` context in the Electron main process. Can:
+Runs in a `vm` context in the Electron main process and can:
 
 -   Patch game files (`addPatch`, `addMappedPatch`, `setPatch`)
 -   Listen to loader events
 -   Send/receive IPC messages with the game environment
 -   Access mod configuration
-
-Example:
-
-```js
-fluxloaderAPI.addPatch("js/bundle.js", {
-	type: "replace",
-	from: "Will launch elements upward",
-	to: "Will throw some blocks around",
-});
-
-fluxloaderAPI.events.on("fl:mod-loaded", () => {
-	log("info", "examplemod", "Mod loaded");
-});
-```
 
 ### Game Entrypoint (`entry.game.js`)
 
@@ -98,14 +90,6 @@ Runs in the renderer process with access to the game runtime. Can:
 -   Send / receive messages to / from Workers
 -   Read / write mod configuration
 
-Example:
-
-```js
-fluxloaderAPI.handleElectronEvent("examplemod:someevent", (_, args) => {
-	log("info", "examplemod", "Received from Electron: " + JSON.stringify(args));
-});
-```
-
 ### Worker Entrypoint (`entry.worker.js`)
 
 Runs in a game worker thread. Can:
@@ -113,25 +97,17 @@ Runs in a game worker thread. Can:
 -   React to `fl:worker-initialized`
 -   Communicate with the game thread
 
-Example:
-
-```js
-fluxloaderAPI.events.on("fl:worker-initialized", () => {
-	fluxloaderAPI.sendGameMessage("examplemod:gamemsg", workerIndex, "Hello!");
-});
-```
-
 ## Fluxloader API
 
 ### Mod Config
 
-Each mod can define a `configSchema` in `modinfo.json`. Fluxloader handles storage and schema validation automatically.
-
+Each mod can define a `configSchema` in `modinfo.json`.  
+Fluxloader handles storage and schema validation automatically.  
 The electron and game provide async access through `fluxloaderAPI.modConfig`.
 
 ### Patches
 
-Electron mods can modify game files using:
+in the `electron` entrypoint mods can modify game files using:
 
 -   `addPatch(file, patchObj)`
 -   `setPatch(file, tag, patchObj)`
@@ -143,23 +119,24 @@ Electron mods can modify game files using:
 ```js
 {
   type: "replace",
-  from: "original string",
-  to: "replacement string$$",
-  token: "$$",
+  from: "world",
+  to: "hello $",
+  token: "$",
 }
 ```
 
 ### Events
 
+Each `fluxloaderAPI` defines static events your mods can listen to.  
 Find the events declared statically at the top of the environments `fluxloaderAPI`.
 
-**Common Events**
+**Commonly Used Events**
 
--   `fl:mod-loaded`
--   `fl:mod-unloaded`
--   `fl:all-mods-loaded`
--   `fl:game-started`
--   `fl:game-closed`
+-   `fl:mod-loaded` (electron)
+-   `fl:mod-unloaded` (electron)
+-   `fl:all-mods-loaded` (electron)
+-   `fl:game-started` (electron)
+-   `fl:game-closed` (electron)
 -   `fl:scene-loaded` (game)
 -   `fl:worker-initialized` (worker)
 
@@ -171,8 +148,7 @@ fluxloaderAPI.events.on("fl:event-name", handler);
 
 ## IPC Messaging
 
-Each of these have specific edge cases and usages, look at the source for more detail.  
-Some are asynchronous, some have callbacks, etc. Be careful with usage.  
+This is how you message between the environments. Each of these methods have specific edge cases and usages. Some are asynchronous, some have callbacks, etc - be careful with usage.
 
 ### Electron -> Game
 
@@ -184,8 +160,8 @@ fluxloaderAPI.handleElectronEvent("event", data); // game
 ### Game -> Electron
 
 ```js
-fluxloaderAPI.invokeElectronIPC("channel", args); // electron
-fluxloaderAPI.handleGameIPC("eventName", handler); // game
+fluxloaderAPI.invokeElectronIPC("channel", args); // game
+fluxloaderAPI.handleGameIPC("eventName", handler); // electron
 ```
 
 ### Game <-> Worker
