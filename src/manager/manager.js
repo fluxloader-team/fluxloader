@@ -63,10 +63,10 @@ function createElement(html) {
 }
 
 function handleResizer(resizer) {
-	let startX, startWidth, parent, isLeft;
+	let startX, startWidth, isLeft;
+	let parent = resizer.parentElement;
 
 	resizer.addEventListener("mousedown", (e) => {
-		parent = e.target.parentElement;
 		startX = e.pageX;
 		startWidth = parent.offsetWidth;
 		isLeft = resizer.classList.contains("left");
@@ -260,19 +260,19 @@ class ConfigSchemaElement {
 						// Main number input
 						input = document.createElement("input");
 						input.type = "number";
-						input.value = value;
 						if ("min" in schemaValue) input.min = schemaValue.min;
 						if ("max" in schemaValue) input.max = schemaValue.max;
 						if ("step" in schemaValue) input.step = schemaValue.step;
+						input.value = value;
 						input.style.width = disableSlider ? "100%" : "40%";
 						// Secondary slider input if both min and max are defined
 						if (disableSlider) break;
 						let slider = document.createElement("input");
 						slider.type = "range";
-						slider.value = value;
 						if ("min" in schemaValue) slider.min = schemaValue.min;
 						if ("max" in schemaValue) slider.max = schemaValue.max;
 						if ("step" in schemaValue) slider.step = schemaValue.step;
+						slider.value = value;
 						slider.style.width = "60%";
 						extraInputs.push(slider);
 						break;
@@ -512,6 +512,7 @@ class ModsTab {
 	isLoadingMods = false; // Blocking
 	isQueueingAction = false; // Blocking
 	isPerformingActions = false; // Blocking
+	loadMoreModsBoundFunc = null;
 
 	// ------------ SETUP ------------
 
@@ -556,15 +557,15 @@ class ModsTab {
 			await this.reloadMods();
 		});
 
-		getElement("mods-load-button").addEventListener("click", async () => {
-			await this.loadMoreMods();
-		});
+		getElement("mods-load-button").addEventListener("click", this.loadMoreModsBoundFunc);
 
 		getElement("action-execute-button").addEventListener("click", async () => {
 			await this.performQueuedActions();
 		});
 
 		this.updateActionExecutionButton();
+
+		this.loadMoreModsBoundFunc = this.loadMoreMods.bind(this);
 	}
 
 	async selectTab() {
@@ -580,6 +581,7 @@ class ModsTab {
 
 	async reloadMods() {
 		if (this.isLoadingMods || this.isPerformingActions) return pingBlockingTask("Cannot reload mods while loading or performing actions.");
+		this.setCanLoadMods(true);
 		this.setIsLoadingMods(true);
 		setStatusBar("Reloading all mods...", 0, "loading");
 		getElement("reload-mods").classList.add("loading");
@@ -600,6 +602,7 @@ class ModsTab {
 		}
 
 		// Fetch the installed mods with an arbitrary delay
+		// This will include the mod versions if online
 		const reloadStartTime = Date.now();
 		await this.loadInstalledMods(true);
 		const reloadEndTime = Date.now();
@@ -608,7 +611,9 @@ class ModsTab {
 		}
 
 		// If we are connected then fetch remote mods
-		if (connectionState === "online") await this.loadMoreRemoteMods();
+		if (connectionState === "online") {
+			await this.loadMoreRemoteMods();
+		}
 
 		// If we are selecting a mod then make sure to reselect it
 		if (this.selectedMod != null) {
@@ -631,7 +636,7 @@ class ModsTab {
 
 		// This function makes you go online if you are offline
 		if (connectionState === "offline") {
-			setConnectionState("connecting");
+			await toggleConnection();
 			await this.loadInstalledModsVersions();
 		}
 
@@ -1056,7 +1061,6 @@ class ModsTab {
 			rendered: true,
 		};
 
-		// Fetch mods but then apply arbitrary delay to make it not feel too fast
 		const startTime = Date.now();
 		const res = await api.invoke("fl:fetch-remote-mods", getInfo);
 		if (!res.success) {
@@ -1065,17 +1069,18 @@ class ModsTab {
 			this.setIsLoadingMods(false);
 			return;
 		}
-
 		const mods = res.data;
+
+		// Apply arbitrary delay so it doesn't feel flickery
 		const endTime = Date.now();
 		if (endTime - startTime < DELAY_LOAD_REMOTE_MS) {
 			await new Promise((resolve) => setTimeout(resolve, DELAY_LOAD_REMOTE_MS - (endTime - startTime)));
 		}
 
-		// Did not receive any mods so presume that we are offline
-		if (mods == null || mods == []) {
-			logDebug("No remote mods found.");
+		// No more mods left so reached the end
+		if (mods == null || mods.length === 0) {
 			this.setIsLoadingMods(false);
+			this.setCanLoadMods(false);
 			return;
 		}
 
@@ -1212,6 +1217,7 @@ class ModsTab {
 				break;
 			}
 		}
+
 		// If local version is greater than every version on server, give just the local version
 		if (isGreatest) return createElement(`<span>${modData.info.version}</span>`);
 
@@ -1369,6 +1375,17 @@ class ModsTab {
 
 		if (this.isLoadingMods) addBlockingTask("isLoadingMods");
 		else removeBlockingTask("isLoadingMods");
+	}
+
+	setCanLoadMods(canLoadMods) {
+		if (canLoadMods) {
+			getElement("mods-load-button").addEventListener("click", this.loadMoreModsBoundFunc);
+			getElement("mods-load-button").classList.remove("finished");
+		} else {
+			getElement("mods-load-button").removeEventListener("click", this.loadMoreModsBoundFunc);
+			getElement("mods-load-button").innerText = "No more mods to load";
+			getElement("mods-load-button").classList.add("finished");
+		}
 	}
 
 	setIsQueueingAction(isQueueing) {
@@ -2508,7 +2525,7 @@ async function updateFluxloader() {
 	}
 }
 
-async function tryConnect(e) {
+async function toggleConnection(e) {
 	if (isPlaying || tabs.mods.isLoadingMods || tabs.mods.isPerformingActions || isPlayButtonLoading) {
 		return pingBlockingTask("Cannot change connection state while playing, loading mods, or performing actions.");
 	}
@@ -2529,16 +2546,9 @@ async function tryConnect(e) {
 		addBlockingTask("connecting");
 		setConnectionState("connecting");
 		logDebug("Attempting to connect to the server...");
-
 		const res = await api.invoke("fl:ping-server");
 		if (res.success) {
-			logDebug("Successfully pinged the server, connection is online.");
 			setConnectionState("online");
-
-			// If successfully connected then fetch versions for installed mods
-			await tabs.mods.loadInstalledModsVersions();
-
-			// Check for updates to the fluxloader
 			checkFluxloaderUpdates();
 		} else {
 			logError("Failed to ping the server, connection is offline");
@@ -2656,11 +2666,7 @@ function pingBlockingTask(message) {
 
 	getElement("play-button").addEventListener("click", () => handleClickPlayButton());
 
-	if (config.manager.autoConnect) {
-		tryConnect();
-	}
-
-	getElement("connection-button").addEventListener("click", (e) => tryConnect(e));
+	getElement("connection-button").addEventListener("click", (e) => toggleConnection(e));
 
 	getElement("footer-dropdown-unmodded").addEventListener("click", (e) => {
 		e.stopPropagation();
@@ -2678,6 +2684,11 @@ function pingBlockingTask(message) {
 	getElement("open-mods-folder").addEventListener("click", async () => await api.invoke("fl:open-mods-folder"));
 
 	setStatusBar("", 0);
+
+	if (config.manager.autoConnect) {
+		await toggleConnection();
+	}
+
 	await selectTab("mods");
 
 	logDebug("FluxLoader Manager started");
