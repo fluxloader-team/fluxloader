@@ -168,7 +168,7 @@ function ensureDirectoryExists(dirPath) {
 }
 
 function formatMarkdown(text, modname) {
-	// Generates HTML from markdown and fixes relative file paths
+	// Generates HTML from markdown and fixes relative image file paths
 	let dom = new JSDOM(marked(text));
 	let images = dom.window.document.querySelectorAll("img");
 	for (const image of images) {
@@ -1751,7 +1751,7 @@ class ModsManager {
 
 	setIsLoadOrderManual(isManual) {
 		config.isLoadOrderManual = isManual;
-		config.loadOrder = [];
+		if (!isManual) config.loadOrder = [];
 		updateFluxloaderConfig();
 		this._updateLoadOrder();
 	}

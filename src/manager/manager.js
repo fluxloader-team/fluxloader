@@ -63,10 +63,10 @@ function createElement(html) {
 }
 
 function handleResizer(resizer) {
-	let startX, startWidth, parent, isLeft;
+	let startX, startWidth, isLeft;
+	let parent = resizer.parentElement;
 
 	resizer.addEventListener("mousedown", (e) => {
-		parent = e.target.parentElement;
 		startX = e.pageX;
 		startWidth = parent.offsetWidth;
 		isLeft = resizer.classList.contains("left");
@@ -260,19 +260,19 @@ class ConfigSchemaElement {
 						// Main number input
 						input = document.createElement("input");
 						input.type = "number";
-						input.value = value;
 						if ("min" in schemaValue) input.min = schemaValue.min;
 						if ("max" in schemaValue) input.max = schemaValue.max;
 						if ("step" in schemaValue) input.step = schemaValue.step;
+						input.value = value;
 						input.style.width = disableSlider ? "100%" : "40%";
 						// Secondary slider input if both min and max are defined
 						if (disableSlider) break;
 						let slider = document.createElement("input");
 						slider.type = "range";
-						slider.value = value;
 						if ("min" in schemaValue) slider.min = schemaValue.min;
 						if ("max" in schemaValue) slider.max = schemaValue.max;
 						if ("step" in schemaValue) slider.step = schemaValue.step;
+						slider.value = value;
 						slider.style.width = "60%";
 						extraInputs.push(slider);
 						break;
