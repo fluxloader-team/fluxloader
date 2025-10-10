@@ -94,8 +94,8 @@ async function loadAllMods() {
 }
 
 function catchUnexpectedExits() {
-	window.onerror = (event) => {
-		logError(`An unexpected error occurred: ${JSON.stringify(event)}`);
+	window.onerror = (message, source, lineno, colno) => {
+		logError(`An unexpected error occurred: ${JSON.stringify(message)} (${source} @ ${lineno}:${colno})`);
 	};
 	window.onunhandledrejection = (event) => {
 		logError(`An unhandled promise rejection occurred: ${event.reason}`);
