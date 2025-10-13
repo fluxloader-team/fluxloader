@@ -122,6 +122,18 @@
 			"default": 200,
 			"min": 0
 		},
+		"maxSearchSidebarSize": {
+			"type": "number",
+			"description": "The maximum size, in pixels, the left search sidebar can expand to",
+			"default": 350,
+			"min": 0
+		},
+		"maxModInfoSidebarSize": {
+			"type": "number",
+			"description": "The maximum size, in pixels, the right modinfo sidebar can expand to",
+			"default": 800,
+			"min": 0
+		},
 		"updateOS": {
 			"type": "dropdown",
 			"description": "Which file to download when downloading updates",

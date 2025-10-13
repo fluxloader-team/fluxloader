@@ -79,9 +79,23 @@ function handleResizer(resizer) {
 	});
 
 	if (resizer.classList.contains("enforceMin")) {
-		resizer.parentElement.style.minWidth = config.manager.minResizerSize || 0;
+		resizer.parentElement.style.minWidth = config.manager.minResizerSize !== 0 ? config.manager.minResizerSize : undefined;
 		events.on("config-changed", (newConfig) => {
-			parent.style.minWidth = newConfig.manager.minResizerSize || 0;
+			parent.style.minWidth = newConfig.manager.minResizerSize !== 0 ? newConfig.manager.minResizerSize : undefined;
+		});
+	}
+
+	if (resizer.id === "modinfoResizer") {
+		resizer.parentElement.style.maxWidth = config.manager.maxModInfoSidebarSize !== 0 ? config.manager.maxModInfoSidebarSize : undefined;
+		events.on("config-changed", (newConfig) => {
+			parent.style.maxWidth = newConfig.manager.maxModInfoSidebarSize !== 0 ? newConfig.manager.maxModInfoSidebarSize : undefined;
+		});
+	}
+
+	if (resizer.id === "searchResizer") {
+		resizer.parentElement.style.maxWidth = config.manager.maxSearchSidebarSize || 0;
+		events.on("config-changed", (newConfig) => {
+			parent.style.maxWidth = newConfig.manager.maxSearchSidebarSize || 0;
 		});
 	}
 
@@ -239,7 +253,7 @@ class ConfigSchemaElement {
 
 				// Create the input element based on the schema type
 				let value = configSection?.[key] ?? schemaValue.default;
-				if (!value) value = "";
+				if (value === undefined) value = "";
 				let input;
 				let extraInputs = [];
 				switch (schemaValue.type) {
