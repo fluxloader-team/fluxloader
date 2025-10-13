@@ -1335,7 +1335,7 @@ class ModsManager {
 
 				// We should only try and find a mod version that fits if:
 				// - One of the dependencies is explicit (not optional or conflict)
-				// - We have the mod installed (and therefore need we are searching for a version that matches versions)
+				// - We have the mod installed (and therefore we are searching for a version that matches versions)
 				let needsToBeConsidered = false;
 				for (const constraint of currentModConstraints) {
 					if (!constraint.version.startsWith("optional:") && !constraint.version.startsWith("conflict:")) {
@@ -1407,6 +1407,10 @@ class ModsManager {
 					}
 				}
 				if (!foundVersion) {
+					if (uninstallConstraints[requiredModID]) {
+						logDebug(`No version found for mod '${requiredModID}' that satisfies all constraints. It is already marked as an uninstall constraint.`);
+						continue;
+					}
 					return errorResponse(
 						`No version found for mod '${requiredModID}' that satisfies all constraints: ${JSON.stringify(currentModConstraints)}`,
 						{
@@ -1445,7 +1449,7 @@ class ModsManager {
 				errorReason: "unstable-configuration",
 			});
 		}
-		logDebug(`Found stable configuration of mod versions: ${JSON.stringify(currentState)}`);
+		logDebug(`Found stable configuration of mod versions after ${iterations} iterations: ${JSON.stringify(currentState)}`);
 
 		// Now need to convert the stable state + explicit uninstalls into a set of "install", "change", and "uninstall" actions
 		// Always convert a hard uninstall into an "uninstall" action
