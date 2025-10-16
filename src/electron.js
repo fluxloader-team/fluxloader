@@ -29,7 +29,7 @@ import Module from "module";
 
 // =================== VARIABLES ===================
 
-globalThis.fluxloaderVersion = "2.2.5";
+globalThis.fluxloaderVersion = "2.2.6";
 globalThis.fluxloaderAPI = undefined;
 globalThis.gameElectronFuncs = undefined;
 globalThis.gameWindow = undefined;
@@ -2020,7 +2020,13 @@ class ModsManager {
 			if (mod.isEnabled && mod.info.dependencies) {
 				for (const depModID in mod.info.dependencies) {
 					const dependency = mod.info.dependencies[depModID];
-					const modVersion = this.isModInstalled(depModID) ? this.installedMods[depModID].info.version : null;
+					if (!this.isModInstalled(depModID)) {
+						return errorResponse(`Mod '${modID}' depends on '${depModID}' with version ${dependency}, but no version is installed`);
+					}
+					const modVersion = this.installedMods[depModID].info.version;
+					if (!this.installedMods[depModID].isEnabled) {
+						return errorResponse(`Mod '${modID}' depends on '${depModID}' with version ${dependency}, but version ${modVersion} is not enabled`);
+					}
 					if (!FluxloaderSemver.doesVersionSatisfyDependency(modVersion, dependency)) {
 						return errorResponse(`Mod '${modID}' depends on '${depModID}' with version ${dependency}, but installed version is ${modVersion}`);
 					}

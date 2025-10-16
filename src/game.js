@@ -2,7 +2,7 @@ import { EventBus, Logging } from "./common.js";
 
 // =================== VARIABLES ===================
 
-globalThis.fluxloaderVersion = "2.2.5";
+globalThis.fluxloaderVersion = "2.2.6";
 globalThis.fluxloaderAPI = undefined;
 
 let loadedMods = [];
