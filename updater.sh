@@ -19,6 +19,7 @@ case "$OS" in
         echo "Renaming new exe..."
         mv fluxloader-temp $(basename $2)
         chmod +x $(basename $2)
+        ./$(basename $2)
     ;;
     Darwin*)
         echo "macOS finishing touches..."
