@@ -33,7 +33,9 @@ globalThis.fluxloaderVersion = "2.2.6";
 globalThis.fluxloaderAPI = undefined;
 globalThis.gameElectronFuncs = undefined;
 globalThis.gameWindow = undefined;
+
 globalThis.semver = semver;
+globalThis.path = path;
 
 let logLevels = ["debug", "info", "warn", "error"];
 let preConfigLogLevel = "debug";
@@ -1904,6 +1906,7 @@ class ModsManager {
 					const customRequire = Module.createRequire(absolutePath);
 					this.modContext.require = customRequire;
 					this.modContext.includeVMScript = includeVMScript;
+					this.modContext.modPath = mod.path;
 
 					script.runInContext(this.modContext);
 					return this.modContext.toplevelAsyncWrapperExport();
