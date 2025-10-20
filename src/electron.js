@@ -29,7 +29,7 @@ import Module from "module";
 
 // =================== VARIABLES ===================
 
-globalThis.fluxloaderVersion = "2.2.6";
+globalThis.fluxloaderVersion = "2.2.7";
 globalThis.fluxloaderAPI = undefined;
 globalThis.gameElectronFuncs = undefined;
 globalThis.gameWindow = undefined;
