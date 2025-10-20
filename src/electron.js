@@ -29,7 +29,7 @@ import Module from "module";
 
 // =================== VARIABLES ===================
 
-globalThis.fluxloaderVersion = "2.2.6";
+globalThis.fluxloaderVersion = "2.2.7";
 globalThis.fluxloaderAPI = undefined;
 globalThis.gameElectronFuncs = undefined;
 globalThis.gameWindow = undefined;
@@ -256,6 +256,10 @@ class ElectronFluxloaderAPI {
 
 	getModsPath() {
 		return modsManager.baseModsPath;
+	}
+
+	getUserDataPath() {
+		return app.getPath("userData");
 	}
 
 	handleGameIPC(channel, handler) {
