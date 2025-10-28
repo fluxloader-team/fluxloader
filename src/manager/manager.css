@@ -508,7 +508,7 @@ input[type="checkbox"]:checked::before {
 	border-radius: var(--br-small);
 	margin-top: 1.6rem;
 	padding: 0 0.8rem;
-	background: var(--color-bg-medium2);
+	background: var(--color-bg-medium);
 	position: sticky;
 	left: calc(50% - 0.8rem);
 	transform: translateX(-50%);
@@ -520,6 +520,11 @@ input[type="checkbox"]:checked::before {
 
 #mods-tab-content .main-center .mods-load-button.loading {
 	background: var(--color-bg-medium-active-darker);
+}
+
+#mods-tab-content .main-center .mods-load-button.finished {
+	background: var(--color-bg-light2);
+	cursor: default;
 }
 
 #mods-tab-content .main-center .button-bar {

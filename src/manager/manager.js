@@ -5,12 +5,9 @@ globalThis.semver = api.semver;
 
 const DELAY_LOAD_REMOTE_MS = 150;
 const DELAY_RELOAD_MS = 150;
+const FLUXLOADER_RELEASES_URL = "https://api.github.com/repos/fluxloader-team/fluxloader/releases";
 
 globalThis.tabs = { mods: null, config: null, logs: null };
-let selectedTab = null;
-let getElementMemoization = {};
-
-let config = {};
 
 // The following are blocking and should block other tasks
 // When they are changed use addBlockingTask() & removeBlockingTask()
@@ -19,10 +16,15 @@ let blockingTasks = new Set();
 let isPlaying = false;
 let isPlayButtonLoading = false;
 let isFullscreenAlertVisible = false;
-// tabs.isLoadingMods
-// tabs.isQueueingActions
-// tabs.isPerformingActions
+// ^ tabs.isLoadingMods
+// ^ tabs.isQueueingActions
+// ^ tabs.isPerformingActions
+
+let selectedTab = null;
+let getElementMemoization = {};
+let config = {};
 let connectionState = "offline";
+let newVersionRelease;
 
 // =================== LOGGING ===================
 
@@ -61,10 +63,10 @@ function createElement(html) {
 }
 
 function handleResizer(resizer) {
-	let startX, startWidth, parent, isLeft;
+	let startX, startWidth, isLeft;
+	let parent = resizer.parentElement;
 
 	resizer.addEventListener("mousedown", (e) => {
-		parent = e.target.parentElement;
 		startX = e.pageX;
 		startWidth = parent.offsetWidth;
 		isLeft = resizer.classList.contains("left");
@@ -77,9 +79,23 @@ function handleResizer(resizer) {
 	});
 
 	if (resizer.classList.contains("enforceMin")) {
-		resizer.parentElement.style.minWidth = config.manager.minResizerSize || 0;
+		resizer.parentElement.style.minWidth = config.manager.minResizerSize !== 0 ? config.manager.minResizerSize : undefined;
 		events.on("config-changed", (newConfig) => {
-			parent.style.minWidth = newConfig.manager.minResizerSize || 0;
+			parent.style.minWidth = newConfig.manager.minResizerSize !== 0 ? newConfig.manager.minResizerSize : undefined;
+		});
+	}
+
+	if (resizer.id === "modinfoResizer") {
+		resizer.parentElement.style.maxWidth = config.manager.maxModInfoSidebarSize !== 0 ? config.manager.maxModInfoSidebarSize : undefined;
+		events.on("config-changed", (newConfig) => {
+			parent.style.maxWidth = newConfig.manager.maxModInfoSidebarSize !== 0 ? newConfig.manager.maxModInfoSidebarSize : undefined;
+		});
+	}
+
+	if (resizer.id === "searchResizer") {
+		resizer.parentElement.style.maxWidth = config.manager.maxSearchSidebarSize || 0;
+		events.on("config-changed", (newConfig) => {
+			parent.style.maxWidth = newConfig.manager.maxSearchSidebarSize || 0;
 		});
 	}
 
@@ -237,7 +253,7 @@ class ConfigSchemaElement {
 
 				// Create the input element based on the schema type
 				let value = configSection?.[key] ?? schemaValue.default;
-				if (!value) value = "";
+				if (value === undefined) value = "";
 				let input;
 				let extraInputs = [];
 				switch (schemaValue.type) {
@@ -258,19 +274,19 @@ class ConfigSchemaElement {
 						// Main number input
 						input = document.createElement("input");
 						input.type = "number";
-						input.value = value;
 						if ("min" in schemaValue) input.min = schemaValue.min;
 						if ("max" in schemaValue) input.max = schemaValue.max;
 						if ("step" in schemaValue) input.step = schemaValue.step;
+						input.value = value;
 						input.style.width = disableSlider ? "100%" : "40%";
 						// Secondary slider input if both min and max are defined
 						if (disableSlider) break;
 						let slider = document.createElement("input");
 						slider.type = "range";
-						slider.value = value;
 						if ("min" in schemaValue) slider.min = schemaValue.min;
 						if ("max" in schemaValue) slider.max = schemaValue.max;
 						if ("step" in schemaValue) slider.step = schemaValue.step;
+						slider.value = value;
 						slider.style.width = "60%";
 						extraInputs.push(slider);
 						break;
@@ -510,6 +526,7 @@ class ModsTab {
 	isLoadingMods = false; // Blocking
 	isQueueingAction = false; // Blocking
 	isPerformingActions = false; // Blocking
+	loadMoreModsBoundFunc = null;
 
 	// ------------ SETUP ------------
 
@@ -554,15 +571,15 @@ class ModsTab {
 			await this.reloadMods();
 		});
 
-		getElement("mods-load-button").addEventListener("click", async () => {
-			await this.loadMoreMods();
-		});
+		getElement("mods-load-button").addEventListener("click", this.loadMoreModsBoundFunc);
 
 		getElement("action-execute-button").addEventListener("click", async () => {
 			await this.performQueuedActions();
 		});
 
 		this.updateActionExecutionButton();
+
+		this.loadMoreModsBoundFunc = this.loadMoreMods.bind(this);
 	}
 
 	async selectTab() {
@@ -578,6 +595,7 @@ class ModsTab {
 
 	async reloadMods() {
 		if (this.isLoadingMods || this.isPerformingActions) return pingBlockingTask("Cannot reload mods while loading or performing actions.");
+		this.setCanLoadMods(true);
 		this.setIsLoadingMods(true);
 		setStatusBar("Reloading all mods...", 0, "loading");
 		getElement("reload-mods").classList.add("loading");
@@ -598,6 +616,7 @@ class ModsTab {
 		}
 
 		// Fetch the installed mods with an arbitrary delay
+		// This will include the mod versions if online
 		const reloadStartTime = Date.now();
 		await this.loadInstalledMods(true);
 		const reloadEndTime = Date.now();
@@ -606,7 +625,9 @@ class ModsTab {
 		}
 
 		// If we are connected then fetch remote mods
-		if (connectionState === "online") await this.loadMoreRemoteMods();
+		if (connectionState === "online") {
+			await this.loadMoreRemoteMods();
+		}
 
 		// If we are selecting a mod then make sure to reselect it
 		if (this.selectedMod != null) {
@@ -629,7 +650,7 @@ class ModsTab {
 
 		// This function makes you go online if you are offline
 		if (connectionState === "offline") {
-			setConnectionState("connecting");
+			await toggleConnection();
 			await this.loadInstalledModsVersions();
 		}
 
@@ -1054,7 +1075,6 @@ class ModsTab {
 			rendered: true,
 		};
 
-		// Fetch mods but then apply arbitrary delay to make it not feel too fast
 		const startTime = Date.now();
 		const res = await api.invoke("fl:fetch-remote-mods", getInfo);
 		if (!res.success) {
@@ -1063,17 +1083,18 @@ class ModsTab {
 			this.setIsLoadingMods(false);
 			return;
 		}
-
 		const mods = res.data;
+
+		// Apply arbitrary delay so it doesn't feel flickery
 		const endTime = Date.now();
 		if (endTime - startTime < DELAY_LOAD_REMOTE_MS) {
 			await new Promise((resolve) => setTimeout(resolve, DELAY_LOAD_REMOTE_MS - (endTime - startTime)));
 		}
 
-		// Did not receive any mods so presume that we are offline
-		if (mods == null || mods == []) {
-			logDebug("No remote mods found.");
+		// No more mods left so reached the end
+		if (mods == null || mods.length === 0) {
 			this.setIsLoadingMods(false);
+			this.setCanLoadMods(false);
 			return;
 		}
 
@@ -1210,6 +1231,7 @@ class ModsTab {
 				break;
 			}
 		}
+
 		// If local version is greater than every version on server, give just the local version
 		if (isGreatest) return createElement(`<span>${modData.info.version}</span>`);
 
@@ -1218,7 +1240,7 @@ class ModsTab {
 		const dropdown = createElement(`<select>${modData.versions.reduce((acc, v) => acc + versionToOption(v), "")}</select>`);
 		// Show update icon if semver shows installed version is lower than latest from db
 		const updateIcon = createElement(
-			`<img src="./assets/circle-arrow-up.png" style="width: 1.5rem; height: 1.5rem; visibility: ${api.semver.compare(modData.info.version, modData.versions[0]) < 0 ? "visible" : "hidden"}" title="Update available">`
+			`<img src="./assets/circle-arrow-up.png" style="width: 1.5rem; height: 1.5rem; visibility: ${api.semver.compare(modData.info.version, modData.versions[0]) < 0 ? "visible" : "hidden"}" title="Update available">`,
 		);
 		dropdown.addEventListener("click", (e) => e.stopPropagation());
 		dropdown.addEventListener("change", (e) => this.changeModVersion(modData.modID, e));
@@ -1367,6 +1389,17 @@ class ModsTab {
 
 		if (this.isLoadingMods) addBlockingTask("isLoadingMods");
 		else removeBlockingTask("isLoadingMods");
+	}
+
+	setCanLoadMods(canLoadMods) {
+		if (canLoadMods) {
+			getElement("mods-load-button").addEventListener("click", this.loadMoreModsBoundFunc);
+			getElement("mods-load-button").classList.remove("finished");
+		} else {
+			getElement("mods-load-button").removeEventListener("click", this.loadMoreModsBoundFunc);
+			getElement("mods-load-button").innerText = "No more mods to load";
+			getElement("mods-load-button").classList.add("finished");
+		}
 	}
 
 	setIsQueueingAction(isQueueing) {
@@ -2268,7 +2301,7 @@ class CreateModTab {
 
 	async setup() {
 		this.modCreateRequestData = {};
-		SchemaValidation.validate(this.modCreateRequestData, CreateModTab.modCreateRequestSchema);
+		SchemaValidation.validate({ target: this.modCreateRequestData, schema: CreateModTab.modCreateRequestSchema });
 
 		const submitButton = getElement("create-mod-submit");
 		submitButton.addEventListener("click", async () => this.submitModInfo());
@@ -2279,7 +2312,7 @@ class CreateModTab {
 			this.modCreateRequestData,
 			CreateModTab.modCreateRequestSchema,
 			(newConfig) => (this.modCreateRequestData = newConfig),
-			(value, schemaValue) => this.extraValidation(value, schemaValue)
+			(value, schemaValue) => this.extraValidation(value, schemaValue),
 		);
 	}
 
@@ -2297,7 +2330,7 @@ class CreateModTab {
 	}
 
 	async submitModInfo() {
-		if (!SchemaValidation.validate(this.modCreateRequestData, CreateModTab.modCreateRequestSchema)) {
+		if (!SchemaValidation.validate({ target: this.modCreateRequestData, schema: CreateModTab.modCreateRequestSchema }).success) {
 			setStatusBar("Mod creation data is invalid, please check the fields.", 0, "failed");
 			logError("Mod creation data is invalid:", this.modCreateRequestData);
 			return;
@@ -2434,26 +2467,30 @@ function setConnectionState(state) {
 	connectionState = state;
 }
 
-let latestUpdate;
 async function checkFluxloaderUpdates() {
 	addBlockingTask("checkingUpdates");
 	try {
 		logDebug("Checking for updates to Fluxloader...");
-		setStatusBar("Checking for Fluxloader updates..", 0, "loading");
-		const releases = await (await fetch("https://git.rendezvous.dev/api/v4/projects/33/releases")).json();
-		logDebug(`${releases.length} releases found`);
-		setStatusBar(`${releases.length} versions found..`, 33, "loading");
+		setStatusBar("Checking for Fluxloader updates...", 0, "loading");
+
+		const releases = await (await fetch(FLUXLOADER_RELEASES_URL)).json();
+		logDebug(`${releases.length} fluxloader versions received`);
+		setStatusBar(`${releases.length} fluxloader versions received...`, 33, "loading");
+
 		if (releases.length === 0) {
 			throw new Error("Release count returned was 0");
 		}
+
+		const installedVersion = await api.invoke("fl:get-fluxloader-version");
 		let latestVersion = releases[0].tag_name;
 		if (!semver.valid(latestVersion)) {
-			throw new Error("Latest release version is not valid semver: " + latestVersion);
+			throw new Error("Latest version is not valid semver: " + latestVersion);
 		}
-		logDebug(`Latest version is v${latestVersion}`);
-		const installedVersion = await api.invoke("fl:get-fluxloader-version");
+
 		logDebug(`Installed version is v${installedVersion}`);
+		logDebug(`Latest version is v${latestVersion}`);
 		setStatusBar(`Latest version is v${latestVersion} (v${installedVersion} is installed)`, 66, "loading");
+
 		// Check if the latest version is newer than the installed one
 		if (semver.compare(latestVersion, installedVersion) <= 0) {
 			logDebug("No update required");
@@ -2461,44 +2498,52 @@ async function checkFluxloaderUpdates() {
 			removeBlockingTask("checkingUpdates");
 			return;
 		}
+
 		logDebug(`A new version of Fluxloader is available: v${latestVersion} (v${installedVersion} installed)`);
 		setStatusBar("A new version of Fluxloader is available!", 100, "success");
-		latestUpdate = releases[0];
+		newVersionRelease = releases[0];
+
 		let button = getElement("update-button");
 		button.style.display = "flex";
-		button.onclick = updateFluxloader;
+		button.onclick = () => updateFluxloader();
 	} catch (e) {
 		setStatusBar(`Failed to find updates`, 0, "failed");
 		logError("Error occured while checking for Fluxloader updates: " + e.message);
+	} finally {
+		removeBlockingTask("checkingUpdates");
 	}
-	removeBlockingTask("checkingUpdates");
 }
 
 async function updateFluxloader() {
 	addBlockingTask("updating");
 	try {
-		if (!latestUpdate) checkFluxloaderUpdates();
-		// Check again
-		if (!latestUpdate) throw new Error("No updates available");
-		logDebug(`Downloading update v${latestUpdate.tag_name}...`);
-		setStatusBar(`Downloading Fluxloader v${latestUpdate.tag_name}..`, 40, "loading");
-		let result = await api.invoke("fl:download-update", latestUpdate.assets.links);
+		// Check once if called without a version otherwise error
+		if (newVersionRelease == null) checkFluxloaderUpdates();
+		if (newVersionRelease == null) throw new Error("No updates available");
+
+		logDebug(`Downloading update v${newVersionRelease.tag_name}...`);
+		setStatusBar(`Downloading Fluxloader v${newVersionRelease.tag_name}..`, 40, "loading");
+
+		let result = await api.invoke("fl:download-update", newVersionRelease);
 		if (result === true) {
-			setStatusBar(`Launching update helper.. Fluxloader will close when done`, 75, "loading");
+			setStatusBar(`Launching update helper... Fluxloader will close when done`, 75, "loading");
 			return;
 		}
+
 		throw new Error("Electron side failed to download update");
 	} catch (e) {
 		setStatusBar(`Failed to update Fluxloader`, 0, "failed");
 		logError("Error occured while updating Fluxloader: " + e.message);
+	} finally {
+		removeBlockingTask("updating");
 	}
-	removeBlockingTask("updating");
 }
 
-async function handleClickConnectionButton(e) {
+async function toggleConnection(e) {
 	if (isPlaying || tabs.mods.isLoadingMods || tabs.mods.isPerformingActions || isPlayButtonLoading) {
 		return pingBlockingTask("Cannot change connection state while playing, loading mods, or performing actions.");
 	}
+
 	// Instantly disconnect
 	if (connectionState === "online") {
 		logDebug("Disconnecting from the server...");
@@ -2517,13 +2562,7 @@ async function handleClickConnectionButton(e) {
 		logDebug("Attempting to connect to the server...");
 		const res = await api.invoke("fl:ping-server");
 		if (res.success) {
-			logDebug("Successfully pinged the server, connection is online.");
 			setConnectionState("online");
-
-			// If succesfully connect then fetch installed mods versions
-			await tabs.mods.loadInstalledModsVersions();
-
-			// Check for updates to the fluxloader
 			checkFluxloaderUpdates();
 		} else {
 			logError("Failed to ping the server, connection is offline");
@@ -2641,10 +2680,7 @@ function pingBlockingTask(message) {
 
 	getElement("play-button").addEventListener("click", () => handleClickPlayButton());
 
-	if (config.manager.autoConnect) {
-		handleClickConnectionButton(); // Let's hope this causes no issues.. for now
-	}
-	getElement("connection-button").addEventListener("click", (e) => handleClickConnectionButton(e));
+	getElement("connection-button").addEventListener("click", (e) => toggleConnection(e));
 
 	getElement("footer-dropdown-unmodded").addEventListener("click", (e) => {
 		e.stopPropagation();
@@ -2662,6 +2698,11 @@ function pingBlockingTask(message) {
 	getElement("open-mods-folder").addEventListener("click", async () => await api.invoke("fl:open-mods-folder"));
 
 	setStatusBar("", 0);
+
+	if (config.manager.autoConnect) {
+		await toggleConnection();
+	}
+
 	await selectTab("mods");
 
 	logDebug("FluxLoader Manager started");

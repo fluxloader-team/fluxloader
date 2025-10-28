@@ -10,7 +10,7 @@
 		"url": "https://git.rendezvous.dev/sandustry/modloader.git"
 	},
 	"description": "A cross-platform modloader for Sandustry",
-	"version": "2.1.0",
+	"version": "2.2.7",
 	"main": "src/electron.js",
 	"type": "module",
 	"scripts": {
@@ -28,18 +28,20 @@
 	},
 	"devDependencies": {
 		"electron": "^35.0.2",
-		"electron-builder": "^26.0.12"
+		"electron-builder": "^26.0.12",
+		"prettier": "^3.6.2"
 	},
 	"build": {
-		"appId": "app.fluxloader.Fluxloader",
-		"productName": "Fluxloader",
-		"artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+		"appId": "app.fluxloader.fluxloader",
+		"productName": "fluxloader",
+		"artifactName": "${productName}-${os}-${arch}.${ext}",
 		"asar": true,
 		"publish": null,
 		"extraResources": [
 			".env",
 			"updater.sh",
-			"updater.bat"
+			"updater.bat",
+			"build"
 		],
 		"directories": {
 			"output": "dist",
@@ -77,7 +79,7 @@
 			]
 		},
 		"nsis": {
-			"artifactName": "Fluxloader-${version}-setup-${arch}-legacy.${ext}"
+			"artifactName": "${productName}-${os}-${arch}-legacy.${ext}"
 		},
 		"linux": {
 			"icon": "build/icons/256x256.png",
@@ -97,9 +99,6 @@
 					]
 				}
 			]
-		},
-		"extraMetadata": {
-			"buildResources": "build"
 		}
 	}
 }

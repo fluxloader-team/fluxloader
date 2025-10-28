@@ -1,9 +1,9 @@
-// ------------- VARIABLES -------------
+// =================== VARIABLES ===================
 
-globalThis.fluxloaderVersion = "2.1.0";
+globalThis.fluxloaderVersion = "2.2.7";
 globalThis.fluxloaderAPI = undefined;
 
-// ------------- UTILTY -------------
+// =================== UTILITY ===================
 
 globalThis.log = function (level, tag, message) {
 	const timestamp = new Date().toISOString().split("T")[1].split("Z")[0];
@@ -17,7 +17,7 @@ globalThis.logInfo = (...args) => log("info", "", args.join(" "));
 globalThis.logWarn = (...args) => log("warn", "", args.join(" "));
 globalThis.logError = (...args) => log("error", "", args.join(" "));
 
-// ------------- MAIN -------------
+// =================== MAIN ===================
 
 class WorkerFluxloaderAPI {
 	static allEvents = ["fl:worker-initialized"];

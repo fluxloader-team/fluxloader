@@ -15,14 +15,9 @@ import { EventBus, SchemaValidation, Logging, FluxloaderSemver } from "./common.
 import semver from "semver";
 import AdmZip from "adm-zip";
 import Module from "module";
-globalThis.semver = semver;
 
-dotenv.config({
-	path: app.isPackaged ? path.join(process.resourcesPath, ".env") : path.resolve(process.cwd(), ".env"),
-});
+// =================== GENERAL ARCHITECTURE ===================
 
-// ---- General architecture ----
-//
 // Top level functions of classes / the fluxloader should not throw errors in cases where it is not catastrophic
 // Instead use successResponse() or errorResponse() to return a response object
 //
@@ -34,10 +29,11 @@ dotenv.config({
 
 // =================== VARIABLES ===================
 
-globalThis.fluxloaderVersion = "2.1.0";
+globalThis.fluxloaderVersion = "2.2.7";
 globalThis.fluxloaderAPI = undefined;
 globalThis.gameElectronFuncs = undefined;
 globalThis.gameWindow = undefined;
+globalThis.semver = semver;
 
 let logLevels = ["debug", "info", "warn", "error"];
 let preConfigLogLevel = "debug";
@@ -52,7 +48,6 @@ let configLoaded = false;
 let modsManager = undefined;
 let gameFilesManager = undefined;
 let managerWindow = undefined;
-let fluxloaderEvents = undefined;
 let logsForManager = [];
 let isGameStarted = false;
 let isManagerStarted = false;
@@ -172,9 +167,8 @@ function ensureDirectoryExists(dirPath) {
 	}
 }
 
-// Generates HTML from markdown and fixes relative file paths
 function formatMarkdown(text, modname) {
-	// Parse markdown and process resulting HTML
+	// Generates HTML from markdown and fixes relative image file paths
 	let dom = new JSDOM(marked(text));
 	let images = dom.window.document.querySelectorAll("img");
 	for (const image of images) {
@@ -190,7 +184,6 @@ class ElectronFluxloaderAPI {
 	environment = "electron";
 	events = undefined;
 	modConfig = undefined;
-	fileManager = gameFilesManager;
 
 	constructor() {
 		this.events = new EventBus();
@@ -198,59 +191,75 @@ class ElectronFluxloaderAPI {
 	}
 
 	addPatch(file, patch) {
+		if (!gameFilesManager) throw new Error("Cannot add patch before file manager is initialized");
 		const tag = randomUUID();
 		gameFilesManager.setPatch(file, tag, patch);
 		return tag;
 	}
 
 	setPatch(file, tag, patch) {
+		if (!gameFilesManager) throw new Error("Cannot set patch before file manager is initialized");
 		gameFilesManager.setPatch(file, tag, patch);
 	}
 
 	addMappedPatch(fileMap, mapFunction) {
+		if (!gameFilesManager) throw new Error("Cannot add mapped patch before file manager is initialized");
 		const tag = randomUUID();
 		gameFilesManager.setMappedPatch(fileMap, tag, mapFunction);
 		return tag;
 	}
 
 	setMappedPatch(fileMap, tag, mapFunction) {
+		if (!gameFilesManager) throw new Error("Cannot set mapped patch before file manager is initialized");
 		gameFilesManager.setMappedPatch(fileMap, tag, mapFunction);
 	}
 
 	patchExists(file, tag) {
+		if (!gameFilesManager) throw new Error("Cannot check patch before file manager is initialized");
 		gameFilesManager.patchExists(file, tag);
 	}
 
 	removePatch(file, tag) {
+		if (!gameFilesManager) throw new Error("Cannot remove patch before file manager is initialized");
 		gameFilesManager.removePatch(file, tag);
 	}
 
 	repatchAllFiles() {
+		if (!gameFilesManager) throw new Error("Cannot repatch all files before file manager is initialized");
 		gameFilesManager.repatchAllFiles();
 	}
 
 	repatchFile(file) {
+		if (!gameFilesManager) throw new Error("Cannot repatch file before file manager is initialized");
 		gameFilesManager._repatchFile(file);
 	}
 
 	getGameBasePath() {
+		if (!gameFilesManager) throw new Error("Cannot get game base path before file manager is initialized");
 		return gameFilesManager.gameBasePath;
 	}
 
 	getGameAsarPath() {
+		if (!gameFilesManager) throw new Error("Cannot get game asar path before file manager is initialized");
 		return gameFilesManager.gameAsarPath;
 	}
 
 	getTempBasePath() {
+		if (!gameFilesManager) throw new Error("Cannot get temp base path before file manager is initialized");
 		return gameFilesManager.tempBasePath;
 	}
 
 	getTempExtractedPath() {
+		if (!gameFilesManager) throw new Error("Cannot get temp extracted path before file manager is initialized");
 		return gameFilesManager.tempExtractedPath;
 	}
 
 	getModsPath() {
 		return modsManager.baseModsPath;
+	}
+
+	getUserDataPath() {
+		return app.getPath("userData");
 	}
 
 	handleGameIPC(channel, handler) {
@@ -336,8 +345,8 @@ class ElectronModConfigAPI {
 		if (!ignoreSchema) {
 			// Silent fail if mod isn't installed, which shouldn't be the case *ever*
 			if (!modsManager.installedMods.hasOwnProperty(modID)) return;
-			const res = SchemaValidation.validate(_config, modsManager.installedMods[modID].info.configSchema, { unknownKeyMethod: "ignore" });
-			if (!res.success) return errorResponse(`Mod info schema validation failed when being set: (${res.source}) ${res.error}`);
+			const res = SchemaValidation.validate({ target: _config, schema: modsManager.installedMods[modID].info.configSchema, config: { unknownKeyMethod: "ignore" } });
+			if (!res.success) return errorResponse(`Mod info schema validation failed when being set: (${res.source}) ${res.error.message}`);
 		}
 
 		// If this fails treat it as catastrophic for now
@@ -538,7 +547,7 @@ class GameFilesManager {
 				`invoke: (msg, ...args) => ipcRenderer.invoke(msg, ...args),
 				handle: (msg, func) => ipcRenderer.handle(msg, func),
 				on: (msg, func) => ipcRenderer.on(msg, func),
-				save: (id, name, data)`
+				save: (id, name, data)`,
 			);
 
 			// Hook into the debugger
@@ -1330,7 +1339,7 @@ class ModsManager {
 
 				// We should only try and find a mod version that fits if:
 				// - One of the dependencies is explicit (not optional or conflict)
-				// - We have the mod installed (and therefore need we are searching for a version that matches versions)
+				// - We have the mod installed (and therefore we are searching for a version that matches versions)
 				let needsToBeConsidered = false;
 				for (const constraint of currentModConstraints) {
 					if (!constraint.version.startsWith("optional:") && !constraint.version.startsWith("conflict:")) {
@@ -1402,6 +1411,10 @@ class ModsManager {
 					}
 				}
 				if (!foundVersion) {
+					if (uninstallConstraints[requiredModID]) {
+						logDebug(`No version found for mod '${requiredModID}' that satisfies all constraints. It is already marked as an uninstall constraint.`);
+						continue;
+					}
 					return errorResponse(
 						`No version found for mod '${requiredModID}' that satisfies all constraints: ${JSON.stringify(currentModConstraints)}`,
 						{
@@ -1409,7 +1422,7 @@ class ModsManager {
 							errorData: currentModConstraints,
 							errorReason: "version-satisfy",
 						},
-						false
+						false,
 					);
 				}
 				logDebug(`Found version '${foundVersion}' for mod '${requiredModID}' that satisfies all constraints`);
@@ -1440,7 +1453,7 @@ class ModsManager {
 				errorReason: "unstable-configuration",
 			});
 		}
-		logDebug(`Found stable configuration of mod versions: ${JSON.stringify(currentState)}`);
+		logDebug(`Found stable configuration of mod versions after ${iterations} iterations: ${JSON.stringify(currentState)}`);
 
 		// Now need to convert the stable state + explicit uninstalls into a set of "install", "change", and "uninstall" actions
 		// Always convert a hard uninstall into an "uninstall" action
@@ -1746,7 +1759,7 @@ class ModsManager {
 
 	setIsLoadOrderManual(isManual) {
 		config.isLoadOrderManual = isManual;
-		config.loadOrder = [];
+		if (!isManual) config.loadOrder = [];
 		updateFluxloaderConfig();
 		this._updateLoadOrder();
 	}
@@ -1783,8 +1796,8 @@ class ModsManager {
 		}
 
 		// Validate it against the schema
-		const res = SchemaValidation.validate(modInfo, this.modInfoSchema, { unknownKeyMethod: "ignore" });
-		if (!res.success) return errorResponse(`Mod info schema validation failed: (${res.source}) ${res.error}`);
+		const res = SchemaValidation.validate({ target: modInfo, schema: this.modInfoSchema, config: { unknownKeyMethod: "ignore" } });
+		if (!res.success) return errorResponse(`Mod info schema validation failed: (${res.source}) ${res.error.message}`);
 
 		// Store the base schema
 		try {
@@ -1862,10 +1875,24 @@ class ModsManager {
 		// if it defines a config schema then we need to validate it first
 		if (mod.info.configSchema && Object.keys(mod.info.configSchema).length > 0) {
 			logDebug(`Validating schema for mod: ${mod.info.modID}`);
-			let config = fluxloaderAPI.modConfig.get(mod.info.modID);
-			const res = SchemaValidation.validate(config, mod.info.configSchema);
-			if (!res.success) return errorResponse(`Mod '${mod.info.modID}' config schema validation failed: (${res.source}) ${res.error}`);
-			fluxloaderAPI.modConfig.set(mod.info.modID, config);
+			let modConfig = fluxloaderAPI.modConfig.get(mod.info.modID);
+			let temp = this; // Not sure what reference to use here, but `this` in the callback will be the SchemaValidation itself
+			const res = SchemaValidation.validate({
+				target: modConfig,
+				schema: mod.info.configSchema,
+				validateCallback: function (data) {
+					if (temp.modScriptsImport && temp.modScriptsImport[mod.info.modID] && temp.modScriptsImport[mod.info.modID].resolveInvalidSchemaValue) {
+						return temp.modScriptsImport[mod.info.modID].resolveInvalidSchemaValue(data);
+					}
+					if (config.manager.defaultSchemaFallback) {
+						return data.leaf.default;
+					}
+				},
+			});
+			if (!res.success) {
+				return errorResponse(`Mod '${mod.info.modID}' config schema validation failed: (${res.source}) ${res.error.message}`);
+			}
+			fluxloaderAPI.modConfig.set(mod.info.modID, modConfig);
 		}
 
 		if (mod.info.electronEntrypoint) {
@@ -2001,7 +2028,13 @@ class ModsManager {
 			if (mod.isEnabled && mod.info.dependencies) {
 				for (const depModID in mod.info.dependencies) {
 					const dependency = mod.info.dependencies[depModID];
-					const modVersion = this.isModInstalled(depModID) ? this.installedMods[depModID].info.version : null;
+					if (!this.isModInstalled(depModID)) {
+						return errorResponse(`Mod '${modID}' depends on '${depModID}' with version ${dependency}, but no version is installed`);
+					}
+					const modVersion = this.installedMods[depModID].info.version;
+					if (!this.installedMods[depModID].isEnabled) {
+						return errorResponse(`Mod '${modID}' depends on '${depModID}' with version ${dependency}, but version ${modVersion} is not enabled`);
+					}
 					if (!FluxloaderSemver.doesVersionSatisfyDependency(modVersion, dependency)) {
 						return errorResponse(`Mod '${modID}' depends on '${depModID}' with version ${dependency}, but installed version is ${modVersion}`);
 					}
@@ -2149,12 +2182,6 @@ class ModsManager {
 	}
 }
 
-function setupFluxloaderEvents() {
-	logDebug("Setting up fluxloader events");
-	fluxloaderEvents = new EventBus();
-	fluxloaderEvents.registerEvent("game-cleanup");
-}
-
 function loadFluxloaderConfig() {
 	configSchema = {};
 	logDebug(`Reading config from: ${configPath}`);
@@ -2177,14 +2204,14 @@ function loadFluxloaderConfig() {
 	}
 
 	// Validating against the schema will also set default values for any missing fields
-	let res = SchemaValidation.validate(config, configSchema, { unknownKeyMethod: "delete" });
+	let res = SchemaValidation.validate({ target: config, schema: configSchema, config: { unknownKeyMethod: "delete" } });
 	if (!res.success) {
 		// Applying the schema to an empty {} will set the default values
-		logDebug(`Config file ${configPath} is invalid: (${res.source}) ${res.error}`);
+		logDebug(`Config file ${configPath} is invalid: (${res.source}) ${res.error.message}`);
 		config = {};
-		res = SchemaValidation.validate(config, configSchema);
+		res = SchemaValidation.validate({ target: config, schema: configSchema });
 		if (!res.success) {
-			throw new Error(`Failed to validate empty config file: (${res.source}) ${res.error}`);
+			throw new Error(`Failed to validate empty config file: (${res.source}) ${res.error.message}`);
 		}
 	}
 
@@ -2298,7 +2325,7 @@ function addFluxloaderPatches() {
 				type: "replace",
 				from: "debug:{active:!1",
 				to: "debug:{active:1",
-			})
+			}),
 		);
 
 		// Puts __debug into fluxloaderAPI.gameInstance
@@ -2307,7 +2334,7 @@ function addFluxloaderPatches() {
 				type: "replace",
 				from: "}};var r={};",
 				to: "}};fluxloaderOnGameInstanceCreated(__debug);var r={};",
-			})
+			}),
 		);
 
 		// Add game.js to bundle.js, and dont start game until it is ready
@@ -2318,14 +2345,14 @@ function addFluxloaderPatches() {
 				from: `(()=>{var e,t,n={8916`,
 				to: `import "${gameScriptPath}";fluxloaderPreloadBundle().then$$`,
 				token: "$$",
-			})
+			}),
 		);
 		responseAsError(
 			gameFilesManager.setPatch("js/bundle.js", "fluxloader:preloadBundleFinalize", {
 				type: "replace",
 				from: `)()})();`,
 				to: `)()});`,
-			})
+			}),
 		);
 
 		// Expose the games world to bundle.js
@@ -2335,7 +2362,7 @@ function addFluxloaderPatches() {
 				type: "replace",
 				from: `[4,s.environment.multithreading.simulation.init(s)]`,
 				to: `[4,s.environment.multithreading.simulation.init(s),fluxloaderOnGameInitialized()]`,
-			})
+			}),
 		);
 
 		// Listen for fluxloader worker messages in bundle.js
@@ -2345,7 +2372,7 @@ function addFluxloaderPatches() {
 				from: "case f.InitFinished:",
 				to: "case 'fluxloaderMessage':fluxloaderOnWorkerMessage(r);break;$$",
 				token: "$$",
-			})
+			}),
 		);
 
 		const workers = ["546", "336"];
@@ -2357,7 +2384,7 @@ function addFluxloaderPatches() {
 					from: `case i.dD.Init:`,
 					to: `case 'fluxloaderMessage':fluxloaderOnWorkerMessage(e);break;$$`,
 					token: "$$",
-				})
+				}),
 			);
 
 			// Add worker.js to each worker, and dont start until it is ready
@@ -2380,14 +2407,14 @@ function addFluxloaderPatches() {
 						importScripts("${workerScriptPath}");
 						fluxloaderPreloadBundle().then$$`,
 					token: "$$",
-				})
+				}),
 			);
 			responseAsError(
 				gameFilesManager.setPatch(`js/${worker}.bundle.js`, "fluxloader:preloadBundleFinalize", {
 					type: "replace",
 					from: `()})();`,
 					to: `()});`,
-				})
+				}),
 			);
 		}
 
@@ -2398,7 +2425,7 @@ function addFluxloaderPatches() {
 				from: `W.store.upgrades[ee][te].level=re}}`,
 				to: `$$;if (preloadMessageQueue){for (const msg of preloadMessageQueue) self.onmessage(msg);}preloadMessageQueue=undefined;`,
 				token: "$$",
-			})
+			}),
 		);
 		responseAsError(
 			gameFilesManager.setPatch(`js/546.bundle.js`, "fluxloader:processQueuedMessages", {
@@ -2406,7 +2433,7 @@ function addFluxloaderPatches() {
 				from: `a.session.paused=e.data[1]}};`,
 				to: `$$if (preloadMessageQueue){for (const msg of preloadMessageQueue) {self.onmessage(msg);}}preloadMessageQueue=undefined;`,
 				token: "$$",
-			})
+			}),
 		);
 
 		// Notify worker.js when the workers are ready
@@ -2417,14 +2444,14 @@ function addFluxloaderPatches() {
 				from: `W.environment.postMessage([i.dD.InitFinished]);`,
 				to: `fluxloaderOnWorkerInitialized(W);$$`,
 				token: "$$",
-			})
+			}),
 		);
 		responseAsError(
 			gameFilesManager.setPatch(`js/546.bundle.js`, "fluxloader:workerInitialized2", {
 				type: "replace",
 				from: `t(performance.now());break;`,
 				to: `t(performance.now());fluxloaderOnWorkerInitialized(a);break;`,
-			})
+			}),
 		);
 
 		// Add React to globalThis
@@ -2433,7 +2460,7 @@ function addFluxloaderPatches() {
 				type: "replace",
 				from: `var Cl,kl=i(6540)`,
 				to: `globalThis.React=i(6540);var Cl,kl=React`,
-			})
+			}),
 		);
 
 		if (config.game.enableDebugMenu) {
@@ -2444,7 +2471,7 @@ function addFluxloaderPatches() {
 					from: 'className:"fixed bottom-2 right-2 w-96 pt-12 text-white"',
 					to: `$$,style:{zoom:"${config.game.debugMenuZoom * 100}%"}`,
 					token: "$$",
-				})
+				}),
 			);
 		} else {
 			// Disables the debug menu
@@ -2454,7 +2481,7 @@ function addFluxloaderPatches() {
 					from: "function _m(t){",
 					to: "$$return;",
 					token: "$$",
-				})
+				}),
 			);
 
 			// Disables the debug keybinds
@@ -2464,7 +2491,7 @@ function addFluxloaderPatches() {
 					from: "spawnElements:function(n,r){",
 					to: "$$return false;",
 					token: "$$",
-				})
+				}),
 			);
 
 			// Disables the pause camera keybind
@@ -2474,7 +2501,7 @@ function addFluxloaderPatches() {
 					from: "e.debug.active&&(t.session.overrideCamera",
 					to: "return;$$",
 					token: "$$",
-				})
+				}),
 			);
 
 			// Disables the pause keybind
@@ -2484,7 +2511,7 @@ function addFluxloaderPatches() {
 					from: "e.debug.active&&(t.session.paused",
 					to: "return;$$",
 					token: "$$",
-				})
+				}),
 			);
 		}
 
@@ -2493,7 +2520,7 @@ function addFluxloaderPatches() {
 				type: "replace",
 				from: `try{(Hg=require("@emotion/is-prop-valid").default)&&(Vg=e=>e.startsWith("on")?!Gg(e):Hg(e))}catch(Cl){}`,
 				to: "",
-			})
+			}),
 		);
 
 		if (!config.game.disableMenuSubtitle) {
@@ -2507,7 +2534,7 @@ function addFluxloaderPatches() {
 					// this relies on minified name "Od" which places blocks
 					// If this breaks search the code for "e" for placing blocks in debug
 					replace: `if(t.store.scene.active===x.MainMenu){globalThis.setupModdedSubtitle(Od,"${image}");$1}else`,
-				})
+				}),
 			);
 		}
 	} catch (e) {
@@ -2684,33 +2711,56 @@ async function pickFileNative(args) {
 	return successResponse("File selected successfully", selectedPath);
 }
 
-async function downloadUpdate(assets) {
+async function downloadUpdate(release) {
 	try {
 		if (config.manager.updateOS === "None") {
 			if (!process.env.BUILDNAME) throw new Error("No updateOS configured, and could not find BUILDNAME env var");
 			config.manager.updateOS = process.env.BUILDNAME;
 			updateFluxloaderConfig();
 		}
-		let targetAsset = assets.filter((val) => val.name === config.manager.updateOS)[0];
-		if (!targetAsset) {
-			throw new Error(`Could not find asset for ${config.manager.updateOS}`);
+
+		// Map from readable OS string to filename pattern
+		const assetNameMap = {
+			"Windows x64 Portable": `fluxloader-win-x64.exe`,
+			"Windows legacy Portable": `fluxloader-win-x64-legacy.exe`,
+			"Windows arm64 Portable": `fluxloader-win-arm64.exe`,
+			"macOS x64 Zip": `fluxloader-mac-x64.zip`,
+			"macOS arm64 Zip": `fluxloader-mac-arm64.zip`,
+			"Linux x86_64 AppImage": `fluxloader-linux-x86_64.AppImage`,
+			"Linux arm64 AppImage": `fluxloader-linux-arm64.AppImage`,
+			"Linux arm64 deb": `fluxloader-linux-arm64.deb`,
+			None: null,
+		};
+
+		// Lookup the filename from config.manager.updateOS
+		const filename = assetNameMap[config.manager.updateOS];
+		if (!filename) {
+			throw new Error(`No asset mapping for ${config.manager.updateOS}`);
 		}
+
+		// Find the asset by its uploaded name
+		const targetAsset = release.assets.find((r) => r.name === filename);
+		if (!targetAsset) {
+			throw new Error(`Could not find asset for ${config.manager.updateOS} (expected filename: ${filename})`);
+		}
+
 		let isUnix = ["linux", "darwin"].includes(process.platform);
 		let resources = app.isPackaged ? process.resourcesPath : process.cwd();
-		let installLoc = resolvePathRelativeToExecutable(".");
-		logDebug(`Starting update helper with parameters: [${installLoc}, ${process.pid}, ${targetAsset.url}]`);
+		const downloadUrl = targetAsset.browser_download_url;
+		let installPath = resolvePathRelativeToExecutable(".");
+		logDebug(`Starting update helper with parameters: [${installPath}, ${process.pid}, ${downloadUrl}]`);
+
 		if (isUnix) {
-			spawn(path.join(resources, "./updater.sh"), [process.pid, targetAsset.url], {
-				cwd: installLoc,
+			spawn(path.join(resources, "./updater.sh"), [process.pid, downloadUrl], {
+				cwd: installPath,
 				detached: true,
 				stdio: "ignore",
 				shell: true,
 			}).unref();
 		} else {
-			fs.copyFileSync(path.join(resources, "updater.bat"), path.join(installLoc, "updater.bat"));
-			// Spawns the update in a new window, and calls it "Fluxloader Update"
-			spawn("cmd.exe", ["/c", "start", '"Fluxloader Updater"', path.join(installLoc, "updater.bat"), process.pid, targetAsset.url], {
-				cwd: installLoc,
+			fs.copyFileSync(path.join(resources, "updater.bat"), path.join(installPath, "updater.bat"));
+			spawn("cmd.exe", ["/c", "start", '"Fluxloader Updater"', '"' + path.join(installPath, "updater.bat") + '"', process.pid, downloadUrl], {
+				cwd: installPath,
 				detached: true,
 				stdio: "ignore",
 				shell: true,
@@ -2780,8 +2830,8 @@ function setupElectronIPC() {
 		if (!configLoaded) {
 			return errorResponse("Config not loaded yet");
 		}
-		const res = SchemaValidation.validate(args, configSchema);
-		if (!res.success) return errorResponse(`Invalid config data provided: (${res.source}) ${res.error}`);
+		const res = SchemaValidation.validate({ target: args, schema: configSchema });
+		if (!res.success) return errorResponse(`Invalid config data provided: (${res.source}) ${res.error.message}`);
 		config = args;
 		return updateFluxloaderConfig();
 	});
@@ -2863,6 +2913,19 @@ async function closeManager() {
 	isManagerStarted = false;
 }
 
+function setupFirstStart() {
+	if (gameFilesManager) return true; // Already setup
+	let res = findValidGamePath();
+	if (!res.success) {
+		isGameStarted = false;
+		return false;
+	}
+	const { fullGamePath, asarPath } = res.data;
+
+	gameFilesManager = new GameFilesManager(fullGamePath, asarPath);
+	return true;
+}
+
 async function startUnmoddedGame() {
 	if (isGameStarted) return errorResponse("Cannot start game, already running");
 
@@ -2871,6 +2934,8 @@ async function startUnmoddedGame() {
 
 	// Startup the events, files, and mods
 	try {
+		if (!setupFirstStart()) return errorResponse("Error starting game window: Cannot setup game files manager. Ensure gamePath is configured correctly.", null, false);
+
 		fluxloaderAPI._initializeEvents();
 		responseAsError(gameFilesManager.resetToBaseFiles());
 		responseAsError(await gameFilesManager.patchAndRunGameElectron());
@@ -2899,6 +2964,8 @@ async function startGame() {
 
 	// Startup the events, files, and mods
 	try {
+		if (!setupFirstStart()) return errorResponse("Error starting game window: Cannot setup game files manager. Ensure gamePath is configured correctly.", null, false);
+
 		fluxloaderAPI._initializeEvents();
 		responseAsError(gameFilesManager.resetToBaseFiles());
 		responseAsError(await gameFilesManager.patchAndRunGameElectron());
@@ -2946,7 +3013,7 @@ async function cleanupApp() {
 	try {
 		if (managerWindow) await closeManager();
 		if (gameWindow) await closeGame();
-		gameFilesManager.deleteFiles();
+		if (gameFilesManager) gameFilesManager.deleteFiles();
 	} catch (e) {
 		logError(`Error during cleanup: ${e.stack}`);
 	}
@@ -2976,16 +3043,12 @@ async function startApp() {
 	// One-time fluxloader setup
 	handleUncaughtErrors();
 	loadFluxloaderConfig();
-	setupFluxloaderEvents();
 
-	let res = responseAsError(findValidGamePath());
-	const { fullGamePath, asarPath } = res.data;
-
-	gameFilesManager = new GameFilesManager(fullGamePath, asarPath);
 	fluxloaderAPI = new ElectronFluxloaderAPI();
+
 	modsManager = new ModsManager();
 
-	logInfo(`Successfully initialized fluxloader, game app.asar path: ${asarPath}`);
+	logInfo(`Successfully initialized fluxloader`);
 
 	responseAsError(await modsManager.reloadInstalledMods());
 	setupElectronIPC();
@@ -2999,6 +3062,10 @@ async function startApp() {
 }
 
 // =================== MAIN ===================
+
+dotenv.config({
+	path: app.isPackaged ? path.join(process.resourcesPath, ".env") : path.resolve(process.cwd(), ".env"),
+});
 
 (async () => {
 	await startApp();

@@ -1,13 +1,13 @@
 import { EventBus, Logging } from "./common.js";
 
-// ------------- VARIABLES -------------
+// =================== VARIABLES ===================
 
-globalThis.fluxloaderVersion = "2.1.0";
+globalThis.fluxloaderVersion = "2.2.7";
 globalThis.fluxloaderAPI = undefined;
 
 let loadedMods = [];
 
-// ------------- LOGGING -------------
+// =================== LOGGING ===================
 
 globalThis.log = function (level, tag, message) {
 	const timestamp = new Date();
@@ -24,7 +24,7 @@ function forwardLogToManager(log) {
 	window.electron.invoke("fl:forward-log-to-manager", log);
 }
 
-// ------------- MAIN -------------
+// =================== MAIN ===================
 
 class GameFluxloaderAPI {
 	static allEvents = ["fl:scene-loaded"];
@@ -94,8 +94,8 @@ async function loadAllMods() {
 }
 
 function catchUnexpectedExits() {
-	window.onerror = (event) => {
-		logError(`An unexpected error occurred: ${JSON.stringify(event)}`);
+	window.onerror = (message, source, lineno, colno) => {
+		logError(`An unexpected error occurred: ${JSON.stringify(message)} (${source} @ ${lineno}:${colno})`);
 	};
 	window.onunhandledrejection = (event) => {
 		logError(`An unhandled promise rejection occurred: ${event.reason}`);
@@ -129,8 +129,8 @@ globalThis.fluxloaderOnWorkerMessage = (m) => {
 	fluxloaderAPI._onWorkerMessage(channel, ...m.data);
 };
 
-// Should definitely be changed to load from an image in the future
 globalThis.setupModdedSubtitle = function (spawnSolid, imagePath) {
+	// Should definitely be changed to load from an image in the future
 	let title = [];
 	let interval;
 
