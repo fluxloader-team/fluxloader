@@ -148,30 +148,37 @@ fluxloaderAPI.events.on("fl:event-name", handler);
 
 ## IPC Messaging
 
-This is how you message between the environments. Each of these methods have specific edge cases and usages. Some are asynchronous, some have callbacks, etc - be careful with usage.
+Each of these have specific edge cases and usages, if you encounter opposing behavior, please review the source code and report the issue to a developer.
+All are asynchronous but not all are awaitable. Be careful with usage.
 
 ### Electron -> Game
 
+Only allows one argument when sending. All other IPC messagers allow multiple arguments.
+
 ```js
-fluxloaderAPI.sendGameEvent("eventName", data); // electron
-fluxloaderAPI.handleElectronEvent("event", data); // game
+fluxloaderAPI.sendGameEvent("channel", data); // electron
+fluxloaderAPI.handleElectronEvent("channel", handler); // game
 ```
 
 ### Game -> Electron
 
+The handler can return a value, this is the only handler that can do so. A promise is returned so it should be awaited.
+
 ```js
-fluxloaderAPI.invokeElectronIPC("channel", args); // game
-fluxloaderAPI.handleGameIPC("eventName", handler); // electron
+fluxloaderAPI.invokeElectronIPC("channel", ...args); // game
+fluxloaderAPI.handleGameIPC("channel", handler); // electron
 ```
 
 ### Game <-> Worker
 
-```js
-fluxloaderAPI.listenWorkerMessage("channel", handler); // game
-fluxloaderAPI.sendWorkerMessage("channel", ...args); // worker
+The worker can only recieve messages after `fl:worker-initialized`. **The worker can still send messages to the game and start listening for messages from the game before this event**.
 
+```js
+fluxloaderAPI.sendGameMessage("channel", ...args); // worker
+fluxloaderAPI.listenWorkerMessage("channel", handler); // game
+
+fluxloaderAPI.sendWorkerMessage("channel", ...args); // game
 fluxloaderAPI.listenGameMessage("channel", handler); // worker
-fluxloaderAPI.sendGameMessage("channel", ...args); // game
 ```
 
 ## Logging
