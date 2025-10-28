@@ -51,6 +51,7 @@ class GameFluxloaderAPI {
 	}
 
 	async sendWorkerMessage(channel, ...args) {
+		this.gameInstance.state.environment.multithreading.simulation.manager.postMessage(["fluxloaderMessage", channel, ...args]);
 		this.gameInstance.state.environment.multithreading.simulation.postAll(this.gameInstance.state, ["fluxloaderMessage", channel, ...args]);
 	}
 
