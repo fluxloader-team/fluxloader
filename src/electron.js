@@ -30,10 +30,10 @@ import Module from "module";
 // =================== VARIABLES ===================
 
 globalThis.fluxloaderVersion = "2.2.7";
-globalThis.fluxloaderAPI = undefined;
 globalThis.gameElectronFuncs = undefined;
-globalThis.gameWindow = undefined;
 globalThis.semver = semver;
+/** @type {GameWindow} */ globalThis.gameWindow = undefined;
+/** @type {ElectronFluxloaderAPI} */ globalThis.fluxloaderAPI = undefined;
 
 let logLevels = ["debug", "info", "warn", "error"];
 let preConfigLogLevel = "debug";
@@ -45,12 +45,12 @@ let previousLogFilePath = undefined;
 let config = undefined;
 let configSchema = undefined;
 let configLoaded = false;
-let modsManager = undefined;
-let gameFilesManager = undefined;
-let managerWindow = undefined;
 let logsForManager = [];
 let isGameStarted = false;
 let isManagerStarted = false;
+/** @type {ModsManager} */ let modsManager = undefined;
+/** @type {GameFilesManager} */ let gameFilesManager = undefined;
+/** @type {ManagerWindow} */ let managerWindow = undefined;
 
 // =================== LOGGING ===================
 
@@ -964,7 +964,7 @@ class ModsManager {
 		}
 
 		// Verify dependencies of all mods before starting to load them
-		const res = this._verifyDependencies();
+		const res = this.verifyDependencies();
 		if (!res.success) return errorResponse(`Failed to verify dependencies`);
 
 		// Setup the context for the mods and expose whatever they need to access
@@ -1143,6 +1143,8 @@ class ModsManager {
 		// ----------- UTILITY -----------
 
 		const modVersions = {};
+		// Retrieve all available versions for a mod from the API
+		// First check if it is installed, then check memoized fetched mod cache, then fetch from API
 		const getModVersions = async (modID) => {
 			// Already cached
 			if (modVersions[modID]) {
@@ -1771,6 +1773,45 @@ class ModsManager {
 		this._updateLoadOrder();
 	}
 
+	verifyDependencies() {
+		// Verify that all dependencies are installed and valid
+		let issues = {};
+		for (const modID in this.installedMods) {
+			const mod = this.installedMods[modID];
+			if (mod.isEnabled && mod.info.dependencies) {
+				for (const depModID in mod.info.dependencies) {
+					const dependency = mod.info.dependencies[depModID];
+					if (!this.isModInstalled(depModID)) {
+						if (!issues[modID]) issues[modID] = [];
+						issues[modID].push([ depModID, "missing", dependency ]);
+						logWarn(`Mod '${modID}' is missing dependency: ${depModID} (${dependency})`);
+						continue;
+					}
+					const modVersion = this.installedMods[depModID].info.version;
+					if (!this.installedMods[depModID].isEnabled) {
+						issues[modID].push([ depModID, "disabled", dependency ]);
+						logWarn(`Mod '${modID}' has dependency '${depModID}' which is disabled`);
+						continue;
+					}
+					if (!FluxloaderSemver.doesVersionSatisfyDependency(modVersion, dependency)) {
+						issues[modID].push([ depModID, "version", dependency, modVersion ]);
+						logWarn(`Mod '${modID}' has dependency '${depModID}' which does not satisfy version constraint '${dependency}' (installed version: '${modVersion}')`);
+						continue;
+					}
+				}
+			}
+		}
+
+		if (Object.keys(issues).length > 0) {
+			let issueCount = 0;
+			for (const modID in issues) issueCount += issues[modID].length;
+			return errorResponse(`Found ${issueCount} mod dependency issue${issueCount === 1 ? "" : "s"}`, { errorReason: "mod-dependencies-invalid", issues });
+		}
+
+		logDebug("All mod dependencies verified successfully");
+		return successResponse("All mod dependencies are valid");
+	}
+
 	// ------------ INTERNAL ------------
 
 	async _initializeMod(modPath) {
@@ -2019,30 +2060,6 @@ class ModsManager {
 		for (const modID in this.installedMods) visitModID(modID);
 
 		return successResponse(`Calculated load order for ${loadOrder.length} mod${loadOrder.length === 1 ? "" : "s"}`, loadOrder);
-	}
-
-	_verifyDependencies() {
-		// Verify that all dependencies are installed and valid
-		for (const modID in this.installedMods) {
-			const mod = this.installedMods[modID];
-			if (mod.isEnabled && mod.info.dependencies) {
-				for (const depModID in mod.info.dependencies) {
-					const dependency = mod.info.dependencies[depModID];
-					if (!this.isModInstalled(depModID)) {
-						return errorResponse(`Mod '${modID}' depends on '${depModID}' with version ${dependency}, but no version is installed`);
-					}
-					const modVersion = this.installedMods[depModID].info.version;
-					if (!this.installedMods[depModID].isEnabled) {
-						return errorResponse(`Mod '${modID}' depends on '${depModID}' with version ${dependency}, but version ${modVersion} is not enabled`);
-					}
-					if (!FluxloaderSemver.doesVersionSatisfyDependency(modVersion, dependency)) {
-						return errorResponse(`Mod '${modID}' depends on '${depModID}' with version ${dependency}, but installed version is ${modVersion}`);
-					}
-				}
-			}
-		}
-		logDebug("All mod dependencies verified successfully");
-		return successResponse("All mod dependencies are valid");
 	}
 
 	_applyModsScriptModifySchema() {
@@ -2964,8 +2981,15 @@ async function startGame() {
 
 	// Startup the events, files, and mods
 	try {
-		if (!setupFirstStart()) return errorResponse("Error starting game window: Cannot setup game files manager. Ensure gamePath is configured correctly.", null, false);
+		// Before all else verify dependencies
+		const res = modsManager.verifyDependencies();
+		if (!res.success) {
+			logError(`Cannot start game, mod dependency error: ${res.message}`);
+			isGameStarted = false;
+			return res;
+		}
 
+		if (!setupFirstStart()) return errorResponse("Error starting game window: Cannot setup game files manager. Ensure gamePath is configured correctly.", null, false);
 		fluxloaderAPI._initializeEvents();
 		responseAsError(gameFilesManager.resetToBaseFiles());
 		responseAsError(await gameFilesManager.patchAndRunGameElectron());
