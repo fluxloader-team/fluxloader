@@ -903,7 +903,7 @@ class ModsTab {
 
 		// Otherwise queue install if not installed
 		else if (this.modRows[modID] && !this.modRows[modID].modData.isInstalled) {
-			await this.queueMainAction(modID, "install");
+			await this.queueAction(modID, "install");
 		}
 	}
 
@@ -924,7 +924,7 @@ class ModsTab {
 					onClick: async () => {
 						this.modButtons[0].element.classList.add("active");
 						this.modButtons[0].element.classList.add("block-cursor");
-						await this.instantMainAction(modID, "uninstall");
+						await this.instantlyPerformAction(modID, "uninstall");
 						this.modButtons[0].element.classList.remove("active");
 						this.modButtons[0].element.classList.remove("block-cursor");
 					},
@@ -937,7 +937,7 @@ class ModsTab {
 		} else {
 			this.modButtons[0].element.classList.add("active");
 			this.modButtons[0].element.classList.add("block-cursor");
-			await this.instantMainAction(modID, "install");
+			await this.instantlyPerformAction(modID, "install");
 			this.modButtons[0].element.classList.remove("active");
 			this.modButtons[0].element.classList.remove("block-cursor");
 		}
@@ -1262,12 +1262,12 @@ class ModsTab {
 
 		const options = [];
 		if (this.modRows[modID].modData.isInstalled) {
-			options.push({ icon: "assets/queueuninstall.png", label: "Queue Uninstall", action: () => this.queueMainAction(modID, "uninstall") });
-			options.push({ icon: "assets/uninstall.png", label: "Uninstall", action: () => this.instantMainAction(modID, "uninstall") });
+			options.push({ icon: "assets/queueuninstall.png", label: "Queue Uninstall", action: () => this.queueAction(modID, "uninstall") });
+			options.push({ icon: "assets/uninstall.png", label: "Uninstall", action: () => this.instantlyPerformAction(modID, "uninstall") });
 			options.push({ icon: "assets/folder.png", label: "Open Directory", action: async () => await api.invoke("fl:open-mod-folder", modID) });
 		} else {
-			options.push({ icon: "assets/queueinstall.png", label: "Queue Install", action: () => this.queueMainAction(modID, "install") });
-			options.push({ icon: "assets/install.png", label: "Install", action: () => this.instantMainAction(modID, "install") });
+			options.push({ icon: "assets/queueinstall.png", label: "Queue Install", action: () => this.queueAction(modID, "install") });
+			options.push({ icon: "assets/install.png", label: "Install", action: () => this.instantlyPerformAction(modID, "install") });
 		}
 
 		for (const opt of options) {
@@ -1453,43 +1453,37 @@ class ModsTab {
 
 	// ------------ ACTIONS ------------
 
-	async instantMainAction(modID, type) {
-		if (this.isLoadingMods || this.isPerformingActions || this.isQueueingAction) pingBlockingTask("Cannot perform instant main action as mods are currently loading or actions are being performed.");
-
-		logDebug(`Performing instant main action for mod '${modID}' of type ${type}`);
-
-		// Clear the main action queue
-		this.setIsQueueingAction(true);
-		logDebug("Clearing all queued actions before performing instant action");
-		this._clearCompletedActions();
-		while (this.allQueuedActions.size > 0) {
-			this._removeActionAndParents(Object.keys(this.allQueuedActions)[0]);
+	async instantlyPerformAction(modID, type) {
+		if (this.isLoadingMods || this.isPerformingActions || this.isQueueingAction) {
+			return pingBlockingTask("Cannot perform instant main action as mods are currently loading or actions are being performed.");
 		}
-		this.mainQueuedActions = {};
-		this.allQueuedActions = {};
+
+		// Fully clear the main action queue safely
+		logDebug("Clearing all queued actions before performing instant action");
+		this.setIsQueueingAction(true);
+		while (this.queuedActions.size > 0) this._removeAction(Object.keys(this.queuedActions)[0]);
 		this.setIsQueueingAction(false);
 
-		// Queue this as a main action
-		if (await this.queueMainAction(modID, type)) {
-			// Only if it was successful perform the queued actions
+		// Queue this as the only main action and then perform if successful
+		logDebug(`Performing instant main action for mod '${modID}' of type ${type}`);
+		if (await this.queueAction(modID, type)) { 
 			await this.performQueuedActions();
 		}
 	}
-
-	async queueMainAction(modID, type) {
-		// If we are already doing something then just queue up the action
+	
+	async queueAction(modID, type) {
 		if (this.isLoadingMods || this.isPerformingActions || this.isQueueingAction) {
 			logWarn(`Cannot queue action for mod '${modID}' as we are currently loading mods or performing actions, adding to the queue queue...`);
 			this.actionQueueQueue.push({ what: "queue", modID, type });
 			return false;
 		}
 
+		// Process any queued queue actions first and prepare for a new action
 		await this._processActionQueueQueue();
-
 		this._clearCompletedActions();
 
-		// There should not be an existing action for this mod, and the mod should exist
-		if (this.mainQueuedActions[modID] != null || this.allQueuedActions[modID] != null) {
+		// There should not be an existing action for this mod and the mod should exist
+		if (this.queuedActions[modID] != null) {
 			logWarn(`Mod '${modID}' already has a queued action.`);
 			return false;
 		}
@@ -1510,41 +1504,37 @@ class ModsTab {
 		this.setActionQueueVisible(true);
 		setStatusBar(`Queueing action for mod '${modID}'...`, 0, "loading");
 
-		// Make the new main action as loading
+		// Make the new action loading
 		const modRow = this.modRows[modID];
-		const newMainAction = { modID, version: modRow.modData.info.version, type };
-		newMainAction.state = "loading";
-		this.mainQueuedActions[modID] = newMainAction;
-		this.allQueuedActions[modID] = newMainAction;
-		this._addActionRowElement(newMainAction);
-		this._updateModRowWithAction(newMainAction, true);
-		newMainAction.element.classList.toggle("loading", true);
+		const newAction = { modID, version: modRow.modData.info.version, type };
+		newAction.state = "loading";
+		this.queuedActions[modID] = newAction;
+		this._addActionRowElement(newAction);
+		this._updateModRowWithAction(newAction, true);
+		newAction.element.classList.toggle("loading", true);
 
-		// Try update the queue with this new main action
+		// Try update the queue with this new action
 		const res = await this._updateAllActions();
-
 		if (!res.success) {
 			logWarn(`Failed to queue '${type}' action for mod '${modID}':`, JSON.stringify(res));
-			newMainAction.state = "failed";
-			newMainAction.element.classList.toggle("loading", false);
-			newMainAction.element.classList.toggle("failed", true);
-			this._updateModRowWithAction(newMainAction, true);
+			newAction.state = "failed";
+			newAction.element.classList.toggle("loading", false);
+			newAction.element.classList.toggle("failed", true);
+			this._updateModRowWithAction(newAction, true);
 			this.setIsQueueingAction(false);
 			this.setActionQueueLoading(false);
 			setStatusBar(`Failed to queue '${type}' action for mod '${res.data.errorModID || modID}'${res.data.errorReason ? ": " + res.data.errorReason : ""}`, 0, "failed");
-
 			this.updateActionExecutionButton();
 			return false;
 		}
 
-		// Accept the new main action
-		newMainAction.state = "queued";
+		// Accept the new action
+		newAction.state = "queued";
 		this.setIsQueueingAction(false);
 		this.setActionQueueLoading(false);
 		setStatusBar(`Queued action for mod '${modID}'`, 0, "success");
 		logDebug(`Queued main action for mod '${modID}' of type '${type}'`);
 		await this._processActionQueueQueue();
-
 		this.updateActionExecutionButton();
 		return true;
 	}
@@ -1574,7 +1564,7 @@ class ModsTab {
 	}
 
 	async performQueuedActions() {
-		if (this.isLoadingMods || this.isPerformingActions) pingBlockingTask("Cannot perform actions as mods are currently loading or actions are being performed.");
+		if (this.isLoadingMods || this.isPerformingActions) return pingBlockingTask("Cannot perform actions as mods are currently loading or actions are being performed.");
 
 		this._clearCompletedActions();
 
@@ -1612,35 +1602,17 @@ class ModsTab {
 		this.reloadMods();
 	}
 
-	_removeActionAndParents(modID) {
+	_removeAction(modID) {
 		// This function should only be called by other main functions so we can make some expectations here
-		if (!this.isQueueingAction && !this.isPerformingActions) return logError("Cannot unqueue main action as we are not queueing or performing actions, this should not happen");
+		if (!this.isQueueingAction && !this.isPerformingActions) {
+			return logError("Cannot unqueue main action as we are not queueing or performing actions, this should not happen");
+		}
 
-		const action = this.allQueuedActions[modID];
-		if (!action) return;
+		const action = this.queuedActions[modID];
 		logDebug(`Removing action for mod '${modID}'`);
-
 		this._removeActionRowElement(action);
 		this._updateModRowWithAction(action, false);
-		delete this.allQueuedActions[modID];
-		if (this.mainQueuedActions[modID]) delete this.mainQueuedActions[modID];
-
-		// Find all nodes that have this as a parent
-		for (const childModID in this.allQueuedActions) {
-			const childAction = this.allQueuedActions[childModID];
-			if (childAction.parents && childAction.parents.includes(modID)) {
-				logDebug(`Removing child action for mod '${childModID}' as it has parent '${modID}'`);
-				this._removeActionAndParents(childModID);
-			}
-		}
-
-		// Recurse up to parents and delete them if needed
-		if (action.parents) {
-			for (const parentActionModID of action.parents) {
-				logDebug(`Removing parent action for mod '${parentActionModID}'`);
-				this._removeActionAndParents(parentActionModID);
-			}
-		}
+		delete this.queuedActions[modID];
 	}
 
 	async _updateAllActions() {
@@ -1683,7 +1655,7 @@ class ModsTab {
 			logDebug(`Processing action queue queue, ${this.actionQueueQueue.length} actions queued...`);
 			const firstQueueQueueAction = this.actionQueueQueue.shift();
 			if (firstQueueQueueAction.what === "queue") {
-				await this.queueMainAction(firstQueueQueueAction.modID, firstQueueQueueAction.type);
+				await this.queueAction(firstQueueQueueAction.modID, firstQueueQueueAction.type);
 			} else if (firstQueueQueueAction.what === "unqueue") {
 				await this.unqueueAction(firstQueueQueueAction.modID);
 			}
