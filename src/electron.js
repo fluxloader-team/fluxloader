@@ -1150,8 +1150,8 @@ export class ModsManager {
 	}
 
 	checkModDepenciesForCompatibility() {
-		logDebug("Checking dependencies of all installed mods");
-		const warnings = checkModDepenciesForCompatibility({ modsToCheck: this.getInstalledMods() });
+		logDebug("Checking dependencies of all enabled mods");
+		const warnings = checkModDepenciesForCompatibility({ modsToCheck: this.getEnabledMods() });
 
 		return successResponse(`Found ${warnings.length} warnings`, warnings);
 	}
