@@ -15,7 +15,6 @@ import { EventBus, SchemaValidation, Logging, FluxloaderSemver } from "./common.
 import semver from "semver";
 import AdmZip from "adm-zip";
 import Module from "module";
-import { fail } from "assert";
 
 // =================== GENERAL ARCHITECTURE ===================
 
@@ -874,7 +873,7 @@ class GameFilesManager {
 	}
 }
 
-class ModsManager {
+export class ModsManager {
 	baseModsPath = undefined;
 	modInfoSchema = undefined;
 	installedMods = {};
@@ -1149,7 +1148,7 @@ class ModsManager {
 		return successResponse(`Fetched mod info for '${config.modID}'`, mod);
 	}
 
-	async checkModDepenciesForCompatibility() {
+	checkModDepenciesForCompatibility() {
 		logDebug("Checking dependencies of all installed mods");
 		const currentInstalledMods = this.getInstalledMods();
 
