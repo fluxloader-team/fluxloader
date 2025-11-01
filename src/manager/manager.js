@@ -703,6 +703,8 @@ class ModsTab {
 			getElement("mod-info-title").innerText = "Mod Name";
 			getElement("mod-info").style.display = "none";
 			getElement("mod-info-empty").style.display = "block";
+			getElement("mod-info-warnings").style.display = "none";
+			getElement("mod-info-warnings").replaceChildren();
 			this.setModButtons([]);
 
 			if (this.selectedMod === modID) {
@@ -752,6 +754,25 @@ class ModsTab {
 			} else {
 				getElement("mod-info-description").classList.add("empty");
 				getElement("mod-info-description").innerText = "No description provided.";
+			}
+
+			// Show warnings
+			if (modData.warnings?.length > 0) {
+				const firstWarning = modData.warnings[0];
+				const versionNeeded = firstWarning.failingDependencies.find((f) => f.parent === modID)?.version;
+				console.log(firstWarning);
+
+				const warningSituation = `Cannot find <code>${firstWarning.dependentModID} ${versionNeeded}</code> to satisfy dependency`;
+				const warningResolution = `Install and enable <code>${firstWarning.dependentModID}@some-version</code> to resolve?`;
+
+				const warningsElement = createElement(`
+					<div class="warning-list-row">
+						<p class="warning-mod-id">${warningSituation}</p>
+						<br />
+						<p class="warning-mod-version">${warningResolution}</p>
+					</div>`);
+				getElement("mod-info-warnings").appendChild(warningsElement);
+				getElement("mod-info-warnings").style.display = "block";
 			}
 
 			// Show dependencies

@@ -798,6 +798,15 @@ input[type="checkbox"]:checked::before {
 	user-select: none;
 }
 
+#mods-tab-content .main-rightbar .mod-info .warnings {
+	max-width: 25rem;
+	margin: .5rem auto;
+	padding: 0.8rem 1.2rem;
+	background: var(--color-dark-red);
+	border-radius: var(--br-small);
+	overflow: hidden;
+}
+
 #mods-tab-content .main-rightbar .mod-info p.empty {
 	font-style: italic;
 	color: var(--color-text-muted);
