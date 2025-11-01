@@ -78,6 +78,32 @@ suite("checkModDepenciesForCompatibility", () => {
 	});
 
 	suite("with issues", () => {
+		test("should return failure when mod direct dependencies are missing", () => {
+			const modsToCheck = [
+				{
+					info: {
+						modID: "portals",
+						version: "1.0.0",
+						dependencies: {
+							cameras: "^1.0.0",
+						},
+					},
+				},
+			];
+
+			const expectedFailure = {
+				dependentModID: "cameras",
+				failingDependencies: [
+					{
+						parent: "portals",
+						version: "^1.0.0",
+					},
+				],
+			};
+
+			const failedConstraints = checkModDepenciesForCompatibility({ modsToCheck });
+			assert.deepEqual(failedConstraints, [expectedFailure], "Did not find expected failed constraints");
+		});
 		test("should return failure when mod direct dependencies are not compatible versions", () => {
 			const modsToCheck = [
 				{
