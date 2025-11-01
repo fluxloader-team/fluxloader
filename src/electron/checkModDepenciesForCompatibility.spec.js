@@ -118,6 +118,7 @@ suite("checkModDepenciesForCompatibility", () => {
 						modID: "portals",
 						version: "1.0.0",
 						dependencies: {
+							core: "1.0.0",
 							cameras: "^1.0.0",
 						},
 					},
@@ -143,6 +144,10 @@ suite("checkModDepenciesForCompatibility", () => {
 			const expectedFailure = {
 				dependentModID: "core",
 				failingDependencies: [
+					{
+						parent: "portals",
+						version: "1.0.0",
+					},
 					{
 						parent: "cameras",
 						version: "~2.0.0",
