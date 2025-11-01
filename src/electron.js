@@ -1783,18 +1783,18 @@ class ModsManager {
 					const dependency = mod.info.dependencies[depModID];
 					if (!this.isModInstalled(depModID)) {
 						if (!issues[modID]) issues[modID] = [];
-						issues[modID].push([ depModID, "missing", dependency ]);
+						issues[modID].push([depModID, "missing", dependency]);
 						logWarn(`Mod '${modID}' is missing dependency: ${depModID} (${dependency})`);
 						continue;
 					}
 					const modVersion = this.installedMods[depModID].info.version;
 					if (!this.installedMods[depModID].isEnabled) {
-						issues[modID].push([ depModID, "disabled", dependency ]);
+						issues[modID].push([depModID, "disabled", dependency]);
 						logWarn(`Mod '${modID}' has dependency '${depModID}' which is disabled`);
 						continue;
 					}
 					if (!FluxloaderSemver.doesVersionSatisfyDependency(modVersion, dependency)) {
-						issues[modID].push([ depModID, "version", dependency, modVersion ]);
+						issues[modID].push([depModID, "version", dependency, modVersion]);
 						logWarn(`Mod '${modID}' has dependency '${depModID}' which does not satisfy version constraint '${dependency}' (installed version: '${modVersion}')`);
 						continue;
 					}

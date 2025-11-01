@@ -916,7 +916,7 @@ class ModsTab {
 		}
 		const modData = this.modRows[modID].modData;
 		if (modData.isInstalled) {
-		 	await this.queueAction(modID, "uninstall");
+			await this.queueAction(modID, "uninstall");
 		} else {
 			await this.queueAction(modID, "install");
 		}
@@ -1431,7 +1431,6 @@ class ModsTab {
 
 	// ------------ ACTIONS ------------
 
-	
 	async queueAction(modID, type) {
 		if (this.isLoadingMods || this.isPerformingActions || this.isQueueingAction) {
 			logWarn(`Cannot queue action for mod '${modID}' as we are currently loading mods or performing actions, adding to the queue queue...`);
@@ -1501,7 +1500,7 @@ class ModsTab {
 	}
 
 	async unqueueAction(modID) {
-	// If we are already doing something then just queue up the action
+		// If we are already doing something then just queue up the action
 		if (this.isLoadingMods || this.isPerformingActions || this.isQueueingAction) {
 			logWarn(`Cannot unqueue action for mod '${modID}' as we are currently loading mods or performing actions, adding to the queue queue...`);
 			this.actionQueueQueue.push({ what: "unqueue", modID });
