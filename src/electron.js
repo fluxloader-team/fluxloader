@@ -15,6 +15,7 @@ import { EventBus, SchemaValidation, Logging, FluxloaderSemver } from "./common.
 import semver from "semver";
 import AdmZip from "adm-zip";
 import Module from "module";
+import { fail } from "assert";
 
 // =================== GENERAL ARCHITECTURE ===================
 
@@ -913,6 +914,17 @@ class ModsManager {
 
 		logDebug(`Found ${modPaths.length} mod${modPaths.length === 1 ? "" : "s"} to initialize inside: ${this.baseModsPath}`);
 
+		// Step 1. support multiple versions of same mod
+		//.  - move download to version-based subfolder
+		//.  - store "active" version separately (new data store? extend config.json?)
+		// Step 2. remove action queue
+		//.  - accept only single actions
+		//.  - apply immediately
+		//.  - no cascading
+		// Step 3. check compatibility (as warning in review, not error in preview)
+		//.  - check only enabled vresions
+		//.  - independent of actions
+
 		for (const modPath of modPaths) {
 			try {
 				// Try and initialize the mod and its scripts
@@ -1137,10 +1149,64 @@ class ModsManager {
 		return successResponse(`Fetched mod info for '${config.modID}'`, mod);
 	}
 
+	async checkModDepenciesForCompatibility() {
+		logDebug("Checking dependencies of all installed mods");
+		const currentInstalledMods = this.getInstalledMods();
+
+		try {
+			// Extract all dependency edges
+			const constraints = currentInstalledMods.reduce((acc, mod) => {
+				for (const [dependentModID, version] of Object.entries(mod.info.dependencies)) {
+					logDebug(`Found dependency for ${mod.info.modID}: ${dependentModID} @ ${version}`);
+					const existingDependencies = acc.get(dependentModID) ?? [];
+					acc.set(dependentModID, [
+						...existingDependencies,
+						{
+							version,
+							parent: mod.info.modID,
+						},
+					]);
+				}
+
+				return acc;
+			}, new Map());
+
+			// Check whether installed mods match
+			const failedConstraints = [...constraints.entries()]
+				.map(([dependentModID, neededVersions]) => {
+					logDebug(`Checking constraints for ${dependentModID}`);
+					const enabledVersionOfDependentMod = currentInstalledMods.find((m) => m.info.modID === dependentModID)?.info.version;
+
+					const failingDependencies = neededVersions.filter(({ version }) => {
+						const isMet = enabledVersionOfDependentMod && FluxloaderSemver.doesVersionSatisfyDependency(enabledVersionOfDependentMod, version);
+						logDebug(`Did ${enabledVersionOfDependentMod} satisfy ${version}? ${isMet}`);
+						return !isMet;
+					});
+
+					return {
+						dependentModID,
+						failingDependencies,
+					};
+				})
+				.filter((checkedConstraints) => checkedConstraints.failingDependencies.length > 0);
+
+			logDebug(`Found ${failedConstraints.length} failed constraints: ${JSON.stringify(failedConstraints)}`);
+			return failedConstraints;
+		} catch (e) {
+			logError(e);
+			console.error(e);
+			return [];
+		}
+	}
+
 	async calculateModActions(mainActions) {
 		logDebug(`Calculating all mod actions for ${Object.keys(mainActions).length} main action(s)`);
 
 		// ----------- UTILITY -----------
+
+		const failedConstraints = this.checkModDepenciesForCompatibility();
+
+		logDebug(JSON.stringify(failedConstraints));
 
 		const modVersions = {};
 		const getModVersions = async (modID) => {
