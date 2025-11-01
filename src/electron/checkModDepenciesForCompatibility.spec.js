@@ -1,66 +1,61 @@
-import { describe, it, suite, test } from "node:test";
+import { test, suite } from "node:test";
+import semver from "semver";
 import assert from "node:assert/strict";
-import { ModsManager } from "./electron.js";
+import { checkModDepenciesForCompatibility } from "./checkModDepenciesForCompatibility.js";
+
+globalThis.logDebug = () => {};
+globalThis.logError = () => {};
+
+globalThis.semver = semver;
 
 suite("checkModDepenciesForCompatibility", () => {
 	suite("without issues", () => {
-		it("should return success when no mods are installed", () => {
-			const modsManager = new ModsManager();
-
-			modsManager.installedMods = {
+		test("should return success when no mods are installed", () => {
+			const modsToCheck = [
 				// none
-			};
+			];
 
-			const failedConstraints = modsManager.checkModDepenciesForCompatibility();
+			const failedConstraints = checkModDepenciesForCompatibility({ modsToCheck });
 			assert.deepEqual(failedConstraints, [], "Found failed constraints when none were expected");
 		});
 
-		it("should return success when single mod with no dependencies are installed", () => {
-			const modsManager = new ModsManager();
-
-			modsManager.loadOrder = ["portals"];
-			modsManager.installedMods = {
-				portals: {
+		test("should return success when single mod with no dependencies are installed", () => {
+			const modsToCheck = [
+				{
 					info: {
 						modID: "portals",
 						dependencies: {},
 					},
 				},
-			};
+			];
 
-			const failedConstraints = modsManager.checkModDepenciesForCompatibility();
+			const failedConstraints = checkModDepenciesForCompatibility({ modsToCheck });
 			assert.deepEqual(failedConstraints, [], "Found failed constraints when none were expected");
 		});
 
-		it("should return success when multiple mod with no dependencies are installed", () => {
-			const modsManager = new ModsManager();
-
-			modsManager.loadOrder = ["portals", "cameras"];
-			modsManager.installedMods = {
-				portals: {
+		test("should return success when multiple mod with no dependencies are installed", () => {
+			const modsToCheck = [
+				{
 					info: {
 						modID: "portals",
 						dependencies: {},
 					},
 				},
-				cameras: {
+				{
 					info: {
 						modID: "cameras",
 						dependencies: {},
 					},
 				},
-			};
+			];
 
-			const failedConstraints = modsManager.checkModDepenciesForCompatibility();
+			const failedConstraints = checkModDepenciesForCompatibility({ modsToCheck });
 			assert.deepEqual(failedConstraints, [], "Found failed constraints when none were expected");
 		});
 
-		it("should return success when mod direct dependencies are installed", () => {
-			const modsManager = new ModsManager();
-
-			modsManager.loadOrder = ["portals", "cameras"];
-			modsManager.installedMods = {
-				portals: {
+		test("should return success when mod direct dependencies are installed", () => {
+			const modsToCheck = [
+				{
 					info: {
 						modID: "portals",
 						dependencies: {
@@ -68,27 +63,24 @@ suite("checkModDepenciesForCompatibility", () => {
 						},
 					},
 				},
-				cameras: {
+				{
 					info: {
 						modID: "cameras",
 						version: "1.0.1",
 						dependencies: {},
 					},
 				},
-			};
+			];
 
-			const failedConstraints = modsManager.checkModDepenciesForCompatibility();
+			const failedConstraints = checkModDepenciesForCompatibility({ modsToCheck });
 			assert.deepEqual(failedConstraints, [], "Found failed constraints when none were expected");
 		});
 	});
 
 	suite("with issues", () => {
-		it("should return failure when mod direct dependencies are not compatible versions", () => {
-			const modsManager = new ModsManager();
-
-			modsManager.loadOrder = ["portals", "cameras"];
-			modsManager.installedMods = {
-				portals: {
+		test("should return failure when mod direct dependencies are not compatible versions", () => {
+			const modsToCheck = [
+				{
 					info: {
 						modID: "portals",
 						version: "1.0.0",
@@ -97,14 +89,14 @@ suite("checkModDepenciesForCompatibility", () => {
 						},
 					},
 				},
-				cameras: {
+				{
 					info: {
 						modID: "cameras",
 						version: "2.0.1",
 						dependencies: {},
 					},
 				},
-			};
+			];
 
 			const expectedFailure = {
 				dependentModID: "cameras",
@@ -116,15 +108,12 @@ suite("checkModDepenciesForCompatibility", () => {
 				],
 			};
 
-			const failedConstraints = modsManager.checkModDepenciesForCompatibility();
+			const failedConstraints = checkModDepenciesForCompatibility({ modsToCheck });
 			assert.deepEqual(failedConstraints, [expectedFailure], "Did not find expected failed constraints");
 		});
-		it("should return failure when mod descendent dependencies are not compatible versions", () => {
-			const modsManager = new ModsManager();
-
-			modsManager.loadOrder = ["portals", "cameras", "core"];
-			modsManager.installedMods = {
-				portals: {
+		test("should return failure when mod descendent dependencies are not compatible versions", () => {
+			const modsToCheck = [
+				{
 					info: {
 						modID: "portals",
 						version: "1.0.0",
@@ -133,7 +122,7 @@ suite("checkModDepenciesForCompatibility", () => {
 						},
 					},
 				},
-				cameras: {
+				{
 					info: {
 						modID: "cameras",
 						version: "1.0.1",
@@ -142,14 +131,14 @@ suite("checkModDepenciesForCompatibility", () => {
 						},
 					},
 				},
-				core: {
+				{
 					info: {
 						modID: "core",
 						version: "1.0.1",
 						dependencies: {},
 					},
 				},
-			};
+			];
 
 			const expectedFailure = {
 				dependentModID: "core",
@@ -161,7 +150,7 @@ suite("checkModDepenciesForCompatibility", () => {
 				],
 			};
 
-			const failedConstraints = modsManager.checkModDepenciesForCompatibility();
+			const failedConstraints = checkModDepenciesForCompatibility({ modsToCheck });
 			assert.deepEqual(failedConstraints, [expectedFailure], "Did not find expected failed constraints");
 		});
 	});

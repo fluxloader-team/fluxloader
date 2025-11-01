@@ -15,6 +15,7 @@ import { EventBus, SchemaValidation, Logging, FluxloaderSemver } from "./common.
 import semver from "semver";
 import AdmZip from "adm-zip";
 import Module from "module";
+import { checkModDepenciesForCompatibility } from "./electron/checkModDepenciesForCompatibility.js";
 
 // =================== GENERAL ARCHITECTURE ===================
 
@@ -1150,52 +1151,7 @@ export class ModsManager {
 
 	checkModDepenciesForCompatibility() {
 		logDebug("Checking dependencies of all installed mods");
-		const currentInstalledMods = this.getInstalledMods();
-
-		try {
-			// Extract all dependency edges
-			const constraints = currentInstalledMods.reduce((acc, mod) => {
-				for (const [dependentModID, version] of Object.entries(mod.info.dependencies)) {
-					logDebug(`Found dependency for ${mod.info.modID}: ${dependentModID} @ ${version}`);
-					const existingDependencies = acc.get(dependentModID) ?? [];
-					acc.set(dependentModID, [
-						...existingDependencies,
-						{
-							version,
-							parent: mod.info.modID,
-						},
-					]);
-				}
-
-				return acc;
-			}, new Map());
-
-			// Check whether installed mods match
-			const failedConstraints = [...constraints.entries()]
-				.map(([dependentModID, neededVersions]) => {
-					logDebug(`Checking constraints for ${dependentModID}`);
-					const enabledVersionOfDependentMod = currentInstalledMods.find((m) => m.info.modID === dependentModID)?.info.version;
-
-					const failingDependencies = neededVersions.filter(({ version }) => {
-						const isMet = enabledVersionOfDependentMod && FluxloaderSemver.doesVersionSatisfyDependency(enabledVersionOfDependentMod, version);
-						logDebug(`Did ${enabledVersionOfDependentMod} satisfy ${version}? ${isMet}`);
-						return !isMet;
-					});
-
-					return {
-						dependentModID,
-						failingDependencies,
-					};
-				})
-				.filter((checkedConstraints) => checkedConstraints.failingDependencies.length > 0);
-
-			logDebug(`Found ${failedConstraints.length} failed constraints: ${JSON.stringify(failedConstraints)}`);
-			return failedConstraints;
-		} catch (e) {
-			logError(e);
-			console.error(e);
-			return [];
-		}
+		return checkModDepenciesForCompatibility({ modsToCheck: this.getInstalledMods() });
 	}
 
 	async calculateModActions(mainActions) {
