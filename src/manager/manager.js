@@ -631,6 +631,7 @@ class ModsTab {
 		// Show a warning for any incompatible installed mods
 		const warnings = await this._fetchWarningsForIncompatibleMods();
 		console.log(warnings);
+
 	}
 
 	async loadMoreMods() {
@@ -994,6 +995,7 @@ class ModsTab {
 		// They should already be populated from 'reload-installed-mods'
 		const mods = await api.invoke("fl:get-installed-mods", { rendered: true });
 
+
 		// If we are connected then also load mod versions
 		let versions = {};
 		if (connectionState === "online") {
@@ -1007,6 +1009,8 @@ class ModsTab {
 				versions = res.data;
 			}
 		}
+
+		const warnings = await this._fetchWarningsForIncompatibleMods();
 
 		// If told to clear the table then do so now
 		// Doing it here minimizes the flicker rather than doing it inside reloadMods()
@@ -1045,6 +1049,8 @@ class ModsTab {
 
 			// Convert to mod data and save
 			const modData = this.convertInstalledModToModData(mod);
+			const matchedWarnings = warnings.filter(({ failingDependencies }) => failingDependencies.some((d) => d.parent === mod.info.modID));
+			modData.warnings = matchedWarnings;
 			if (versions[modData.modID] != null) modData.versions = versions[modData.modID];
 			this.modRows[modData.modID] = this.createModRow(modData);
 			newModIDs.push(modData.modID);
@@ -1227,6 +1233,9 @@ class ModsTab {
 		const updateIcon = createElement(
 			`<img src="./assets/circle-arrow-up.png" style="width: 1.5rem; height: 1.5rem; visibility: ${api.semver.compare(modData.info.version, modData.versions[0]) < 0 ? "visible" : "hidden"}" title="Update available">`,
 		);
+		// Show warning icon if mod has incompatibilities
+		const shouldShowWarning = modData.warnings?.length > 0;
+		const dependencyWarningIcon = createElement(`<img src="./assets/cross.png" style="width: 1.5rem; height: 1.5rem; visibility: ${shouldShowWarning ? "visible" : "hidden"}" title="Attention needed">`);
 		dropdown.addEventListener("click", (e) => e.stopPropagation());
 		dropdown.addEventListener("change", (e) => this.changeModVersion(modData.modID, e));
 		let main = createElement("<div>");
@@ -1235,6 +1244,7 @@ class ModsTab {
 		main.style.gap = "5px";
 		main.appendChild(dropdown);
 		main.appendChild(updateIcon);
+		main.appendChild(dependencyWarningIcon);
 		return main;
 	}
 
