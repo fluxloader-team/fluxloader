@@ -33,10 +33,11 @@
  */
 
 /**
+ * @template T
  * @typedef {Object} FlResponse
  * @property {boolean} success
  * @property {string} message
- * @property {any} [data]
+ * @property {T|null} data
  */
 
 /**
@@ -56,6 +57,18 @@
 
 /**
  * @typedef {Object} CalculateModsResponse
+ */
+
+/**
+ * @typedef {Object} FetchedMod
+ * @property {string} modID
+ * @property {ModInfo} [modData]
+ * @property {string[]} [versionNumbers]
+ * @property {string} [uploadTime]
+ * @property {string} [renderedDescription]
+ * @property {any} [votes]
+ * 
+ * @typedef {{ [modID: string]: FetchedMod }} FetchedModCache
  */
 
 export class EventBus {
@@ -391,17 +404,48 @@ export class Logging {
 
 export class DependencyCalculator {
 	/** @returns {CalculateModsResponse} */
-	static async calculate(/** @type {Mods} */ mods, /** @type {Actions} */ strictActions, fetchedModCache) {
-		logDebug(`Calculating all mod actions for ${Object.keys(strictActions).length} main action(s)`);
+	static async calculate(/** @type {Mods} */ mods, /** @type {Actions} */ inputActions, /** @type {FetchedModCache} */ fetchedModCache) {
+		logDebug(`Calculating all mod actions for ${Object.keys(inputActions).length} main action(s)`);
 
-		// ----------- UTILITY -----------
+		/**
+		 * Cache for mods available versions
+		 * @type {{ [modID: string]: string[] }}
+		 */
+		let modVersionsCache = {};
 
-		const modVersionsCache = {};
-		const modVersionDependencies = {};
+		/**
+		 * Cache for mod version dependencies
+		 * - 2 layered map of modID -> version -> {dependencies}
+		 * - Dependencies are a map of dependencyModID -> dependencyVersion
+		 * @type {{ [modID: string]: { [version: string]: { [dependencyModID: string]: string } } }}
+		 */
+		let modVersionDependencies = {};
+		
+		/**
+		 * @typedef {Object} Constraint
+		 * @property {string} version
+		 * @property {string|null} parent
+		 */
 
-		// Retrieve all available versions for a mod from the API
-		// First check if it is installed, then check memoized fetched mod cache, then fetch from API
+		/** @type {{ [modID: string]: Constraint }} */
+		let inputConstraints = {};
+
+		/** @type {{ [modID: string]: string }} */
+		let currentModVersions = {};
+
+		/** @type {{ [modID: string]: Constraint[] }} */
+		let currentModConstraints = {};
+
+		/** @type {string[]} */
+		let currentModsMarkedForUninstall = [];
+
+		// ---------------------- UTILITY ----------------------
+
+		/** @returns {FlResponse<string[]>} */
 		const getModVersions = async (modID) => {
+			// Retrieve all available versions for a mod from the API
+			// First check if it is installed, then check memoized fetched mod cache, then fetch from API
+
 			// Already cached
 			if (modVersionsCache[modID]) {
 				return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
@@ -446,6 +490,7 @@ export class DependencyCalculator {
 			return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
 		};
 
+		/** @returns {FlResponse<{ [dependencyModID: string]: string }>} */
 		const getModVersionDependencies = async (modID, version) => {
 			// Already cached
 			if (modVersionDependencies[modID]) {
@@ -484,6 +529,8 @@ export class DependencyCalculator {
 					errorReason: "mod-version-fetch",
 				});
 			}
+
+			// Check the response is valid
 			if (!versionData || !Object.hasOwn(versionData, "mod") || !Object.hasOwn(versionData.mod, "modData")) {
 				return errorResponse(`Invalid response for mod info of ${modID} version ${version}`, {
 					errorModID: modID,
@@ -497,214 +544,189 @@ export class DependencyCalculator {
 					errorReason: "version-info-fetch",
 				});
 			}
+		
+			// Finally we can add it to the cache
 			if (!modVersionDependencies[modID]) modVersionDependencies[modID] = {};
 			modVersionDependencies[modID][version] = dependencies;
 			return successResponse(`Mod version dependencies found for '${modID}' version '${version}'`, dependencies);
 		};
 
-		const cloneConstraints = (constraints) => {
-			// Make a deep copy of a constraints object
-			let cloned = {};
-			for (const modID in constraints) {
-				if (!cloned[modID]) cloned[modID] = [];
-				cloned[modID] = [...constraints[modID]];
+		/** @returns {FlResponse<{ [modID: string]: Constraint[] }>} */
+		const resetCurrentState = async () => {
+			currentModConstraints = {};
+			currentModsMarkedForUninstall = []
+
+			// Copy in the input constraints
+			for (const modID in inputConstraints) {
+				currentModConstraints[modID] = [inputConstraints[modID]];
 			}
-			return cloned;
+
+			// Copy in the dependencies for each current mod
+			for (const modID in currentModVersions) {
+				const modDependenciesResponse = await getModVersionDependencies(modID, currentModVersions[modID]);
+				if (!modDependenciesResponse.success) return modDependenciesResponse;
+				const modDependencies = modDependenciesResponse.data;
+			
+				for (const depModID in modDependencies) {
+					if (!currentModConstraints[depModID]) currentModConstraints[depModID] = [];
+					currentModConstraints[depModID].push({ version: modDependencies[depModID], parent: modID });
+				}
+			}
+
+			// Now we need to propogate out the marked for uninstalls to mods that depend on them
+			let uninstallsToPropogate = [...currentModsMarkedForUninstall];
+			while (uninstallsToPropogate.length > 0) {
+				const modID = uninstallsToPropogate.pop();
+				if (currentModConstraints[modID]) {
+					for (const constraint of currentModConstraints[modID]) {
+						const parentModID = constraint.parent;
+						if (parentModID && !currentModsMarkedForUninstall.includes(parentModID)) {
+							currentModsMarkedForUninstall.push(parentModID);
+							uninstallsToPropogate.push(parentModID);
+						}
+					}
+				}
+			}
+			
+			return successResponse(`Constraints created from current state`);
 		};
 
-		// ----------- MAIN -----------
+		/** Returns whether we need to find a version for a mod given the constraints */
+		const doWeNeedToResolveMod = (modID, modConstraints) => {
+			if (modConstraints.length === 0) return false;
+			if (mods[modID]) return true;
+			for (const constraint of modConstraints) {
+				if (!constraint.version.startsWith("optional:") && !constraint.version.startsWith("conflict:")) {
+					return true;
+				}
+			}
+			return false;
+		};
 
-		// Setup hard dependency constraints based on the requested installation
-		// We only track "parents" for constraints for information, it is not essential to the algorithm
-		let strictConstraints = {};
-		let strictUninstalls = [];
-		for (const actionModID in strictActions) {
-			const action = strictActions[actionModID];
-			if (action.type === "install") {
-				if (!strictConstraints[actionModID]) strictConstraints[actionModID] = [];
-				strictConstraints[actionModID].push({ version: action.version, parent: null });
-			} else if (action.type === "uninstall") {
-				strictUninstalls.push(actionModID);
+		/** Returns whether a version satisfies all constraints for a mod */
+		const doesVersionSatisfyAllConstraints = (version, modConstraints) => {
+			if (currentModsMarkedForUninstall.includes(constraintModID)) return false;
+			for (const constraint of modConstraints) {
+				if (!FluxloaderSemver.doesVersionSatisfyDependency(version, constraint.version)) {
+					return false;
+				}
+			}
+			return true;
+		};
+
+		// ---------------------- SETUP ----------------------
+
+		// Create input constraints from the input actions
+		for (const actionModID in inputActions) {
+			const action = inputActions[actionModID];
+			if (action.type == "install") {
+				inputConstraints[actionModID] = { version: action.version, parent: null };
+			} else if (action.type == "uninstall") {
+				currentModsMarkedForUninstall.push(actionModID);
 			} else {
-				return errorResponse(`Invalid action type '${action.type}' for mod '${actionModID}'`);
+				return errorResponse(`Invalid action type '${action.type}' for mod '${actionModID}'`, {
+					errorModID: actionModID,
+					errorReason: "invalid-action-type",
+				});
 			}
 		}
 
-		// Setup the current state with the currently installed mods
-		let currentState = {};
-		let currentConstraints = {};
-		let uninstallConstraints = {};
+		// Initialize the current mod versions from the currently installed mods
 		for (const modID in mods) {
-			const mod = mods[modID];
-			currentState[modID] = mod.info.version;
+			currentModVersions[modID] = mods[modID].info.version;
 		}
 
-		logDebug(`Hard constraints for mod actions: ${JSON.stringify(strictConstraints)}`);
-		logDebug(`Initial state based on installed mods: ${JSON.stringify(currentState)}`);
+		logDebug(`Hard constraints for mod actions: ${JSON.stringify(inputConstraints)}`);
+		logDebug(`Initial state based on installed mods: ${JSON.stringify(currentModVersions)}`);
+
+		// ---------------------- CALCULATION ----------------------
 
 		// Loop until we have found a stable configuration of mod versions
+		// If we hit a dead end we just exit out the entire calculation with errorResponse()
 		let isStable = false;
 		let iterations = 0;
 		while (!isStable && iterations < 50) {
-
-			// Recreate constraints with the current state
-			currentConstraints = cloneConstraints(strictConstraints);
-
-			for (const modID in currentState) {
-				// Add each dependency of each current mod as a constraint
-				const modVersionDependencies = await getModVersionDependencies(modID, currentState[modID]);
-				if (!modVersionDependencies.success) {
-					return errorResponse(`Failed to get version dependencies for mod '${modID}': ${modVersionDependencies.message}`, {
-						errorModID: modID,
-						errorReason: "version-dependencies-fetch",
-					});
-				}
-
-				const dependencies = modVersionDependencies.data;
+	
+			// Create the constraints for this iteration from the input constraints and the current state
+			const currentConstraintsResponse = await resetCurrentState();
+			if (currentConstraintsResponse.success === false) return currentConstraintsResponse;
 			
-				for (const depModID in dependencies) {
-					// We cannot depend on a mod if it has a hard uninstall
-					if (strictUninstalls.includes(depModID)) {
-						logDebug(`Skipping dependency '${depModID}' for mod '${modID}' as it is marked for uninstall`);
-						if (!uninstallConstraints[modID]) uninstallConstraints[modID] = [];
-						uninstallConstraints[modID].push(currentState[modID]);
-					} else {
-						if (!currentConstraints[depModID]) currentConstraints[depModID] = [];
-						currentConstraints[depModID].push({ version: dependencies[depModID], parent: modID });
-					}
-				}
-			}
-
-			logDebug(`Current state: ${JSON.stringify(currentState)}`);
+			logDebug(`Current state: ${JSON.stringify(currentModVersions)}`);
 			logDebug(`Current constraints: ${JSON.stringify(currentConstraints)}`);
+			
+			// For each mod that we have constraints for
+			let nextState = {};
+			for (const constraintModID in currentConstraints) {
+				const modConstraints = currentConstraints[constraintModID];
 
-			// Solve the next state with current state
-			const nextState = {};
-			for (const requiredModID in currentConstraints) {
-				const currentModConstraints = currentConstraints[requiredModID];
-				if (currentModConstraints.length === 0) {
-					return errorResponse(`No constraints found for mod '${requiredModID}' but it has an entry in constraintDependencies`, {
-						errorModID: requiredModID,
-						errorReason: "constraints-missing",
-					});
-				}
-
-				// Check if we are planning on uninstalling this mod
-				// This should be caught in the constraint generation step
-				if (strictUninstalls.includes(requiredModID)) {
-					return errorResponse(`Mod '${requiredModID}' is marked for uninstall but is depended on by these constraints: ${JSON.stringify(currentModConstraints)}`, {
-						errorModID: requiredModID,
-						errorReason: "mod-required",
-					});
-				}
-
-				// We should only try and find a mod version that fits if:
-				// - One of the dependencies is explicit (not optional or conflict)
-				// - We have the mod installed (and therefore we are searching for a version that matches versions)
-				let needsToBeConsidered = false;
-				for (const constraint of currentModConstraints) {
-					if (!constraint.version.startsWith("optional:") && !constraint.version.startsWith("conflict:")) {
-						needsToBeConsidered = true;
-						break;
-					}
-				}
-				if (mods[requiredModID]) needsToBeConsidered = true;
-				if (!needsToBeConsidered) {
-					logDebug(`Skipping mod '${requiredModID}'as there are no hard dependencies`);
+				// Exit out early if we dont strictly need to care for this mod
+				if (!doWeNeedToResolveMod(constraintModID, modConstraints)) {
+					logDebug(`Skipping mod '${constraintModID}'as there are no hard dependencies`);
 					continue;
 				}
 
-				// Before we try any other versions, check and prioritize the currently installed version
-				if (mods[requiredModID]) {
-					const installedVersion = mods[requiredModID].info.version;
-					let satisfiesAll = true;
-					for (const constraint of currentModConstraints) {
-						if (!FluxloaderSemver.doesVersionSatisfyDependency(installedVersion, constraint.version)) {
-							satisfiesAll = false;
-							break;
-						}
-					}
-					// Do not allow installing a mod version that is blocked due to a hard uninstall
-					if (uninstallConstraints[requiredModID] && uninstallConstraints[requiredModID].includes(installedVersion)) {
-						satisfiesAll = false;
-					}
-					if (satisfiesAll) {
-						logDebug(`Using currently installed version '${installedVersion}' for mod '${requiredModID}'`);
-						nextState[requiredModID] = installedVersion;
+				// First check if the currently installed version satisfies all constraints
+				if (mods[constraintModID]) {
+					const installedVersion = mods[constraintModID].info.version;
+					if (doesVersionSatisfyAllConstraints(installedVersion, modConstraints)) {
+						logDebug(`Using currently installed version '${installedVersion}' for mod '${constraintModID}'`);
+						nextState[constraintModID] = installedVersion;
 						continue;
 					}
 				}
 
-				// Find all available versions of the required mod
-				const modVersions = await getModVersions(requiredModID);
-				if (!modVersions.success) {
-					return errorResponse(`Failed to get versions for mod '${requiredModID}': ${modVersions.message}`, {
-						errorModID: requiredModID,
-						errorReason: "mod-versions-fetch",
-					});
-				}
-				const versions = modVersions.data;
-				if (!versions || versions.length === 0) {
-					return errorResponse(`No versions found for mod '${requiredModID}'`, {
-						errorModID: requiredModID,
+				// If not then find all available versions of the required mod
+				const modVersionsResponse = await `getModVersions`(constraintModID);
+				if (!modVersionsResponse.success) return modVersionsResponse;
+				const modVersions = modVersionsResponse.data;
+
+				logDebug(`Found ${modVersions.length} versions for mod '${constraintModID}'`);
+				if (!modVersions || modVersions.length === 0) {
+					return errorResponse(`No versions found for mod '${constraintModID}'`, {
+						errorModID: constraintModID,
 						errorReason: "mod-versions-fetch",
 					});
 				}
 
-				// Find the first version that matches all the constraints
-				logDebug(`Found ${versions.length} versions for mod '${requiredModID}'`);
+				// And find the first version that matches all the constraints
 				let foundVersion = null;
-				for (const version of versions) {
-					let satisfiesAll = true;
-					for (const constraint of currentModConstraints) {
-						if (!FluxloaderSemver.doesVersionSatisfyDependency(version, constraint.version)) {
-							satisfiesAll = false;
-							break;
-						}
-					}
-					// Do not allow installing a mod version that is blocked due to a hard uninstall
-					if (uninstallConstraints[requiredModID] && uninstallConstraints[requiredModID].includes(version)) {
-						satisfiesAll = false;
-					}
-					if (satisfiesAll) {
+				for (const version of modVersions) {
+					if (doesVersionSatisfyAllConstraints(version, modConstraints)) {
 						foundVersion = version;
 						break;
 					}
 				}
+
+				// Now finally we can check if we found a valid version
 				if (!foundVersion) {
-					if (uninstallConstraints[requiredModID]) {
-						logDebug(`No version found for mod '${requiredModID}' that satisfies all constraints. It is already marked as an uninstall constraint.`);
-						continue;
-					}
 					return errorResponse(
-						`No version found for mod '${requiredModID}' that satisfies all constraints: ${JSON.stringify(currentModConstraints)}`,
-						{
-							errorModID: requiredModID,
-							errorData: currentModConstraints,
+						`No version found for mod '${constraintModID}' that satisfies all constraints: ${JSON.stringify(modConstraints)}`, {
+							errorModID: constraintModID,
+							errorData: modConstraints,
 							errorReason: "version-satisfy",
-						},
-						false,
+						}, false
 					);
 				}
-				logDebug(`Found version '${foundVersion}' for mod '${requiredModID}' that satisfies all constraints`);
-				nextState[requiredModID] = foundVersion;
+	
+				logDebug(`Found version '${foundVersion}' for mod '${constraintModID}' that satisfies all constraints`);
+				nextState[constraintModID] = foundVersion;
 			}
 
-			// Check if the next state is stable
+			// Check if the next state is stable by checking every mod in current <-> next are the exact same
 			isStable = true;
 			for (const modID in nextState) {
-				if (!currentState[modID] || currentState[modID] !== nextState[modID]) {
+				if (!currentModVersions[modID] || currentModVersions[modID] !== nextState[modID]) {
 					isStable = false;
 					break;
 				}
 			}
-			for (const modID in currentState) {
-				if (!nextState[modID] || nextState[modID] !== currentState[modID]) {
+			for (const modID in currentModVersions) {
+				if (!nextState[modID] || nextState[modID] !== currentModVersions[modID]) {
 					isStable = false;
 					break;
 				}
 			}
-			currentState = nextState;
+			currentModVersions = nextState;
 			if (isStable) break;
 			iterations++;
 		}
@@ -715,7 +737,9 @@ export class DependencyCalculator {
 			});
 		}
 
-		logDebug(`Found stable configuration of mod versions after ${iterations} iterations: ${JSON.stringify(currentState)}`);
+		logDebug(`Found stable configuration of mod versions after ${iterations} iterations: ${JSON.stringify(currentModVersions)}`);
+		
+		// ---------------------- RESPONSE ----------------------
 
 		// Now need to convert the stable state + explicit uninstalls into a set of "install", "change", and "uninstall" actions
 		// Always convert a strict uninstall into an "uninstall" action
@@ -725,15 +749,15 @@ export class DependencyCalculator {
 		}
 		
 		// Convert any mods that have specified versions into "change" or "install" actions
-		for (const modID in currentState) {
-			const version = currentState[modID];
+		for (const modID in currentModVersions) {
+			const version = currentModVersions[modID];
 			if (actions[modID]) {
 				return errorResponse(`Mod '${modID}' already has an action defined, cannot redefine it`, {
 					errorModID: modID,
 					errorReason: "action-duplicate",
 				});
 			}
-			const parents = currentConstraints[modID].map((c) => c.parent).filter((p) => p !== null) || [];
+			const parents = currentModConstraints[modID].map((c) => c.parent).filter((p) => p !== null) || [];
 			if (mods[modID]) {
 				// If the mod is already installed, we need to check if the version is changing
 				if (mods[modID].info.version !== version) {
@@ -796,18 +820,33 @@ export class DependencyCalculator {
 		return { success: Object.keys(issues).length === 0, issues };
 	}
 }
-
-/** @returns {FlResponse} */
+/** 
+ * @template T
+ * @param {string} message
+ * @param {T|null} [data=null]
+ * @returns {FlResponse<T>}
+ */
 export function successResponse(message, data = null) {
 	return { success: true, message, data };
 }
 
-/** @returns {FlResponse} */
+/** 
+ * @template T
+ * @param {string} message
+ * @param {T|null} [data=null]
+ * @param {boolean} [log=true]
+ * @returns {FlResponse<T>}
+ */
 export function errorResponse(message, data = null, log = true) {
 	if (log) logError(message);
 	return { success: false, message, data };
 }
 
+/**
+ * @template T
+ * @param {FlResponse<T>} response
+ * @returns {FlResponse<T>}
+ */
 export function responseAsError(response) {
 	if (!response) throw new Error("Response is undefined");
 	if (!response.success) throw new Error(response.message);

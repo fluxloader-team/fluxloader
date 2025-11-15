@@ -22,6 +22,8 @@ import Module from "module";
 /** @typedef {import('./common.js').Action} Action */
 /** @typedef {import('./common.js').Actions} Actions */
 /** @typedef {import('./common.js').FlResponse} FlResponse */
+/** @typedef {import('./common.js').FetchedMod} FetchedMod */
+/** @typedef {import('./common.js').FetchedModCache} FetchedModCache */
 
 // =================== GENERAL ARCHITECTURE ===================
 
@@ -878,7 +880,7 @@ class ModsManager {
 	loadedModCount = 0;
 	modScriptsImport = {};
 	modElectronModules = {};
-	fetchedModCache = {};
+	/** @type {FetchedModCache} */ fetchedModCache = {};
 
 	// ------------ MAIN ------------
 
