@@ -11,7 +11,7 @@ import { randomUUID } from "crypto";
 import { marked } from "marked";
 import { JSDOM } from "jsdom";
 import dotenv from "dotenv";
-import { EventBus, SchemaValidation, Logging, FluxloaderSemver } from "./common.js";
+import { EventBus, SchemaValidation, Logging, FluxloaderSemver, DependencyCalculator } from "./common.js";
 import semver from "semver";
 import AdmZip from "adm-zip";
 import Module from "module";
@@ -873,10 +873,31 @@ class GameFilesManager {
 	}
 }
 
+/**
+ * @typedef {Object} ModInfo
+ * @property {string} modID
+ * @property {string} name
+ * @property {string} version
+ * @property {string} [author]
+ * @property {Object<string, string>} [dependencies]
+ * @property {Object} [configSchema]
+ * @property {string} [description]
+ */
+
+/**
+ * @typedef {Object} InstalledMod
+ * @property {ModInfo} info
+ * @property {string} path
+ * @property {boolean} isInstalled
+ * @property {boolean} isEnabled
+ * @property {boolean} isLoaded
+ * @property {string[]|undefined} [versions]
+ */
+
 class ModsManager {
 	baseModsPath = undefined;
 	modInfoSchema = undefined;
-	installedMods = {};
+	/** @type {{ [modID: string]: InstalledMod }} */ installedMods = {};
 	loadOrder = [];
 	areAnyModsLoaded = false;
 	modContext = undefined;
@@ -1135,6 +1156,95 @@ class ModsManager {
 
 		logDebug(`Returning mod info for '${config.modID}'`);
 		return successResponse(`Fetched mod info for '${config.modID}'`, mod);
+	}
+
+	async createNewMod(modCreateRequestData) {
+		// Assume that the data adheres to the modCreateRequestSchema
+		try {
+			// Check the modID is unique
+			if (this.installedMods[modCreateRequestData.modID] || this.fetchedModCache[modCreateRequestData.modID]) {
+				return errorResponse(`Mod with ID '${modCreateRequestData.modID}' already exists, please choose a different ID`);
+			}
+
+			// Create the mod directory
+			const modPath = path.join(this.baseModsPath, modCreateRequestData.modID);
+			logDebug(`Creating new mod directory at: ${modPath}`);
+			if (fs.existsSync(modPath)) {
+				return errorResponse(`Mod directory already exists at '${modPath}', please choose a different ID`);
+			}
+			ensureDirectoryExists(modPath);
+
+			// Create the modinfo.json file
+			const modInfo = {
+				modID: modCreateRequestData.modID,
+				name: modCreateRequestData.name,
+				version: modCreateRequestData.version,
+				author: modCreateRequestData.author,
+				fluxloaderVersion: modCreateRequestData.fluxloaderVersion,
+				shortDescription: modCreateRequestData.shortDescription,
+				description: modCreateRequestData.description,
+				dependencies: {},
+				tags: [],
+			};
+			if (modCreateRequestData.electronEntrypointEnabled) modInfo.electronEntrypoint = modCreateRequestData.electronEntrypointName;
+			if (modCreateRequestData.gameEntrypointEnabled) modInfo.gameEntrypoint = modCreateRequestData.gameEntrypointName;
+			if (modCreateRequestData.workerEntrypointEnabled) modInfo.workerEntrypoint = modCreateRequestData.workerEntrypointName;
+			if (modCreateRequestData.scriptEnabled) modInfo.scriptPath = modCreateRequestData.scriptPath;
+
+			// Helper function to create a file with optional content
+			function createFile(filePath, content = "") {
+				logDebug(`Creating file at: ${filePath}`);
+				try {
+					fs.writeFileSync(filePath, content, "utf8");
+				} catch (e) {
+					return errorResponse(`Failed to create file at ${filePath}: ${e.stack}`);
+				}
+			}
+
+			// Try create the modinfo.json file
+			const modInfoPath = path.join(modPath, "modinfo.json");
+			const modInfoResult = createFile(modInfoPath, JSON.stringify(modInfo, null, 2));
+			if (modInfoResult && !modInfoResult.success) return modInfoResult;
+
+			// Try create each entrypoint
+			if (modCreateRequestData.electronEntrypointEnabled) {
+				const electronEntrypointPath = path.join(modPath, modCreateRequestData.electronEntrypointName);
+				const res = createFile(electronEntrypointPath);
+				if (res && !res.success) return res;
+			}
+			if (modCreateRequestData.gameEntrypointEnabled) {
+				const gameEntrypointPath = path.join(modPath, modCreateRequestData.gameEntrypointName);
+				const res = createFile(gameEntrypointPath);
+				if (res && !res.success) return res;
+			}
+			if (modCreateRequestData.workerEntrypointEnabled) {
+				const workerEntrypointPath = path.join(modPath, modCreateRequestData.workerEntrypointName);
+				const res = createFile(workerEntrypointPath);
+				if (res && !res.success) return res;
+			}
+			if (modCreateRequestData.scriptEnabled) {
+				const scriptPath = path.join(modPath, modCreateRequestData.scriptPath);
+				const res = createFile(scriptPath);
+				if (res && !res.success) return res;
+			}
+			return successResponse(`Mod '${modCreateRequestData.modID}' created successfully`);
+		} catch (e) {
+			return errorResponse(`Failed to create new mod: ${e.stack}`);
+		}
+	}
+
+	setIsLoadOrderManual(isManual) {
+		config.isLoadOrderManual = isManual;
+		if (!isManual) config.loadOrder = [];
+		updateFluxloaderConfig();
+		this._updateLoadOrder();
+	}
+
+	setManualLoadOrder(loadOrder) {
+		logDebug(`Setting manual load order: [${loadOrder.join(", ")}]`);
+		config.loadOrder = loadOrder;
+		updateFluxloaderConfig();
+		this._updateLoadOrder();
 	}
 
 	async calculateModActions(mainActions) {
@@ -1684,128 +1794,22 @@ class ModsManager {
 		}
 	}
 
-	async createNewMod(modCreateRequestData) {
-		// Assume that the data adheres to the modCreateRequestSchema
-		try {
-			// Check the modID is unique
-			if (this.installedMods[modCreateRequestData.modID] || this.fetchedModCache[modCreateRequestData.modID]) {
-				return errorResponse(`Mod with ID '${modCreateRequestData.modID}' already exists, please choose a different ID`);
-			}
-
-			// Create the mod directory
-			const modPath = path.join(this.baseModsPath, modCreateRequestData.modID);
-			logDebug(`Creating new mod directory at: ${modPath}`);
-			if (fs.existsSync(modPath)) {
-				return errorResponse(`Mod directory already exists at '${modPath}', please choose a different ID`);
-			}
-			ensureDirectoryExists(modPath);
-
-			// Create the modinfo.json file
-			const modInfo = {
-				modID: modCreateRequestData.modID,
-				name: modCreateRequestData.name,
-				version: modCreateRequestData.version,
-				author: modCreateRequestData.author,
-				fluxloaderVersion: modCreateRequestData.fluxloaderVersion,
-				shortDescription: modCreateRequestData.shortDescription,
-				description: modCreateRequestData.description,
-				dependencies: {},
-				tags: [],
-			};
-			if (modCreateRequestData.electronEntrypointEnabled) modInfo.electronEntrypoint = modCreateRequestData.electronEntrypointName;
-			if (modCreateRequestData.gameEntrypointEnabled) modInfo.gameEntrypoint = modCreateRequestData.gameEntrypointName;
-			if (modCreateRequestData.workerEntrypointEnabled) modInfo.workerEntrypoint = modCreateRequestData.workerEntrypointName;
-			if (modCreateRequestData.scriptEnabled) modInfo.scriptPath = modCreateRequestData.scriptPath;
-
-			// Helper function to create a file with optional content
-			function createFile(filePath, content = "") {
-				logDebug(`Creating file at: ${filePath}`);
-				try {
-					fs.writeFileSync(filePath, content, "utf8");
-				} catch (e) {
-					return errorResponse(`Failed to create file at ${filePath}: ${e.stack}`);
-				}
-			}
-
-			// Try create the modinfo.json file
-			const modInfoPath = path.join(modPath, "modinfo.json");
-			const modInfoResult = createFile(modInfoPath, JSON.stringify(modInfo, null, 2));
-			if (modInfoResult && !modInfoResult.success) return modInfoResult;
-
-			// Try create each entrypoint
-			if (modCreateRequestData.electronEntrypointEnabled) {
-				const electronEntrypointPath = path.join(modPath, modCreateRequestData.electronEntrypointName);
-				const res = createFile(electronEntrypointPath);
-				if (res && !res.success) return res;
-			}
-			if (modCreateRequestData.gameEntrypointEnabled) {
-				const gameEntrypointPath = path.join(modPath, modCreateRequestData.gameEntrypointName);
-				const res = createFile(gameEntrypointPath);
-				if (res && !res.success) return res;
-			}
-			if (modCreateRequestData.workerEntrypointEnabled) {
-				const workerEntrypointPath = path.join(modPath, modCreateRequestData.workerEntrypointName);
-				const res = createFile(workerEntrypointPath);
-				if (res && !res.success) return res;
-			}
-			if (modCreateRequestData.scriptEnabled) {
-				const scriptPath = path.join(modPath, modCreateRequestData.scriptPath);
-				const res = createFile(scriptPath);
-				if (res && !res.success) return res;
-			}
-			return successResponse(`Mod '${modCreateRequestData.modID}' created successfully`);
-		} catch (e) {
-			return errorResponse(`Failed to create new mod: ${e.stack}`);
-		}
-	}
-
-	setIsLoadOrderManual(isManual) {
-		config.isLoadOrderManual = isManual;
-		if (!isManual) config.loadOrder = [];
-		updateFluxloaderConfig();
-		this._updateLoadOrder();
-	}
-
-	setManualLoadOrder(loadOrder) {
-		logDebug(`Setting manual load order: [${loadOrder.join(", ")}]`);
-		config.loadOrder = loadOrder;
-		updateFluxloaderConfig();
-		this._updateLoadOrder();
-	}
-
 	verifyDependencies() {
-		// Verify that all dependencies are installed and valid
-		let issues = {};
-		for (const modID in this.installedMods) {
-			const mod = this.installedMods[modID];
-			if (mod.isEnabled && mod.info.dependencies) {
-				for (const depModID in mod.info.dependencies) {
-					const dependency = mod.info.dependencies[depModID];
-					if (!this.isModInstalled(depModID)) {
-						if (!issues[modID]) issues[modID] = [];
-						issues[modID].push([depModID, "missing", dependency]);
-						logWarn(`Mod '${modID}' is missing dependency: ${depModID} (${dependency})`);
-						continue;
-					}
-					const modVersion = this.installedMods[depModID].info.version;
-					if (!this.installedMods[depModID].isEnabled) {
-						issues[modID].push([depModID, "disabled", dependency]);
-						logWarn(`Mod '${modID}' has dependency '${depModID}' which is disabled`);
-						continue;
-					}
-					if (!FluxloaderSemver.doesVersionSatisfyDependency(modVersion, dependency)) {
-						issues[modID].push([depModID, "version", dependency, modVersion]);
-						logWarn(`Mod '${modID}' has dependency '${depModID}' which does not satisfy version constraint '${dependency}' (installed version: '${modVersion}')`);
-						continue;
-					}
+		const res = DependencyCalculator.verify(this.installedMods);
+
+		if (!res.success) {
+			for (const issue of res.issues) {
+				if (issue.type === "missing") {
+					logWarn(`Mod '${issue.modID}' is missing dependency: ${issue.dependencyModID} (${issue.dependency})`);
+				} else if (issue.type === "disabled") {
+					logWarn(`Mod '${issue.modID}' has dependency '${issue.dependencyModID}' which is disabled`);
+				} else if (issue.type === "version") {
+					logWarn(`Mod '${issue.modID}' has dependency '${issue.dependencyModID}' which does not satisfy version constraint '${issue.dependency}' (installed version: '${issue.dependencyVersion}')`);
 				}
 			}
-		}
 
-		if (Object.keys(issues).length > 0) {
-			let issueCount = 0;
-			for (const modID in issues) issueCount += issues[modID].length;
-			return errorResponse(`Found ${issueCount} mod dependency issue${issueCount === 1 ? "" : "s"}`, { errorReason: "mod-dependencies-invalid", issues });
+			const issueCount = res.issues.length;
+			return errorResponse(`Found ${issueCount} mod dependency issue${issueCount === 1 ? "" : "s"}`, { errorReason: "mod-dependencies-invalid", issues: res.issues });
 		}
 
 		logDebug("All mod dependencies verified successfully");

@@ -328,3 +328,45 @@ export class Logging {
 		return `${COLOUR_MAP[colour]}${text}\x1b[0m`;
 	}
 }
+
+export class DependencyCalculator {
+	static calculate(mods, actions) {
+
+	}
+
+	static verify(mods) {
+		let issues = {};
+
+		for (const modID in mods) {
+			const mod = mods[modID];
+
+			if (mod.isEnabled && mod.info.dependencies) {
+				for (const depModID in mod.info.dependencies) {
+					const dep = mod.info.dependencies[depModID];
+					const depMod = mods[depModID];
+
+					if (depMod === undefined) {
+						if (!issues[modID]) issues[modID] = [];
+						issues[modID].push({ type: "missing", modID, dependencyModID: depModID, dependency: dep });
+						continue;
+					}
+
+					if (!depMod.isEnabled) {
+						if (!issues[modID]) issues[modID] = [];
+						issues[modID].push({ type: "disabled", modID, dependencyModID: depModID, dependency: dep });
+						continue;
+					}
+
+					const depVersion = depMod.info.version;
+					if (!FluxloaderSemver.doesVersionSatisfyDependency(depVersion, dep)) {
+						if (!issues[modID]) issues[modID] = [];
+						issues[modID].push({ type: "version", modID, dependencyModID: depModID, dependency: dep, dependencyVersion: depVersion });
+						continue;
+					}
+				}
+			}
+		}
+
+		return { valid: Object.keys(issues).length === 0, issues };
+	}
+}

@@ -974,9 +974,7 @@ class ModsTab {
 	// ------------ INTERNAL ------------
 
 	async loadInstalledMods(clearTable = true) {
-		if (!blocks.get(Blocks.LoadingMods)) {
-			return logError("Cannot load installed mods as not loading mods, this should not happen");
-		}
+		if (!blocks.requireBlocked([Blocks.LoadingMods], "load installed mods")) return;
 
 		// Request the installed mods from the backend
 		// They should already be populated from 'reload-installed-mods'
@@ -1043,7 +1041,7 @@ class ModsTab {
 	}
 
 	async loadMoreRemoteMods() {
-		if (!blocks.checkIfChangingModsOrActions("load more remote mods")) return;
+		if (!blocks.requireBlocked([Blocks.LoadingMods], "load more remote mods")) return;
 
 		const getInfo = {
 			search: this.filterInfo.search,
@@ -1416,7 +1414,6 @@ class ModsTab {
 			return false;
 		}
 
-		// Finally we can start the queueing process
 		blocks.set(Blocks.QueueingModAction, true);
 		this.setActionQueueLoading(true);
 		this.setActionQueueVisible(true);
@@ -1430,23 +1427,25 @@ class ModsTab {
 		this._updateModRowWithAction(newAction, true);
 
 		// Try update the queue with this new action
-		const res = await this.calculateActionsWithBackend();
+		const res = await this._calculateActionsWithBackend();
 		if (!res.success) {
-			logWarn(`Failed to queue '${type}' action for mod '${modID}':`, JSON.stringify(res));
 			newAction.state = "failed";
 			newAction.element.classList.toggle("loading", false);
 			newAction.element.classList.toggle("failed", true);
 			this._updateModRowWithAction(newAction, true);
-			blocks.set(Blocks.IsQueueingAction, false);
+			
 			this.setActionQueueLoading(false);
-			setStatusBar(`Failed to queue '${type}' action for mod '${res.data.errorModID || modID}'${res.data.errorReason ? ": " + res.data.errorReason : ""}`, 0, "failed");
 			this.updateActionExecutionButton();
+			setStatusBar(`Failed to queue '${type}' action for mod '${res.data.errorModID || modID}'${res.data.errorReason ? ": " + res.data.errorReason : ""}`, 0, "failed");
+			
+			logWarn(`Failed to queue '${type}' action for mod '${modID}':`, JSON.stringify(res));
+			blocks.set(Blocks.QueueingModAction, false);
 			return false;
 		}
 
 		// Accept the new action
 		newAction.state = "queued";
-		blocks.set(Blocks.IsQueueingAction, false);
+		blocks.set(Blocks.QueueingModAction, false);
 		this.setActionQueueLoading(false);
 		setStatusBar(`Queued action for mod '${modID}'`, 0, "success");
 		logDebug(`Queued main action for mod '${modID}' of type '${type}'`);
@@ -1468,9 +1467,9 @@ class ModsTab {
 
 		if (!this.queuedActions[modID]) return logWarn(`No queued action for mod '${modID}' to unqueue.`);
 
-		blocks.set(Blocks.IsQueueingAction, true);
+		blocks.set(Blocks.QueueingModAction, true);
 		this._removeAction(modID);
-		blocks.set(Blocks.IsQueueingAction, false);
+		blocks.set(Blocks.QueueingModAction, false);
 
 		await this._processDelayedActionQueue();
 		this.updateActionExecutionButton();
@@ -1515,10 +1514,9 @@ class ModsTab {
 		this.reloadMods();
 	}
 
-	async calculateActionsWithBackend() {
-		// This function should only be called by other main functions so we can make some expectations here
-		if (!blocks.getAll([Blocks.QueueingModAction, Blocks.PerformingModActions])) {
-			return logError("Can only run calculateActionsWithBackend when queueing or performing actions, this should not happen.");
+	async _calculateActionsWithBackend() {
+		if (!blocks.get(Blocks.QueueingModAction)) {
+			return logError("Can only run calculateActionsWithBackend when queueing actions, this should not happen.");
 		}
 
 		// Ask the backend to figure out all the actions based on the main actions
@@ -1538,9 +1536,8 @@ class ModsTab {
 	}
 
 	_removeAction(modID) {
-		// This function should only be called by other main functions so we can make some expectations here
-		if (!blocks.getAll([Blocks.QueueingModAction, Blocks.PerformingModActions])) {
-			return logError("Cannot unqueue main action as we are not queueing or performing actions, this should not happen");
+		if (!blocks.get(Blocks.QueueingModAction)) {
+			return logError("Cannot unqueue main action as we are not queueing actions, this should not happen");
 		}
 
 		const action = this.queuedActions[modID];
@@ -2360,25 +2357,34 @@ class Blocks {
 
 	// =================== HELPERS ===================
 
-	checkIfDoingAnything(message) {
-		if (this.getAny([Blocks.Playing, Blocks.PlayButtonLoading, Blocks.LoadingMods, Blocks.LoadingMods, Blocks.PerformingModActions])) {
-			const reason = `Cannot ${message} due to current blocks.`;
-			logWarn(`Blocks Check: ${reason}`);
+	requireBlocked(state, message, toError = false) {
+		if (!this.get(state)) {
+			const reason = `Cannot ${message} due to missing required block: ${state}.`;
+			if (toError) throw new Error(`Blocks Check: ${reason}`);
+			else logWarn(`Blocks Check: ${reason}`);
 			blocks.pingIndicator(reason);
 			return false;
 		}
 		return true;
 	}
 
-	checkIfChangingModsOrActions(message, toError = false) {
-		if (this.getAny([Blocks.LoadingMods, Blocks.QueueingModAction, Blocks.PerformingModActions])) {
+	requireFree(states, message, toError = false) {
+		if (this.getAny(states)) {
 			const reason = `Cannot ${message} due to current blocks.`;
-			if (toError) throw new Error(reason);
+			if (toError) throw new Error(`Blocks Check: ${reason}`);
 			else logWarn(`Blocks Check: ${reason}`);
 			blocks.pingIndicator(reason);
 			return false;
 		}
 		return true;
+	}
+
+	checkIfDoingAnything(message, toError = false) {
+		return this.requireFree([Blocks.Playing, Blocks.PlayButtonLoading, Blocks.LoadingMods, Blocks.PerformingModActions], message, toError);
+	}
+
+	checkIfChangingModsOrActions(message, toError = false) {
+		return this.requireFree([Blocks.LoadingMods, Blocks.QueueingModAction, Blocks.PerformingModActions], message, toError);
 	}
 }
 
