@@ -391,363 +391,371 @@ export class Logging {
 
 export class DependencyCalculator {
 	/** @returns {CalculateModsResponse} */
-	static calculate(/** @type {Mods} */ mods, /** @type {Actions} */ mainActions) {
-		logError(`Calculating all mod actions for ${Object.keys(mainActions).length} main action(s)`);
+	static async calculate(/** @type {Mods} */ mods, /** @type {Actions} */ strictActions, fetchedModCache) {
+		logDebug(`Calculating all mod actions for ${Object.keys(strictActions).length} main action(s)`);
 
-		// // ----------- UTILITY -----------
+		// ----------- UTILITY -----------
 
-		// const modVersions = {};
-		// // Retrieve all available versions for a mod from the API
-		// // First check if it is installed, then check memoized fetched mod cache, then fetch from API
-		// const getModVersions = async (modID) => {
-		// 	// Already cached
-		// 	if (modVersions[modID]) {
-		// 		return successResponse(`Mod versions found for '${modID}'`, modVersions[modID]);
-		// 	}
+		const modVersionsCache = {};
+		const modVersionDependencies = {};
 
-		// 	// Check installed mods
-		// 	if (this.installedMods[modID] && this.installedMods[modID].versions) {
-		// 		modVersions[modID] = this.installedMods[modID].versions;
-		// 		return successResponse(`Mod versions found for '${modID}'`, modVersions[modID]);
-		// 	}
+		// Retrieve all available versions for a mod from the API
+		// First check if it is installed, then check memoized fetched mod cache, then fetch from API
+		const getModVersions = async (modID) => {
+			// Already cached
+			if (modVersionsCache[modID]) {
+				return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
+			}
 
-		// 	// Check remote mod cache
-		// 	if (this.fetchedModCache[modID] && this.fetchedModCache[modID].versionNumbers) {
-		// 		modVersions[modID] = this.fetchedModCache[modID].versionNumbers;
-		// 		return successResponse(`Mod versions found for '${modID}'`, modVersions[modID]);
-		// 	}
+			// Check installed mods
+			if (mods[modID] && mods[modID].versions) {
+				modVersionsCache[modID] = mods[modID].versions;
+				return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
+			}
 
-		// 	// Otherwise fetch
-		// 	const versionsURL = `https://fluxloader.app/api/mods?option=versions&modid=${modID}`;
-		// 	let versionsResData;
-		// 	try {
-		// 		logError(`Fetching available versions for mod '${modID}' from API: ${versionsURL}`);
-		// 		const versionFetchStart = Date.now();
-		// 		const res = await fetch(versionsURL);
-		// 		versionsResData = await res.json();
-		// 		const versionFetchEnd = Date.now();
-		// 		logError(`Fetched available versions for mod '${modID}' in ${versionFetchEnd - versionFetchStart}ms`);
-		// 	} catch (e) {
-		// 		return errorResponse(`Failed to fetch available versions for mod '${modID}' with url ${versionsURL}: ${e.stack}`, {
-		// 			errorModID: modID,
-		// 			errorReason: "mod-versions-fetch",
-		// 		});
-		// 	}
-		// 	if (!versionsResData || !Object.hasOwn(versionsResData, "versions")) {
-		// 		return errorResponse(`Invalid response for available versions of mod '${modID}' with url ${versionsURL}`, {
-		// 			errorModID: modID,
-		// 			errorReason: "mod-versions-fetch",
-		// 		});
-		// 	}
+			// Check remote mod cache
+			if (fetchedModCache[modID] && fetchedModCache[modID].versionNumbers) {
+				modVersionsCache[modID] = fetchedModCache[modID].versionNumbers;
+				return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
+			}
 
-		// 	modVersions[modID] = versionsResData.versions;
-		// 	return successResponse(`Mod versions found for '${modID}'`, modVersions[modID]);
-		// };
+			// Otherwise fetch
+			const versionsURL = `https://fluxloader.app/api/mods?option=versions&modid=${modID}`;
+			let versionsResData;
+			try {
+				logDebug(`Fetching available versions for mod '${modID}' from API: ${versionsURL}`);
+				const versionFetchStart = Date.now();
+				const res = await fetch(versionsURL);
+				versionsResData = await res.json();
+				const versionFetchEnd = Date.now();
+				logDebug(`Fetched available versions for mod '${modID}' in ${versionFetchEnd - versionFetchStart}ms`);
+			} catch (e) {
+				return errorResponse(`Failed to fetch available versions for mod '${modID}' with url ${versionsURL}: ${e.stack}`, {
+					errorModID: modID,
+					errorReason: "mod-versions-fetch",
+				});
+			}
+			if (!versionsResData || !Object.hasOwn(versionsResData, "versions")) {
+				return errorResponse(`Invalid response for available versions of mod '${modID}' with url ${versionsURL}`, {
+					errorModID: modID,
+					errorReason: "mod-versions-fetch",
+				});
+			}
 
-		// const modVersionDependencies = {};
-		// const getModVersionDependencies = async (modID, version) => {
-		// 	// Already cached
-		// 	if (modVersionDependencies[modID]) {
-		// 		if (modVersionDependencies[modID][version]) {
-		// 			return successResponse(`Mod version dependencies found for '${modID}' version '${version}'`, modVersionDependencies[modID][version]);
-		// 		}
-		// 	} else {
-		// 		modVersionDependencies[modID] = {};
-		// 	}
+			modVersionsCache[modID] = versionsResData.versions;
+			return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
+		};
 
-		// 	// Check installed mods
-		// 	if (this.installedMods[modID] && this.installedMods[modID].info && this.installedMods[modID].info.version === version) {
-		// 		modVersionDependencies[modID][version] = this.installedMods[modID].info.dependencies || {};
-		// 		return successResponse(`Mod version dependencies found for '${modID}' version '${version}'`, modVersionDependencies[modID][version]);
-		// 	}
+		const getModVersionDependencies = async (modID, version) => {
+			// Already cached
+			if (modVersionDependencies[modID]) {
+				if (modVersionDependencies[modID][version]) {
+					return successResponse(`Mod version dependencies found for '${modID}' version '${version}'`, modVersionDependencies[modID][version]);
+				}
+			} else {
+				modVersionDependencies[modID] = {};
+			}
 
-		// 	// Check remote mod cache
-		// 	if (this.fetchedModCache[modID] && this.fetchedModCache[modID].modData && this.fetchedModCache[modID].modData.version === version) {
-		// 		modVersionDependencies[modID][version] = this.fetchedModCache[modID].modData.dependencies || {};
-		// 		return successResponse(`Mod version dependencies found for '${modID}' version '${version}'`, modVersionDependencies[modID][version]);
-		// 	}
+			// Check installed mods
+			if (mods[modID] && mods[modID].info && mods[modID].info.version === version) {
+				modVersionDependencies[modID][version] = mods[modID].info.dependencies || {};
+				return successResponse(`Mod version dependencies found for '${modID}' version '${version}'`, modVersionDependencies[modID][version]);
+			}
 
-		// 	// Otherwise fetch
-		// 	const versionDataURL = `https://fluxloader.app/api/mods?option=info&modid=${modID}&version=${version}`;
-		// 	let versionData;
-		// 	try {
-		// 		logError(`Fetching '${modID}' version '${version}' from API: ${versionDataURL}`);
-		// 		const fetchStart = Date.now();
-		// 		const res = await fetch(versionDataURL);
-		// 		versionData = await res.json();
-		// 		const fetchEnd = Date.now();
-		// 		logError(`Fetched '${modID}' version '${version}' in ${fetchEnd - fetchStart}ms`);
-		// 	} catch (e) {
-		// 		return errorResponse(`Failed to fetch '${modID}' version '${version}': ${e.stack}`, {
-		// 			errorModID: modID,
-		// 			errorReason: "mod-version-fetch",
-		// 		});
-		// 	}
-		// 	if (!versionData || !Object.hasOwn(versionData, "mod") || !Object.hasOwn(versionData.mod, "modData")) {
-		// 		return errorResponse(`Invalid response for mod info of ${modID} version ${version}`, {
-		// 			errorModID: modID,
-		// 			errorReason: "mod-version-fetch",
-		// 		});
-		// 	}
-		// 	const dependencies = versionData.mod.modData.dependencies || {};
-		// 	if (!dependencies || typeof dependencies !== "object") {
-		// 		return errorResponse(`Invalid response for mod info of ${modID} version ${version}`, {
-		// 			errorModID: modData,
-		// 			errorReason: "version-info-fetch",
-		// 		});
-		// 	}
-		// 	if (!modVersionDependencies[modID]) modVersionDependencies[modID] = {};
-		// 	modVersionDependencies[modID][version] = dependencies;
-		// 	return successResponse(`Mod version dependencies found for '${modID}' version '${version}'`, dependencies);
-		// };
+			// Check remote mod cache
+			if (fetchedModCache[modID] && fetchedModCache[modID].modData && fetchedModCache[modID].modData.version === version) {
+				modVersionDependencies[modID][version] = fetchedModCache[modID].modData.dependencies || {};
+				return successResponse(`Mod version dependencies found for '${modID}' version '${version}'`, modVersionDependencies[modID][version]);
+			}
 
-		// const cloneConstraints = (constraints) => {
-		// 	// Make a deep copy of a constraints object
-		// 	let cloned = {};
-		// 	for (const modID in constraints) {
-		// 		if (!cloned[modID]) cloned[modID] = [];
-		// 		cloned[modID] = [...constraints[modID]];
-		// 	}
-		// 	return cloned;
-		// };
+			// Otherwise fetch
+			const versionDataURL = `https://fluxloader.app/api/mods?option=info&modid=${modID}&version=${version}`;
+			let versionData;
+			try {
+				logDebug(`Fetching '${modID}' version '${version}' from API: ${versionDataURL}`);
+				const fetchStart = Date.now();
+				const res = await fetch(versionDataURL);
+				versionData = await res.json();
+				const fetchEnd = Date.now();
+				logDebug(`Fetched '${modID}' version '${version}' in ${fetchEnd - fetchStart}ms`);
+			} catch (e) {
+				return errorResponse(`Failed to fetch '${modID}' version '${version}': ${e.stack}`, {
+					errorModID: modID,
+					errorReason: "mod-version-fetch",
+				});
+			}
+			if (!versionData || !Object.hasOwn(versionData, "mod") || !Object.hasOwn(versionData.mod, "modData")) {
+				return errorResponse(`Invalid response for mod info of ${modID} version ${version}`, {
+					errorModID: modID,
+					errorReason: "mod-version-fetch",
+				});
+			}
+			const dependencies = versionData.mod.modData.dependencies || {};
+			if (!dependencies || typeof dependencies !== "object") {
+				return errorResponse(`Invalid response for mod info of ${modID} version ${version}`, {
+					errorModID: modData,
+					errorReason: "version-info-fetch",
+				});
+			}
+			if (!modVersionDependencies[modID]) modVersionDependencies[modID] = {};
+			modVersionDependencies[modID][version] = dependencies;
+			return successResponse(`Mod version dependencies found for '${modID}' version '${version}'`, dependencies);
+		};
 
-		// // ----------- MAIN -----------
+		const cloneConstraints = (constraints) => {
+			// Make a deep copy of a constraints object
+			let cloned = {};
+			for (const modID in constraints) {
+				if (!cloned[modID]) cloned[modID] = [];
+				cloned[modID] = [...constraints[modID]];
+			}
+			return cloned;
+		};
 
-		// // Setup hard dependency constraints based on the requested installation
-		// // We only track "parents" for constraints for information, it is not essential to the algorithm
-		// let hardConstraints = {};
-		// let hardUninstalls = [];
-		// for (const actionModID in mainActions) {
-		// 	const action = mainActions[actionModID];
-		// 	if (action.type === "install") {
-		// 		if (!hardConstraints[actionModID]) hardConstraints[actionModID] = [];
-		// 		hardConstraints[actionModID].push({ version: action.version, parent: null });
-		// 	} else if (action.type === "uninstall") {
-		// 		hardUninstalls.push(actionModID);
-		// 	} else {
-		// 		return errorResponse(`Invalid action type '${action.type}' for mod '${actionModID}'`);
-		// 	}
-		// }
+		// ----------- MAIN -----------
 
-		// // Setup the current state with the currently installed mods
-		// let currentState = {};
-		// let currentConstraints = {};
-		// let uninstallConstraints = {};
-		// for (const modID in this.installedMods) {
-		// 	const mod = this.installedMods[modID];
-		// 	currentState[modID] = mod.info.version;
-		// }
+		// Setup hard dependency constraints based on the requested installation
+		// We only track "parents" for constraints for information, it is not essential to the algorithm
+		let strictConstraints = {};
+		let strictUninstalls = [];
+		for (const actionModID in strictActions) {
+			const action = strictActions[actionModID];
+			if (action.type === "install") {
+				if (!strictConstraints[actionModID]) strictConstraints[actionModID] = [];
+				strictConstraints[actionModID].push({ version: action.version, parent: null });
+			} else if (action.type === "uninstall") {
+				strictUninstalls.push(actionModID);
+			} else {
+				return errorResponse(`Invalid action type '${action.type}' for mod '${actionModID}'`);
+			}
+		}
 
-		// logError(`Hard constraints for mod actions: ${JSON.stringify(hardConstraints)}`);
-		// logError(`Initial state based on installed mods: ${JSON.stringify(currentState)}`);
+		// Setup the current state with the currently installed mods
+		let currentState = {};
+		let currentConstraints = {};
+		let uninstallConstraints = {};
+		for (const modID in mods) {
+			const mod = mods[modID];
+			currentState[modID] = mod.info.version;
+		}
 
-		// // Loop until we have found a stable configuration of mod versions
-		// let isStable = false;
-		// let iterations = 0;
-		// while (!isStable && iterations < 50) {
-		// 	// Recreate constraints with the current state
-		// 	currentConstraints = cloneConstraints(hardConstraints);
-		// 	for (const modID in currentState) {
-		// 		// Add each dependency of each current mod as a constraint
-		// 		const modVersionDependencies = await getModVersionDependencies(modID, currentState[modID]);
-		// 		if (!modVersionDependencies.success) {
-		// 			return errorResponse(`Failed to get version dependencies for mod '${modID}': ${modVersionDependencies.message}`, {
-		// 				errorModID: modID,
-		// 				errorReason: "version-dependencies-fetch",
-		// 			});
-		// 		}
-		// 		const dependencies = modVersionDependencies.data;
-		// 		for (const depModID in dependencies) {
-		// 			// We cannot depend on a mod if it has a hard uninstall
-		// 			if (hardUninstalls.includes(depModID)) {
-		// 				logError(`Skipping dependency '${depModID}' for mod '${modID}' as it is marked for uninstall`);
-		// 				if (!uninstallConstraints[modID]) uninstallConstraints[modID] = [];
-		// 				uninstallConstraints[modID].push(currentState[modID]);
-		// 			} else {
-		// 				if (!currentConstraints[depModID]) currentConstraints[depModID] = [];
-		// 				currentConstraints[depModID].push({ version: dependencies[depModID], parent: modID });
-		// 			}
-		// 		}
-		// 	}
+		logDebug(`Hard constraints for mod actions: ${JSON.stringify(strictConstraints)}`);
+		logDebug(`Initial state based on installed mods: ${JSON.stringify(currentState)}`);
 
-		// 	logError(`Current state: ${JSON.stringify(currentState)}`);
-		// 	logError(`Current constraints: ${JSON.stringify(currentConstraints)}`);
+		// Loop until we have found a stable configuration of mod versions
+		let isStable = false;
+		let iterations = 0;
+		while (!isStable && iterations < 50) {
 
-		// 	// Solve the next state with current state
-		// 	const nextState = {};
-		// 	for (const requiredModID in currentConstraints) {
-		// 		const currentModConstraints = currentConstraints[requiredModID];
-		// 		if (currentModConstraints.length === 0) {
-		// 			return errorResponse(`No constraints found for mod '${requiredModID}' but it has an entry in constraintDependencies`, {
-		// 				errorModID: requiredModID,
-		// 				errorReason: "constraints-missing",
-		// 			});
-		// 		}
+			// Recreate constraints with the current state
+			currentConstraints = cloneConstraints(strictConstraints);
 
-		// 		// Check if we are planning on uninstalling this mod
-		// 		// This should be caught in the constraint generation step
-		// 		if (hardUninstalls.includes(requiredModID)) {
-		// 			return errorResponse(`Mod '${requiredModID}' is marked for uninstall but is depended on by these constraints: ${JSON.stringify(currentModConstraints)}`, {
-		// 				errorModID: requiredModID,
-		// 				errorReason: "mod-required",
-		// 			});
-		// 		}
+			for (const modID in currentState) {
+				// Add each dependency of each current mod as a constraint
+				const modVersionDependencies = await getModVersionDependencies(modID, currentState[modID]);
+				if (!modVersionDependencies.success) {
+					return errorResponse(`Failed to get version dependencies for mod '${modID}': ${modVersionDependencies.message}`, {
+						errorModID: modID,
+						errorReason: "version-dependencies-fetch",
+					});
+				}
 
-		// 		// We should only try and find a mod version that fits if:
-		// 		// - One of the dependencies is explicit (not optional or conflict)
-		// 		// - We have the mod installed (and therefore we are searching for a version that matches versions)
-		// 		let needsToBeConsidered = false;
-		// 		for (const constraint of currentModConstraints) {
-		// 			if (!constraint.version.startsWith("optional:") && !constraint.version.startsWith("conflict:")) {
-		// 				needsToBeConsidered = true;
-		// 				break;
-		// 			}
-		// 		}
-		// 		if (this.installedMods[requiredModID]) needsToBeConsidered = true;
-		// 		if (!needsToBeConsidered) {
-		// 			logError(`Skipping mod '${requiredModID}'as there are no hard dependencies`);
-		// 			continue;
-		// 		}
+				const dependencies = modVersionDependencies.data;
+			
+				for (const depModID in dependencies) {
+					// We cannot depend on a mod if it has a hard uninstall
+					if (strictUninstalls.includes(depModID)) {
+						logDebug(`Skipping dependency '${depModID}' for mod '${modID}' as it is marked for uninstall`);
+						if (!uninstallConstraints[modID]) uninstallConstraints[modID] = [];
+						uninstallConstraints[modID].push(currentState[modID]);
+					} else {
+						if (!currentConstraints[depModID]) currentConstraints[depModID] = [];
+						currentConstraints[depModID].push({ version: dependencies[depModID], parent: modID });
+					}
+				}
+			}
 
-		// 		// Before we try any other versions, check and prioritize the currently installed version
-		// 		if (this.installedMods[requiredModID]) {
-		// 			const installedVersion = this.installedMods[requiredModID].info.version;
-		// 			let satisfiesAll = true;
-		// 			for (const constraint of currentModConstraints) {
-		// 				if (!FluxloaderSemver.doesVersionSatisfyDependency(installedVersion, constraint.version)) {
-		// 					satisfiesAll = false;
-		// 					break;
-		// 				}
-		// 			}
-		// 			// Do not allow installing a mod version that is blocked due to a hard uninstall
-		// 			if (uninstallConstraints[requiredModID] && uninstallConstraints[requiredModID].includes(installedVersion)) {
-		// 				satisfiesAll = false;
-		// 			}
-		// 			if (satisfiesAll) {
-		// 				logError(`Using currently installed version '${installedVersion}' for mod '${requiredModID}'`);
-		// 				nextState[requiredModID] = installedVersion;
-		// 				continue;
-		// 			}
-		// 		}
+			logDebug(`Current state: ${JSON.stringify(currentState)}`);
+			logDebug(`Current constraints: ${JSON.stringify(currentConstraints)}`);
 
-		// 		// Find all available versions of the required mod
-		// 		const modVersions = await getModVersions(requiredModID);
-		// 		if (!modVersions.success) {
-		// 			return errorResponse(`Failed to get versions for mod '${requiredModID}': ${modVersions.message}`, {
-		// 				errorModID: requiredModID,
-		// 				errorReason: "mod-versions-fetch",
-		// 			});
-		// 		}
-		// 		const versions = modVersions.data;
-		// 		if (!versions || versions.length === 0) {
-		// 			return errorResponse(`No versions found for mod '${requiredModID}'`, {
-		// 				errorModID: requiredModID,
-		// 				errorReason: "mod-versions-fetch",
-		// 			});
-		// 		}
+			// Solve the next state with current state
+			const nextState = {};
+			for (const requiredModID in currentConstraints) {
+				const currentModConstraints = currentConstraints[requiredModID];
+				if (currentModConstraints.length === 0) {
+					return errorResponse(`No constraints found for mod '${requiredModID}' but it has an entry in constraintDependencies`, {
+						errorModID: requiredModID,
+						errorReason: "constraints-missing",
+					});
+				}
 
-		// 		// Find the first version that matches all the constraints
-		// 		logError(`Found ${versions.length} versions for mod '${requiredModID}'`);
-		// 		let foundVersion = null;
-		// 		for (const version of versions) {
-		// 			let satisfiesAll = true;
-		// 			for (const constraint of currentModConstraints) {
-		// 				if (!FluxloaderSemver.doesVersionSatisfyDependency(version, constraint.version)) {
-		// 					satisfiesAll = false;
-		// 					break;
-		// 				}
-		// 			}
-		// 			// Do not allow installing a mod version that is blocked due to a hard uninstall
-		// 			if (uninstallConstraints[requiredModID] && uninstallConstraints[requiredModID].includes(version)) {
-		// 				satisfiesAll = false;
-		// 			}
-		// 			if (satisfiesAll) {
-		// 				foundVersion = version;
-		// 				break;
-		// 			}
-		// 		}
-		// 		if (!foundVersion) {
-		// 			if (uninstallConstraints[requiredModID]) {
-		// 				logError(`No version found for mod '${requiredModID}' that satisfies all constraints. It is already marked as an uninstall constraint.`);
-		// 				continue;
-		// 			}
-		// 			return errorResponse(
-		// 				`No version found for mod '${requiredModID}' that satisfies all constraints: ${JSON.stringify(currentModConstraints)}`,
-		// 				{
-		// 					errorModID: requiredModID,
-		// 					errorData: currentModConstraints,
-		// 					errorReason: "version-satisfy",
-		// 				},
-		// 				false,
-		// 			);
-		// 		}
-		// 		logError(`Found version '${foundVersion}' for mod '${requiredModID}' that satisfies all constraints`);
-		// 		nextState[requiredModID] = foundVersion;
-		// 	}
+				// Check if we are planning on uninstalling this mod
+				// This should be caught in the constraint generation step
+				if (strictUninstalls.includes(requiredModID)) {
+					return errorResponse(`Mod '${requiredModID}' is marked for uninstall but is depended on by these constraints: ${JSON.stringify(currentModConstraints)}`, {
+						errorModID: requiredModID,
+						errorReason: "mod-required",
+					});
+				}
 
-		// 	// Check if the next state is stable
-		// 	isStable = true;
-		// 	for (const modID in nextState) {
-		// 		if (!currentState[modID] || currentState[modID] !== nextState[modID]) {
-		// 			isStable = false;
-		// 			break;
-		// 		}
-		// 	}
-		// 	for (const modID in currentState) {
-		// 		if (!nextState[modID] || nextState[modID] !== currentState[modID]) {
-		// 			isStable = false;
-		// 			break;
-		// 		}
-		// 	}
-		// 	currentState = nextState;
-		// 	if (isStable) break;
-		// 	iterations++;
-		// }
+				// We should only try and find a mod version that fits if:
+				// - One of the dependencies is explicit (not optional or conflict)
+				// - We have the mod installed (and therefore we are searching for a version that matches versions)
+				let needsToBeConsidered = false;
+				for (const constraint of currentModConstraints) {
+					if (!constraint.version.startsWith("optional:") && !constraint.version.startsWith("conflict:")) {
+						needsToBeConsidered = true;
+						break;
+					}
+				}
+				if (mods[requiredModID]) needsToBeConsidered = true;
+				if (!needsToBeConsidered) {
+					logDebug(`Skipping mod '${requiredModID}'as there are no hard dependencies`);
+					continue;
+				}
 
-		// if (!isStable) {
-		// 	return errorResponse(`Failed to find a stable configuration of mod versions after ${iterations} iterations`, {
-		// 		errorReason: "unstable-configuration",
-		// 	});
-		// }
-		// logError(`Found stable configuration of mod versions after ${iterations} iterations: ${JSON.stringify(currentState)}`);
+				// Before we try any other versions, check and prioritize the currently installed version
+				if (mods[requiredModID]) {
+					const installedVersion = mods[requiredModID].info.version;
+					let satisfiesAll = true;
+					for (const constraint of currentModConstraints) {
+						if (!FluxloaderSemver.doesVersionSatisfyDependency(installedVersion, constraint.version)) {
+							satisfiesAll = false;
+							break;
+						}
+					}
+					// Do not allow installing a mod version that is blocked due to a hard uninstall
+					if (uninstallConstraints[requiredModID] && uninstallConstraints[requiredModID].includes(installedVersion)) {
+						satisfiesAll = false;
+					}
+					if (satisfiesAll) {
+						logDebug(`Using currently installed version '${installedVersion}' for mod '${requiredModID}'`);
+						nextState[requiredModID] = installedVersion;
+						continue;
+					}
+				}
 
-		// // Now need to convert the stable state + explicit uninstalls into a set of "install", "change", and "uninstall" actions
-		// // Always convert a hard uninstall into an "uninstall" action
-		// let actions = {};
-		// for (const uninstallModID of hardUninstalls) {
-		// 	actions[uninstallModID] = { type: "uninstall", modID: uninstallModID };
-		// }
-		// // Convert any mods that have specified versions into "change" or "install" actions
-		// for (const modID in currentState) {
-		// 	const version = currentState[modID];
-		// 	if (actions[modID]) {
-		// 		return errorResponse(`Mod '${modID}' already has an action defined, cannot redefine it`, {
-		// 			errorModID: modID,
-		// 			errorReason: "action-duplicate",
-		// 		});
-		// 	}
-		// 	const parents = currentConstraints[modID].map((c) => c.parent).filter((p) => p !== null) || [];
-		// 	if (this.installedMods[modID]) {
-		// 		// If the mod is already installed, we need to check if the version is changing
-		// 		if (this.installedMods[modID].info.version !== version) {
-		// 			actions[modID] = { type: "change", modID, version, parents };
-		// 		} else {
-		// 			logError(`Mod '${modID}' is already installed with version '${version}', no action needed`);
-		// 		}
-		// 	} else {
-		// 		actions[modID] = { type: "install", modID, version, parents };
-		// 	}
-		// }
-		// // If a mod that we have installed was blocked by an uninstall then we need to add an "uninstall" action for it
-		// for (const modID in this.installedMods) {
-		// 	if (!actions[modID] && uninstallConstraints[modID] && uninstallConstraints[modID].includes(this.installedMods[modID].info.version)) {
-		// 		actions[modID] = { type: "uninstall", modID };
-		// 	}
-		// }
+				// Find all available versions of the required mod
+				const modVersions = await getModVersions(requiredModID);
+				if (!modVersions.success) {
+					return errorResponse(`Failed to get versions for mod '${requiredModID}': ${modVersions.message}`, {
+						errorModID: requiredModID,
+						errorReason: "mod-versions-fetch",
+					});
+				}
+				const versions = modVersions.data;
+				if (!versions || versions.length === 0) {
+					return errorResponse(`No versions found for mod '${requiredModID}'`, {
+						errorModID: requiredModID,
+						errorReason: "mod-versions-fetch",
+					});
+				}
 
-		// logError(`Calculated actions: ${JSON.stringify(actions)}`);
+				// Find the first version that matches all the constraints
+				logDebug(`Found ${versions.length} versions for mod '${requiredModID}'`);
+				let foundVersion = null;
+				for (const version of versions) {
+					let satisfiesAll = true;
+					for (const constraint of currentModConstraints) {
+						if (!FluxloaderSemver.doesVersionSatisfyDependency(version, constraint.version)) {
+							satisfiesAll = false;
+							break;
+						}
+					}
+					// Do not allow installing a mod version that is blocked due to a hard uninstall
+					if (uninstallConstraints[requiredModID] && uninstallConstraints[requiredModID].includes(version)) {
+						satisfiesAll = false;
+					}
+					if (satisfiesAll) {
+						foundVersion = version;
+						break;
+					}
+				}
+				if (!foundVersion) {
+					if (uninstallConstraints[requiredModID]) {
+						logDebug(`No version found for mod '${requiredModID}' that satisfies all constraints. It is already marked as an uninstall constraint.`);
+						continue;
+					}
+					return errorResponse(
+						`No version found for mod '${requiredModID}' that satisfies all constraints: ${JSON.stringify(currentModConstraints)}`,
+						{
+							errorModID: requiredModID,
+							errorData: currentModConstraints,
+							errorReason: "version-satisfy",
+						},
+						false,
+					);
+				}
+				logDebug(`Found version '${foundVersion}' for mod '${requiredModID}' that satisfies all constraints`);
+				nextState[requiredModID] = foundVersion;
+			}
 
-		// return successResponse(`Found stable configuration of mod versions`, actions);
+			// Check if the next state is stable
+			isStable = true;
+			for (const modID in nextState) {
+				if (!currentState[modID] || currentState[modID] !== nextState[modID]) {
+					isStable = false;
+					break;
+				}
+			}
+			for (const modID in currentState) {
+				if (!nextState[modID] || nextState[modID] !== currentState[modID]) {
+					isStable = false;
+					break;
+				}
+			}
+			currentState = nextState;
+			if (isStable) break;
+			iterations++;
+		}
+
+		if (!isStable) {
+			return errorResponse(`Failed to find a stable configuration of mod versions after ${iterations} iterations`, {
+				errorReason: "unstable-configuration",
+			});
+		}
+
+		logDebug(`Found stable configuration of mod versions after ${iterations} iterations: ${JSON.stringify(currentState)}`);
+
+		// Now need to convert the stable state + explicit uninstalls into a set of "install", "change", and "uninstall" actions
+		// Always convert a strict uninstall into an "uninstall" action
+		let actions = {};
+		for (const uninstallModID of strictUninstalls) {
+			actions[uninstallModID] = { type: "uninstall", modID: uninstallModID };
+		}
+		
+		// Convert any mods that have specified versions into "change" or "install" actions
+		for (const modID in currentState) {
+			const version = currentState[modID];
+			if (actions[modID]) {
+				return errorResponse(`Mod '${modID}' already has an action defined, cannot redefine it`, {
+					errorModID: modID,
+					errorReason: "action-duplicate",
+				});
+			}
+			const parents = currentConstraints[modID].map((c) => c.parent).filter((p) => p !== null) || [];
+			if (mods[modID]) {
+				// If the mod is already installed, we need to check if the version is changing
+				if (mods[modID].info.version !== version) {
+					actions[modID] = { type: "change", modID, version, parents };
+				} else {
+					logDebug(`Mod '${modID}' is already installed with version '${version}', no action needed`);
+				}
+			} else {
+				actions[modID] = { type: "install", modID, version, parents };
+			}
+		}
+
+		// If a mod that we have installed was blocked by an uninstall then we need to add an "uninstall" action for it
+		for (const modID in mods) {
+			if (!actions[modID] && uninstallConstraints[modID] && uninstallConstraints[modID].includes(mods[modID].info.version)) {
+				actions[modID] = { type: "uninstall", modID };
+			}
+		}
+
+		logDebug(`Calculated actions: ${JSON.stringify(actions)}`);
+
+		return successResponse(`Found stable configuration of mod versions`, actions);
 	}
 
 	/** @returns {VerifyModsResponse} */

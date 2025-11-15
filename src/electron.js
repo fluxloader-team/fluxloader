@@ -1045,7 +1045,10 @@ class ModsManager {
 			logWarn(`No mods found for ${url}`);
 			return successResponse("No remote mods found for the given query", []);
 		}
-		if (!Object.hasOwn(responseData, "resultsCount")) return errorResponse("Invalid response from remote mods API, missing 'resultsCount'");
+		if (!Object.hasOwn(responseData, "resultsCount")) {
+			return errorResponse("Invalid response from remote mods API, missing 'resultsCount'");
+		}
+
 		logDebug(`Fetched ${responseData.mods.length} remote mods from API in ${timeTaken}ms`);
 
 		// Render the description of each mod if requested
@@ -1221,7 +1224,7 @@ class ModsManager {
 	}
 
 	async calculateModActions(/** @type {Actions} */ mainActions) {
-		const res = DependencyCalculator.calculate(this.installedMods, mainActions);
+		const res = await DependencyCalculator.calculate(this.installedMods, mainActions, this.fetchedModCache);
 	}
 
 	async performModActions(/** @type {Actions} */ allActions) {
