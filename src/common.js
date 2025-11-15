@@ -601,19 +601,7 @@ export class DependencyCalculator {
 			}
 			
 			return successResponse(`Constraints created from current state`);
-		};
-
-		/** Returns whether we need to find a version for a mod given the constraints */
-		const doWeNeedToResolveMod = (modID, modConstraints) => {
-			if (modConstraints.length === 0) return false;
-			if (mods[modID]) return true;
-			for (const constraint of modConstraints) {
-				if (!constraint.version.startsWith("optional:") && !constraint.version.startsWith("conflict:")) {
-					return true;
-				}
-			}
-			return false;
-		};
+		}; 
 
 		/** Returns whether a version satisfies all constraints for a mod */
 		// Modified to accept modID so it can detect uninstalls for that mod
@@ -662,37 +650,42 @@ export class DependencyCalculator {
 		let isStable = false;
 		let iterations = 0;
 		while (!isStable && iterations < 50) {
-			let nextState = { versions: {}, constraints: {}, markedForUninstall: [] };
 			logDebug(`Current state: ${JSON.stringify(currentState.versions)}`);
 			logDebug(`Current constraints: ${JSON.stringify(currentState.constraints)}`);
 			
+			let nextStateVersions = {};
+
 			// For each mod that we have constraints for
 			for (const constraintModID in currentState.constraints) {
 				const modConstraints = currentState.constraints[constraintModID];
 
-				// If we are on uninstalling this mod then skip it
+				// If we are uninstalling this mod then skip it
 				if (currentState.markedForUninstall.includes(constraintModID)) {
 					logDebug(`Mod '${constraintModID}' is marked for uninstall, skipping for next version`);
 					continue;
 				}
 
-				// Exit out early if we dont strictly need to care for this mod
-				if (!doWeNeedToResolveMod(constraintModID, modConstraints)) {
-					logDebug(`Skipping mod '${constraintModID}'as there are no hard dependencies`);
-					continue;
-				}
-
-				// First check if the currently installed version satisfies all constraints
-				if (mods[constraintModID]) {
-					const installedVersion = mods[constraintModID].info.version;
-					if (doesVersionSatisfyAllConstraints(constraintModID, installedVersion, modConstraints)) {
-						logDebug(`Using currently installed version '${installedVersion}' for mod '${constraintModID}'`);
-						nextState.versions[constraintModID] = installedVersion;
+				// If the currently agreed on version satisfies the constraints then keep it
+				if (currentState.versions[constraintModID]) {
+					const agreedVersion = currentState.versions[constraintModID];
+					if (doesVersionSatisfyAllConstraints(constraintModID, agreedVersion, modConstraints)) {
+						logDebug(`Using currently agreed version '${agreedVersion}' for mod '${constraintModID}'`);
+						nextStateVersions[constraintModID] = agreedVersion;
 						continue;
 					}
 				}
 
-				// If not then find all available versions of the required mod
+				// Next check if the currently installed version satisfies all constraints
+				if (mods[constraintModID]) {
+					const installedVersion = mods[constraintModID].info.version;
+					if (doesVersionSatisfyAllConstraints(constraintModID, installedVersion, modConstraints)) {
+						logDebug(`Using currently installed version '${installedVersion}' for mod '${constraintModID}'`);
+						nextStateVersions[constraintModID] = installedVersion;
+						continue;
+					}
+				}
+
+				// Otherwise then find all available versions of the required mod
 				const modVersionsResponse = await getModVersions(constraintModID);
 				if (!modVersionsResponse.success) return modVersionsResponse;
 				const modVersions = modVersionsResponse.data;
@@ -705,16 +698,15 @@ export class DependencyCalculator {
 				}
 
 				// And find the first version that matches all the constraints
-				let foundVersion = null;
+				let validVersions = [];
 				for (const version of modVersions) {
 					if (doesVersionSatisfyAllConstraints(constraintModID, version, modConstraints)) {
-						foundVersion = version;
-						break;
+						validVersions.push(version);
 					}
 				}
 
 				// Now finally we can check if we found a valid version and if so add it to the next state
-				if (!foundVersion) {
+				if (validVersions.length === 0) {
 					return errorResponse(
 						`No version found for mod '${constraintModID}' that satisfies all constraints: ${JSON.stringify(modConstraints)}`, {
 							errorModID: constraintModID,
@@ -724,18 +716,23 @@ export class DependencyCalculator {
 					);
 				}
 	
-				logDebug(`Found version '${foundVersion}' for mod '${constraintModID}' that satisfies all constraints`);
-				nextState.versions[constraintModID] = foundVersion;
+				const pickedVersion = validVersions[0];
+				logDebug(`Found ${validVersions} versions for mod '${constraintModID}' that satisfies all constraints, picking version '${pickedVersion}'`);
+				nextStateVersions[constraintModID] = pickedVersion;
+
+				// TODO: In the future we could find all combination of all nextStateVersions using each validVersions and add them all
+				// You would then just continue in the "No version found" error case to go on to try the next combination
+				// You then update the isStable code below to check if any of the combination are valid first before continuing on
 			}
 
-			// Generate the next state and check it is stable by checking nextState === currentState
-			const populateResponse = await populateState(nextState);
+			// Check if the next set of chosen variables is stable and if so exit out
+			isStable = JSON.stringify(nextStateVersions) === JSON.stringify(currentState.versions);
+
+			// Also make sure to populate the current state with the next versions for the next iteration
+			currentState.versions = nextStateVersions;
+			const populateResponse = await populateState(currentState);
 			if (populateResponse.success === false) return populateResponse;
 
-			isStable = JSON.stringify(nextState.versions) === JSON.stringify(currentState.versions)
-				&& JSON.stringify(nextState.markedForUninstall) === JSON.stringify(currentState.markedForUninstall);
-
-			currentState = nextState;
 			if (isStable) break;
 			iterations++;
 		}
