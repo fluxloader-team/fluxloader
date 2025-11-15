@@ -1,3 +1,63 @@
+/**
+ * @typedef {Object} ModInfo
+ * @property {string} modID
+ * @property {string} name
+ * @property {string} version
+ * @property {string} [author]
+ * @property {Object.<string,string>} [dependencies]
+ * @property {Object} [configSchema]
+ * @property {string} [description]
+ */
+
+/**
+ * @typedef {Object} Mod
+ * @property {ModInfo} info
+ * @property {string} path
+ * @property {boolean} isInstalled
+ * @property {boolean} isEnabled
+ * @property {boolean} isLoaded
+ * @property {string[]|undefined} [versions]
+ * 
+ * @typedef {{ [modID: string]: Mod }} Mods
+ */
+
+/**
+ * @typedef {Object} Action
+ * @property {"install"|"change"|"uninstall"} type
+ * @property {string} modID
+ * @property {string|null} [version]
+ * @property {string[]|null} [parents]
+ * @property {"loading"|"queued"|"failed"|"complete"|null} [state]
+ * 
+ * @typedef {{ [modID: string]: Action }} Actions
+ */
+
+/**
+ * @typedef {Object} FlResponse
+ * @property {boolean} success
+ * @property {string} message
+ * @property {any} [data]
+ */
+
+/**
+ * @typedef {Object} VerifyIssue
+ * @property {"missing"|"disabled"|"version"} type
+ * @property {string} modID
+ * @property {string} dependencyModID
+ * @property {string} dependency
+ * @property {string} [dependencyVersion]
+ */
+
+/**
+ * @typedef {Object} VerifyModsResponse
+ * @property {boolean} success
+ * @property {VerifyIssue[]} issues
+ */
+
+/**
+ * @typedef {Object} CalculateModsResponse
+ */
+
 export class EventBus {
 	logging = true;
 	events = {};
@@ -7,14 +67,14 @@ export class EventBus {
 	}
 
 	registerEvent(event, toLog = true) {
-		if (toLog && this.logging) log("debug", "", `Registering new event '${event}'`);
+		if (toLog && this.logging) logDebug(`Registering new event '${event}'`);
 		if (this.events[event]) throw new Error(`Event already registered: ${event}`);
 		this.events[event] = [];
 	}
 
 	async trigger(event, data, toLog = true) {
 		// When triggering an event generally if the source is inactive we error, but if the listener is inactive we ignore it
-		if (toLog && this.logging) log("debug", "", `Triggering event '${event}'`);
+		if (toLog && this.logging) logDebug(`Triggering event '${event}'`);
 		if (!this.events.hasOwnProperty(event)) throw new Error(`Cannot trigger non-existent event: ${event}`);
 		for (let i = this.events[event].length - 1; i >= 0; i--) {
 			await this.events[event][i](data);
@@ -23,7 +83,7 @@ export class EventBus {
 
 	async tryTrigger(event, data, toLog = true) {
 		// This is here in cases for when we cant be sure if the event is registered or not
-		if (toLog && this.logging) log("debug", "", `Trying to trigger event '${event}'`);
+		if (toLog && this.logging) logDebug(`Trying to trigger event '${event}'`);
 		if (!this.events.hasOwnProperty(event)) return;
 		for (let i = this.events[event].length - 1; i >= 0; i--) {
 			await this.events[event][i](data);
@@ -31,13 +91,13 @@ export class EventBus {
 	}
 
 	on(event, func, toLog = true) {
-		if (toLog && this.logging) log("debug", "", `Adding event listener for '${event}'`);
+		if (toLog && this.logging) logDebug(`Adding event listener for '${event}'`);
 		if (!this.events[event]) throw new Error(`Cannot add listener to non-existent event: ${event}`);
 		this.events[event].push(func);
 	}
 
 	off(event, func, toLog = true) {
-		if (toLog && this.logging) log("debug", "", `Removing event listener for '${event}'`);
+		if (toLog && this.logging) logDebug(`Removing event listener for '${event}'`);
 		if (!this.events[event]) throw new Error(`Cannot remove listener from non-existent event: ${event}`);
 		const index = this.events[event].indexOf(func);
 		if (index === -1) throw new Error(`Listener not found for event: ${event}`);
@@ -45,7 +105,7 @@ export class EventBus {
 	}
 
 	clear(toLog = true) {
-		if (toLog && this.logging) log("debug", "", "Clearing EventBus");
+		if (toLog && this.logging) logDebug("Clearing EventBus");
 		for (const event in this.events) {
 			delete this.events[event];
 		}
@@ -59,7 +119,7 @@ export class EventBus {
 			outputString += `  |  |   ${event}: ${this.events[event].length} listeners\n`;
 		}
 
-		log("debug", "", outputString);
+		logDebug(outputString);
 	}
 }
 
@@ -111,9 +171,9 @@ export class SchemaValidation {
 			let nextPath = path.concat(configKey);
 			if (schema[configKey] === undefined) {
 				if (!config.unknownKeyMethod || config.unknownKeyMethod === "ignore") {
-					log("warn", "", `Target warning: Key '${nextPath.join(".")}' is not in the schema, ignoring...`);
+					logWarn(`Target warning: Key '${nextPath.join(".")}' is not in the schema, ignoring...`);
 				} else if (config.unknownKeyMethod === "delete") {
-					log("warn", "", `Target warning: Key '${nextPath.join(".")}' is not in the schema, deleting...`);
+					logWarn(`Target warning: Key '${nextPath.join(".")}' is not in the schema, deleting...`);
 					delete target[configKey];
 				} else if (config.unknownKeyMethod === "error") {
 					return {
@@ -164,7 +224,7 @@ export class SchemaValidation {
 							source: "target",
 						};
 					}
-					log("debug", "", `Key '${nextPath.join(".")}' has no value. Using default: ${JSON.stringify(schemaValue.default)}`);
+					logDebug(`Key '${nextPath.join(".")}' has no value. Using default: ${JSON.stringify(schemaValue.default)}`);
 					target[schemaKey] = schemaValue.default;
 				}
 				let res = this.validateValue(target[schemaKey], schemaValue);
@@ -330,11 +390,368 @@ export class Logging {
 }
 
 export class DependencyCalculator {
-	static calculate(mods, actions) {
+	/** @returns {CalculateModsResponse} */
+	static calculate(/** @type {Mods} */ mods, /** @type {Actions} */ mainActions) {
+		logError(`Calculating all mod actions for ${Object.keys(mainActions).length} main action(s)`);
 
+		// // ----------- UTILITY -----------
+
+		// const modVersions = {};
+		// // Retrieve all available versions for a mod from the API
+		// // First check if it is installed, then check memoized fetched mod cache, then fetch from API
+		// const getModVersions = async (modID) => {
+		// 	// Already cached
+		// 	if (modVersions[modID]) {
+		// 		return successResponse(`Mod versions found for '${modID}'`, modVersions[modID]);
+		// 	}
+
+		// 	// Check installed mods
+		// 	if (this.installedMods[modID] && this.installedMods[modID].versions) {
+		// 		modVersions[modID] = this.installedMods[modID].versions;
+		// 		return successResponse(`Mod versions found for '${modID}'`, modVersions[modID]);
+		// 	}
+
+		// 	// Check remote mod cache
+		// 	if (this.fetchedModCache[modID] && this.fetchedModCache[modID].versionNumbers) {
+		// 		modVersions[modID] = this.fetchedModCache[modID].versionNumbers;
+		// 		return successResponse(`Mod versions found for '${modID}'`, modVersions[modID]);
+		// 	}
+
+		// 	// Otherwise fetch
+		// 	const versionsURL = `https://fluxloader.app/api/mods?option=versions&modid=${modID}`;
+		// 	let versionsResData;
+		// 	try {
+		// 		logError(`Fetching available versions for mod '${modID}' from API: ${versionsURL}`);
+		// 		const versionFetchStart = Date.now();
+		// 		const res = await fetch(versionsURL);
+		// 		versionsResData = await res.json();
+		// 		const versionFetchEnd = Date.now();
+		// 		logError(`Fetched available versions for mod '${modID}' in ${versionFetchEnd - versionFetchStart}ms`);
+		// 	} catch (e) {
+		// 		return errorResponse(`Failed to fetch available versions for mod '${modID}' with url ${versionsURL}: ${e.stack}`, {
+		// 			errorModID: modID,
+		// 			errorReason: "mod-versions-fetch",
+		// 		});
+		// 	}
+		// 	if (!versionsResData || !Object.hasOwn(versionsResData, "versions")) {
+		// 		return errorResponse(`Invalid response for available versions of mod '${modID}' with url ${versionsURL}`, {
+		// 			errorModID: modID,
+		// 			errorReason: "mod-versions-fetch",
+		// 		});
+		// 	}
+
+		// 	modVersions[modID] = versionsResData.versions;
+		// 	return successResponse(`Mod versions found for '${modID}'`, modVersions[modID]);
+		// };
+
+		// const modVersionDependencies = {};
+		// const getModVersionDependencies = async (modID, version) => {
+		// 	// Already cached
+		// 	if (modVersionDependencies[modID]) {
+		// 		if (modVersionDependencies[modID][version]) {
+		// 			return successResponse(`Mod version dependencies found for '${modID}' version '${version}'`, modVersionDependencies[modID][version]);
+		// 		}
+		// 	} else {
+		// 		modVersionDependencies[modID] = {};
+		// 	}
+
+		// 	// Check installed mods
+		// 	if (this.installedMods[modID] && this.installedMods[modID].info && this.installedMods[modID].info.version === version) {
+		// 		modVersionDependencies[modID][version] = this.installedMods[modID].info.dependencies || {};
+		// 		return successResponse(`Mod version dependencies found for '${modID}' version '${version}'`, modVersionDependencies[modID][version]);
+		// 	}
+
+		// 	// Check remote mod cache
+		// 	if (this.fetchedModCache[modID] && this.fetchedModCache[modID].modData && this.fetchedModCache[modID].modData.version === version) {
+		// 		modVersionDependencies[modID][version] = this.fetchedModCache[modID].modData.dependencies || {};
+		// 		return successResponse(`Mod version dependencies found for '${modID}' version '${version}'`, modVersionDependencies[modID][version]);
+		// 	}
+
+		// 	// Otherwise fetch
+		// 	const versionDataURL = `https://fluxloader.app/api/mods?option=info&modid=${modID}&version=${version}`;
+		// 	let versionData;
+		// 	try {
+		// 		logError(`Fetching '${modID}' version '${version}' from API: ${versionDataURL}`);
+		// 		const fetchStart = Date.now();
+		// 		const res = await fetch(versionDataURL);
+		// 		versionData = await res.json();
+		// 		const fetchEnd = Date.now();
+		// 		logError(`Fetched '${modID}' version '${version}' in ${fetchEnd - fetchStart}ms`);
+		// 	} catch (e) {
+		// 		return errorResponse(`Failed to fetch '${modID}' version '${version}': ${e.stack}`, {
+		// 			errorModID: modID,
+		// 			errorReason: "mod-version-fetch",
+		// 		});
+		// 	}
+		// 	if (!versionData || !Object.hasOwn(versionData, "mod") || !Object.hasOwn(versionData.mod, "modData")) {
+		// 		return errorResponse(`Invalid response for mod info of ${modID} version ${version}`, {
+		// 			errorModID: modID,
+		// 			errorReason: "mod-version-fetch",
+		// 		});
+		// 	}
+		// 	const dependencies = versionData.mod.modData.dependencies || {};
+		// 	if (!dependencies || typeof dependencies !== "object") {
+		// 		return errorResponse(`Invalid response for mod info of ${modID} version ${version}`, {
+		// 			errorModID: modData,
+		// 			errorReason: "version-info-fetch",
+		// 		});
+		// 	}
+		// 	if (!modVersionDependencies[modID]) modVersionDependencies[modID] = {};
+		// 	modVersionDependencies[modID][version] = dependencies;
+		// 	return successResponse(`Mod version dependencies found for '${modID}' version '${version}'`, dependencies);
+		// };
+
+		// const cloneConstraints = (constraints) => {
+		// 	// Make a deep copy of a constraints object
+		// 	let cloned = {};
+		// 	for (const modID in constraints) {
+		// 		if (!cloned[modID]) cloned[modID] = [];
+		// 		cloned[modID] = [...constraints[modID]];
+		// 	}
+		// 	return cloned;
+		// };
+
+		// // ----------- MAIN -----------
+
+		// // Setup hard dependency constraints based on the requested installation
+		// // We only track "parents" for constraints for information, it is not essential to the algorithm
+		// let hardConstraints = {};
+		// let hardUninstalls = [];
+		// for (const actionModID in mainActions) {
+		// 	const action = mainActions[actionModID];
+		// 	if (action.type === "install") {
+		// 		if (!hardConstraints[actionModID]) hardConstraints[actionModID] = [];
+		// 		hardConstraints[actionModID].push({ version: action.version, parent: null });
+		// 	} else if (action.type === "uninstall") {
+		// 		hardUninstalls.push(actionModID);
+		// 	} else {
+		// 		return errorResponse(`Invalid action type '${action.type}' for mod '${actionModID}'`);
+		// 	}
+		// }
+
+		// // Setup the current state with the currently installed mods
+		// let currentState = {};
+		// let currentConstraints = {};
+		// let uninstallConstraints = {};
+		// for (const modID in this.installedMods) {
+		// 	const mod = this.installedMods[modID];
+		// 	currentState[modID] = mod.info.version;
+		// }
+
+		// logError(`Hard constraints for mod actions: ${JSON.stringify(hardConstraints)}`);
+		// logError(`Initial state based on installed mods: ${JSON.stringify(currentState)}`);
+
+		// // Loop until we have found a stable configuration of mod versions
+		// let isStable = false;
+		// let iterations = 0;
+		// while (!isStable && iterations < 50) {
+		// 	// Recreate constraints with the current state
+		// 	currentConstraints = cloneConstraints(hardConstraints);
+		// 	for (const modID in currentState) {
+		// 		// Add each dependency of each current mod as a constraint
+		// 		const modVersionDependencies = await getModVersionDependencies(modID, currentState[modID]);
+		// 		if (!modVersionDependencies.success) {
+		// 			return errorResponse(`Failed to get version dependencies for mod '${modID}': ${modVersionDependencies.message}`, {
+		// 				errorModID: modID,
+		// 				errorReason: "version-dependencies-fetch",
+		// 			});
+		// 		}
+		// 		const dependencies = modVersionDependencies.data;
+		// 		for (const depModID in dependencies) {
+		// 			// We cannot depend on a mod if it has a hard uninstall
+		// 			if (hardUninstalls.includes(depModID)) {
+		// 				logError(`Skipping dependency '${depModID}' for mod '${modID}' as it is marked for uninstall`);
+		// 				if (!uninstallConstraints[modID]) uninstallConstraints[modID] = [];
+		// 				uninstallConstraints[modID].push(currentState[modID]);
+		// 			} else {
+		// 				if (!currentConstraints[depModID]) currentConstraints[depModID] = [];
+		// 				currentConstraints[depModID].push({ version: dependencies[depModID], parent: modID });
+		// 			}
+		// 		}
+		// 	}
+
+		// 	logError(`Current state: ${JSON.stringify(currentState)}`);
+		// 	logError(`Current constraints: ${JSON.stringify(currentConstraints)}`);
+
+		// 	// Solve the next state with current state
+		// 	const nextState = {};
+		// 	for (const requiredModID in currentConstraints) {
+		// 		const currentModConstraints = currentConstraints[requiredModID];
+		// 		if (currentModConstraints.length === 0) {
+		// 			return errorResponse(`No constraints found for mod '${requiredModID}' but it has an entry in constraintDependencies`, {
+		// 				errorModID: requiredModID,
+		// 				errorReason: "constraints-missing",
+		// 			});
+		// 		}
+
+		// 		// Check if we are planning on uninstalling this mod
+		// 		// This should be caught in the constraint generation step
+		// 		if (hardUninstalls.includes(requiredModID)) {
+		// 			return errorResponse(`Mod '${requiredModID}' is marked for uninstall but is depended on by these constraints: ${JSON.stringify(currentModConstraints)}`, {
+		// 				errorModID: requiredModID,
+		// 				errorReason: "mod-required",
+		// 			});
+		// 		}
+
+		// 		// We should only try and find a mod version that fits if:
+		// 		// - One of the dependencies is explicit (not optional or conflict)
+		// 		// - We have the mod installed (and therefore we are searching for a version that matches versions)
+		// 		let needsToBeConsidered = false;
+		// 		for (const constraint of currentModConstraints) {
+		// 			if (!constraint.version.startsWith("optional:") && !constraint.version.startsWith("conflict:")) {
+		// 				needsToBeConsidered = true;
+		// 				break;
+		// 			}
+		// 		}
+		// 		if (this.installedMods[requiredModID]) needsToBeConsidered = true;
+		// 		if (!needsToBeConsidered) {
+		// 			logError(`Skipping mod '${requiredModID}'as there are no hard dependencies`);
+		// 			continue;
+		// 		}
+
+		// 		// Before we try any other versions, check and prioritize the currently installed version
+		// 		if (this.installedMods[requiredModID]) {
+		// 			const installedVersion = this.installedMods[requiredModID].info.version;
+		// 			let satisfiesAll = true;
+		// 			for (const constraint of currentModConstraints) {
+		// 				if (!FluxloaderSemver.doesVersionSatisfyDependency(installedVersion, constraint.version)) {
+		// 					satisfiesAll = false;
+		// 					break;
+		// 				}
+		// 			}
+		// 			// Do not allow installing a mod version that is blocked due to a hard uninstall
+		// 			if (uninstallConstraints[requiredModID] && uninstallConstraints[requiredModID].includes(installedVersion)) {
+		// 				satisfiesAll = false;
+		// 			}
+		// 			if (satisfiesAll) {
+		// 				logError(`Using currently installed version '${installedVersion}' for mod '${requiredModID}'`);
+		// 				nextState[requiredModID] = installedVersion;
+		// 				continue;
+		// 			}
+		// 		}
+
+		// 		// Find all available versions of the required mod
+		// 		const modVersions = await getModVersions(requiredModID);
+		// 		if (!modVersions.success) {
+		// 			return errorResponse(`Failed to get versions for mod '${requiredModID}': ${modVersions.message}`, {
+		// 				errorModID: requiredModID,
+		// 				errorReason: "mod-versions-fetch",
+		// 			});
+		// 		}
+		// 		const versions = modVersions.data;
+		// 		if (!versions || versions.length === 0) {
+		// 			return errorResponse(`No versions found for mod '${requiredModID}'`, {
+		// 				errorModID: requiredModID,
+		// 				errorReason: "mod-versions-fetch",
+		// 			});
+		// 		}
+
+		// 		// Find the first version that matches all the constraints
+		// 		logError(`Found ${versions.length} versions for mod '${requiredModID}'`);
+		// 		let foundVersion = null;
+		// 		for (const version of versions) {
+		// 			let satisfiesAll = true;
+		// 			for (const constraint of currentModConstraints) {
+		// 				if (!FluxloaderSemver.doesVersionSatisfyDependency(version, constraint.version)) {
+		// 					satisfiesAll = false;
+		// 					break;
+		// 				}
+		// 			}
+		// 			// Do not allow installing a mod version that is blocked due to a hard uninstall
+		// 			if (uninstallConstraints[requiredModID] && uninstallConstraints[requiredModID].includes(version)) {
+		// 				satisfiesAll = false;
+		// 			}
+		// 			if (satisfiesAll) {
+		// 				foundVersion = version;
+		// 				break;
+		// 			}
+		// 		}
+		// 		if (!foundVersion) {
+		// 			if (uninstallConstraints[requiredModID]) {
+		// 				logError(`No version found for mod '${requiredModID}' that satisfies all constraints. It is already marked as an uninstall constraint.`);
+		// 				continue;
+		// 			}
+		// 			return errorResponse(
+		// 				`No version found for mod '${requiredModID}' that satisfies all constraints: ${JSON.stringify(currentModConstraints)}`,
+		// 				{
+		// 					errorModID: requiredModID,
+		// 					errorData: currentModConstraints,
+		// 					errorReason: "version-satisfy",
+		// 				},
+		// 				false,
+		// 			);
+		// 		}
+		// 		logError(`Found version '${foundVersion}' for mod '${requiredModID}' that satisfies all constraints`);
+		// 		nextState[requiredModID] = foundVersion;
+		// 	}
+
+		// 	// Check if the next state is stable
+		// 	isStable = true;
+		// 	for (const modID in nextState) {
+		// 		if (!currentState[modID] || currentState[modID] !== nextState[modID]) {
+		// 			isStable = false;
+		// 			break;
+		// 		}
+		// 	}
+		// 	for (const modID in currentState) {
+		// 		if (!nextState[modID] || nextState[modID] !== currentState[modID]) {
+		// 			isStable = false;
+		// 			break;
+		// 		}
+		// 	}
+		// 	currentState = nextState;
+		// 	if (isStable) break;
+		// 	iterations++;
+		// }
+
+		// if (!isStable) {
+		// 	return errorResponse(`Failed to find a stable configuration of mod versions after ${iterations} iterations`, {
+		// 		errorReason: "unstable-configuration",
+		// 	});
+		// }
+		// logError(`Found stable configuration of mod versions after ${iterations} iterations: ${JSON.stringify(currentState)}`);
+
+		// // Now need to convert the stable state + explicit uninstalls into a set of "install", "change", and "uninstall" actions
+		// // Always convert a hard uninstall into an "uninstall" action
+		// let actions = {};
+		// for (const uninstallModID of hardUninstalls) {
+		// 	actions[uninstallModID] = { type: "uninstall", modID: uninstallModID };
+		// }
+		// // Convert any mods that have specified versions into "change" or "install" actions
+		// for (const modID in currentState) {
+		// 	const version = currentState[modID];
+		// 	if (actions[modID]) {
+		// 		return errorResponse(`Mod '${modID}' already has an action defined, cannot redefine it`, {
+		// 			errorModID: modID,
+		// 			errorReason: "action-duplicate",
+		// 		});
+		// 	}
+		// 	const parents = currentConstraints[modID].map((c) => c.parent).filter((p) => p !== null) || [];
+		// 	if (this.installedMods[modID]) {
+		// 		// If the mod is already installed, we need to check if the version is changing
+		// 		if (this.installedMods[modID].info.version !== version) {
+		// 			actions[modID] = { type: "change", modID, version, parents };
+		// 		} else {
+		// 			logError(`Mod '${modID}' is already installed with version '${version}', no action needed`);
+		// 		}
+		// 	} else {
+		// 		actions[modID] = { type: "install", modID, version, parents };
+		// 	}
+		// }
+		// // If a mod that we have installed was blocked by an uninstall then we need to add an "uninstall" action for it
+		// for (const modID in this.installedMods) {
+		// 	if (!actions[modID] && uninstallConstraints[modID] && uninstallConstraints[modID].includes(this.installedMods[modID].info.version)) {
+		// 		actions[modID] = { type: "uninstall", modID };
+		// 	}
+		// }
+
+		// logError(`Calculated actions: ${JSON.stringify(actions)}`);
+
+		// return successResponse(`Found stable configuration of mod versions`, actions);
 	}
 
-	static verify(mods) {
+	/** @returns {VerifyModsResponse} */
+	static verify(/** @type {Mods} */ mods) {
 		let issues = {};
 
 		for (const modID in mods) {
@@ -367,6 +784,24 @@ export class DependencyCalculator {
 			}
 		}
 
-		return { valid: Object.keys(issues).length === 0, issues };
+		// Return shape expected by callers in electron.js
+		return { success: Object.keys(issues).length === 0, issues };
 	}
+}
+
+/** @returns {FlResponse} */
+export function successResponse(message, data = null) {
+	return { success: true, message, data };
+}
+
+/** @returns {FlResponse} */
+export function errorResponse(message, data = null, log = true) {
+	if (log) logError(message);
+	return { success: false, message, data };
+}
+
+export function responseAsError(response) {
+	if (!response) throw new Error("Response is undefined");
+	if (!response.success) throw new Error(response.message);
+	return response;
 }

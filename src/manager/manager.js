@@ -1,4 +1,7 @@
 import { SchemaValidation, Logging, EventBus } from "../common.js";
+/** @typedef {import('../common.js').CalculatedAction} CalculatedAction */
+/** @typedef {import('../common.js').CalculatedActions} CalculatedActions */
+
 globalThis.semver = api.semver;
 
 // =================== VARIABLES ===================
@@ -507,7 +510,7 @@ class ModsTab {
 	selectedMod = null;
 	modButtons = [];
 	filterInfo = { search: null, tags: [] };
-	queuedActions = {};
+	/** @type {CalculatedActions} */ queuedActions = {};
 	hasLoadedOnce = false;
 	isViewingModConfig = false;
 	isActionQueueVisible = false;
@@ -2432,7 +2435,7 @@ function setStatusBar(text, percent, icon = null) {
 function setConnectionState(state) {
 	let options = ["offline", "connecting", "online"];
 	if (!options.includes(state)) {
-		console.error(`Invalid connection state: ${state}. Expected one of ${options.join(", ")}`);
+		logError(`Invalid connection state: ${state}. Expected one of ${options.join(", ")}`);
 	}
 	if (connectionState === state) {
 		logDebug(`Connection state is already '${state}', no change needed`);
