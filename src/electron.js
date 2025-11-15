@@ -1226,7 +1226,7 @@ class ModsManager {
 	}
 
 	async calculateModActions(/** @type {Actions} */ mainActions) {
-		const res = await DependencyCalculator.calculate(this.installedMods, mainActions, this.fetchedModCache);
+		return await DependencyCalculator.calculate(this.installedMods, mainActions, this.fetchedModCache);
 	}
 
 	async performModActions(/** @type {Actions} */ allActions) {

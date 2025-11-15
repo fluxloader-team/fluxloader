@@ -436,10 +436,10 @@ export class DependencyCalculator {
 		 */
 
 		/** @type {CalculationState} */
-		let inputState = { versions: {}, constraints: {}, markedForUninstall: [] };
+		let inputState;
 
 		/** @type {CalculationState} */
-		let currentState = { versions: {}, constraints: {}, markedForUninstall: [] };
+		let currentState;
 
 		// ---------------------- UTILITY ----------------------
 
@@ -542,7 +542,7 @@ export class DependencyCalculator {
 			const dependencies = versionData.mod.modData.dependencies || {};
 			if (!dependencies || typeof dependencies !== "object") {
 				return errorResponse(`Invalid response for mod info of ${modID} version ${version}`, {
-					errorModID: modData,
+					errorModID: modID,
 					errorReason: "version-info-fetch",
 				});
 			}
@@ -554,39 +554,46 @@ export class DependencyCalculator {
 		};
 
 		/** @returns {FlResponse<{ [modID: string]: Constraint[] }>} */
-		const populateCurrentState = async () => {
-			if (!currentState) return errorResponse("Current state not initialised");
+		const populateState = async (state) => {
+			if (!state) return errorResponse("Current state not initialised");
 
-			// Reset current state and copy dependencies from input state
-			currentState.constraints = {};
-			currentState.markedForUninstall = [...inputState.markedForUninstall];
+			// Reset current state and copy everything from input state
+			for (const modID in inputState.versions) {
+				if (!state.versions[modID]) {
+					state.versions[modID] = inputState.versions[modID];
+				}
+			}
+			
+			state.markedForUninstall = [...inputState.markedForUninstall];
+
+			state.constraints = {};
 			for (const modID in inputState.constraints) {
-				currentState.constraints[modID] = inputState.constraints[modID].slice();
+				state.constraints[modID] = inputState.constraints[modID].slice();
 			}
 
 			// Now populate constraints with dependencies from the current states mod versions
-			for (const modID in currentState.versions) {
-				const modDependenciesResponse = await getModVersionDependencies(modID, currentState.versions[modID]);
+			for (const modID in state.versions) {
+				const modDependenciesResponse = await getModVersionDependencies(modID, state.versions[modID]);
 				if (!modDependenciesResponse.success) return modDependenciesResponse;
 				const modDependencies = modDependenciesResponse.data;
 
 				for (const depModID in modDependencies) {
-					if (!currentState.constraints[depModID]) currentState.constraints[depModID] = [];
-					currentState.constraints[depModID].push({ version: modDependencies[depModID], parent: modID });
+					if (!state.constraints[depModID]) state.constraints[depModID] = [];
+					state.constraints[depModID].push({ version: modDependencies[depModID], parent: modID });
 				}
 			}
 
 			// Propogate uninstalls up the dependency tree
-			let uninstallsToPropogate = [...currentState.markedForUninstall];
+			let uninstallsToPropogate = [...state.markedForUninstall];
 			while (uninstallsToPropogate.length > 0) {
 				const modID = uninstallsToPropogate.pop();
 
-				if (currentState.constraints[modID]) {
-					for (const constraint of currentState.constraints[modID]) {
+				if (state.constraints[modID]) {
+					for (const constraint of state.constraints[modID]) {
 						const parentModID = constraint.parent;
 
-						if (parentModID && !currentState.markedForUninstall.includes(parentModID)) {
-							currentState.markedForUninstall.push(parentModID);
+						if (parentModID && !state.markedForUninstall.includes(parentModID)) {
+							state.markedForUninstall.push(parentModID);
 							uninstallsToPropogate.push(parentModID);
 						}
 					}
@@ -609,8 +616,9 @@ export class DependencyCalculator {
 		};
 
 		/** Returns whether a version satisfies all constraints for a mod */
-		const doesVersionSatisfyAllConstraints = (version, modConstraints) => {
-			if (currentState.markedForUninstall.includes(constraintModID)) return false;
+		// Modified to accept modID so it can detect uninstalls for that mod
+		const doesVersionSatisfyAllConstraints = (modID, version, modConstraints) => {
+			if (currentState.markedForUninstall.includes(modID)) return false;
 			for (const constraint of modConstraints) {
 				if (!FluxloaderSemver.doesVersionSatisfyDependency(version, constraint.version)) {
 					return false;
@@ -622,15 +630,17 @@ export class DependencyCalculator {
 		// ---------------------- SETUP ----------------------
 
 		// Build input state from currently installed mods and input actions
+		inputState = { versions: {}, constraints: {}, markedForUninstall: [] };
+		
 		for (const modID in mods) {
 			inputState.versions[modID] = mods[modID].info.version;
 		}
 
 		for (const actionModID in inputActions) {
 			const action = inputActions[actionModID];
-			if (action.type == "install") {
+			if (action.type === "install") {
 				inputState.constraints[actionModID] = [{ version: action.version, parent: null }];
-			} else if (action.type == "uninstall") {
+			} else if (action.type === "uninstall") {
 				inputState.markedForUninstall.push(actionModID);
 			} else {
 				return errorResponse(`Invalid action type '${action.type}' for mod '${actionModID}'`, {
@@ -640,15 +650,10 @@ export class DependencyCalculator {
 			}
 		}
 
-		// Initialize runtime currentState from inputState (versions are mutable during calculation)
-		currentState = {
-			versions: { ...inputState.versions },
-			constraints: {},
-			markedForUninstall: [...inputState.markedForUninstall],
-		};
-
-		logDebug(`Hard constraints for mod actions: ${JSON.stringify(inputState.constraints)}`);
-		logDebug(`Initial state based on installed mods: ${JSON.stringify(currentState.versions)}`);
+		// Initialize current state from input state
+		currentState = { versions: {}, constraints: {}, markedForUninstall: [] };
+		const populateResponse = await populateState(currentState);
+		if (populateResponse.success === false) return populateResponse;
 
 		// ---------------------- CALCULATION ----------------------
 
@@ -657,16 +662,19 @@ export class DependencyCalculator {
 		let isStable = false;
 		let iterations = 0;
 		while (!isStable && iterations < 50) {
-			const populateResponse = await populateCurrentState();
-			if (populateResponse.success === false) return populateResponse;
-			let nextState = { versions: {} };
-			
+			let nextState = { versions: {}, constraints: {}, markedForUninstall: [] };
 			logDebug(`Current state: ${JSON.stringify(currentState.versions)}`);
 			logDebug(`Current constraints: ${JSON.stringify(currentState.constraints)}`);
 			
 			// For each mod that we have constraints for
 			for (const constraintModID in currentState.constraints) {
 				const modConstraints = currentState.constraints[constraintModID];
+
+				// If we are on uninstalling this mod then skip it
+				if (currentState.markedForUninstall.includes(constraintModID)) {
+					logDebug(`Mod '${constraintModID}' is marked for uninstall, skipping for next version`);
+					continue;
+				}
 
 				// Exit out early if we dont strictly need to care for this mod
 				if (!doWeNeedToResolveMod(constraintModID, modConstraints)) {
@@ -677,7 +685,7 @@ export class DependencyCalculator {
 				// First check if the currently installed version satisfies all constraints
 				if (mods[constraintModID]) {
 					const installedVersion = mods[constraintModID].info.version;
-					if (doesVersionSatisfyAllConstraints(installedVersion, modConstraints)) {
+					if (doesVersionSatisfyAllConstraints(constraintModID, installedVersion, modConstraints)) {
 						logDebug(`Using currently installed version '${installedVersion}' for mod '${constraintModID}'`);
 						nextState.versions[constraintModID] = installedVersion;
 						continue;
@@ -699,7 +707,7 @@ export class DependencyCalculator {
 				// And find the first version that matches all the constraints
 				let foundVersion = null;
 				for (const version of modVersions) {
-					if (doesVersionSatisfyAllConstraints(version, modConstraints)) {
+					if (doesVersionSatisfyAllConstraints(constraintModID, version, modConstraints)) {
 						foundVersion = version;
 						break;
 					}
@@ -707,11 +715,6 @@ export class DependencyCalculator {
 
 				// Now finally we can check if we found a valid version and if so add it to the next state
 				if (!foundVersion) {
-					if (currentState.markedForUninstall.includes(constraintModID)) {
-						logDebug(`Mod '${constraintModID}' is marked for uninstall, skipping for next version`);
-						continue;
-					}
-
 					return errorResponse(
 						`No version found for mod '${constraintModID}' that satisfies all constraints: ${JSON.stringify(modConstraints)}`, {
 							errorModID: constraintModID,
@@ -725,11 +728,14 @@ export class DependencyCalculator {
 				nextState.versions[constraintModID] = foundVersion;
 			}
 
-			// Check if the next state is stable by checking nextState === currentState
-			isStable = JSON.stringify(nextState.versions) === JSON.stringify(currentState.versions);
+			// Generate the next state and check it is stable by checking nextState === currentState
+			const populateResponse = await populateState(nextState);
+			if (populateResponse.success === false) return populateResponse;
 
-			// Finally we can iterate or break out
-			currentState.versions = nextState;
+			isStable = JSON.stringify(nextState.versions) === JSON.stringify(currentState.versions)
+				&& JSON.stringify(nextState.markedForUninstall) === JSON.stringify(currentState.markedForUninstall);
+
+			currentState = nextState;
 			if (isStable) break;
 			iterations++;
 		}
@@ -744,14 +750,10 @@ export class DependencyCalculator {
 		
 		// ---------------------- RESPONSE ----------------------
 
-		// Now need to convert the stable state + explicit uninstalls into a set of "install", "change", and "uninstall" actions
-		// Always convert a strict uninstall into an "uninstall" action
+		// Now need to convert the current state into a set of "install", "change", and "uninstall" actions
 		let actions = {};
-		for (const uninstallModID of strictUninstalls) {
-			actions[uninstallModID] = { type: "uninstall", modID: uninstallModID };
-		}
 		
-		// Convert any mods that have specified versions into "change" or "install" actions
+		// For each mod version create "change" or "install" actions
 		for (const modID in currentState.versions) {
 			const version = currentState.versions[modID];
 			if (actions[modID]) {
@@ -760,28 +762,25 @@ export class DependencyCalculator {
 					errorReason: "action-duplicate",
 				});
 			}
-			const parents = currentState.constraints[modID].map((c) => c.parent).filter((p) => p !== null) || [];
 			if (mods[modID]) {
-				// If the mod is already installed, we need to check if the version is changing
-				if (mods[modID].info.version !== version) {
-					actions[modID] = { type: "change", modID, version, parents };
-				} else {
+				if (mods[modID].info.version === version) {
 					logDebug(`Mod '${modID}' is already installed with version '${version}', no action needed`);
+					continue;
 				}
+				actions[modID] = { type: "change", modID, version };
 			} else {
-				actions[modID] = { type: "install", modID, version, parents };
+				actions[modID] = { type: "install", modID, version };
 			}
 		}
 
-		// If a mod that we have installed was blocked by an uninstall then we need to add an "uninstall" action for it
-		for (const modID in mods) {
-			if (!actions[modID] && uninstallConstraints[modID] && uninstallConstraints[modID].includes(mods[modID].info.version)) {
+		// For each mod marked for uninstall in the current state create "uninstall" actions
+		for (const modID of currentState.markedForUninstall) {
+			if (!actions[modID]) {
 				actions[modID] = { type: "uninstall", modID };
 			}
 		}
 
 		logDebug(`Calculated actions: ${JSON.stringify(actions)}`);
-
 		return successResponse(`Found stable configuration of mod versions`, actions);
 	}
 
