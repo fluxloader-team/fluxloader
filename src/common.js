@@ -626,13 +626,18 @@ export class DependencyCalculator {
 
 		/** @returns {Promise<FlResponse<{[modID: string]: string[] }>>} */
 		const getAllValidVersionsForRelevantMods = async (state) => {
-			const constraints = state.constraints;
 			const result = {};
 
 			// Include .versions (for existing mods) and .constraints (for new mods)
-			const relevantMods = new Set([ ...Object.keys(state.versions), ...Object.keys(constraints) ]);
+			const relevantMods = new Set([ ...Object.keys(state.versions), ...Object.keys(state.constraints) ]);
 
 			for (const modID of relevantMods) {
+				// If the mod is marked for uninstall, skip it
+				if (state.markedForUninstall.includes(modID)) {
+					if (modID in state.versions) result[modID] = [ state.versions[modID] ];
+					continue;
+				}
+
 				// fetch all versions of the mod
 				const versionsResponse = await getModVersions(modID);
 				if (!versionsResponse.success) return versionsResponse;
@@ -644,7 +649,7 @@ export class DependencyCalculator {
 					}, false);
 				}
 
-				const modConstraints = constraints[modID];
+				const modConstraints = state.constraints[modID];
 				if (!modConstraints || modConstraints.length === 0) {
 					// No constraints, all versions are valid
 					result[modID] = versions;
