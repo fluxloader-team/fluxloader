@@ -625,34 +625,39 @@ export class DependencyCalculator {
 		};
 
 		/** @returns {Promise<FlResponse<{[modID: string]: string[] }>>} */
-		const getAllValidVersionsForMods = async (constraints) => {
+		const getAllValidVersionsForMods = async (state) => {
+			const constraints = state.constraints;
 			const result = {};
 
-			// For each mod we have a constraint for
-			for (const constraintModID in constraints) {
-				const modConstraints = constraints[constraintModID];
-
+			for (const modID in state.versions) {
 				// fetch all versions of the mod
-				const versionsResponse = await getModVersions(constraintModID);
+				const versionsResponse = await getModVersions(modID);
 				if (!versionsResponse.success) return versionsResponse;
 				const versions = versionsResponse.data;
 				if (!versions || versions.length === 0) {
-					return errorResponse(`No versions available for '${constraintModID}'`, {
-						errorModID: constraintModID,
+					return errorResponse(`No versions available for '${modID}'`, {
+						errorModID: modID,
 						errorReason: "no-mod-versions"
 					}, false);
 				}
 
-				// Filter to only valid versions per the constraints
-				const validVersions = versions.filter(v => doesVersionSatisfyAllConstraints(constraintModID, v, modConstraints));
+				const modConstraints = constraints[modID];
+				if (!modConstraints || modConstraints.length === 0) {
+					// No constraints, all versions are valid
+					result[modID] = versions;
+					continue;
+				}
+
+				// Otherwise filter to only valid versions per the constraints
+				const validVersions = versions.filter(v => doesVersionSatisfyAllConstraints(modID, v, modConstraints));
 				if (validVersions.length === 0) {
-					return errorResponse(`No valid version for mod '${constraintModID}' that satisfies: ${JSON.stringify(modConstraints)}`, {
-						errorModID: constraintModID,
+					return errorResponse(`No valid version for mod '${modID}' that satisfies: ${JSON.stringify(modConstraints)}`, {
+						errorModID: modID,
 						errorReason: "constraint-unsatisfied"
 					}, false);
 				}
 
-				result[constraintModID] = validVersions;
+				result[modID] = validVersions;
 			}
 
 			return successResponse("Valid versions computed", result);
@@ -674,8 +679,10 @@ export class DependencyCalculator {
 				const installed = mods[modID]?.info?.version;
 				const previous = previousVersions[modID];
 
-				if (installed && valid.includes(installed)) list.push(installed);
+				// Prioritize previous version, then installed version, then the rest
+				// We want previous prioritized as that is what generated this version list in the first place
 				if (previous && previous !== installed && valid.includes(previous)) list.push(previous);
+				if (installed && valid.includes(installed)) list.push(installed);
 
 				for (const v of valid) {
 					if (!list.includes(v)) list.push(v);
@@ -697,6 +704,7 @@ export class DependencyCalculator {
 			const modIDs = Object.keys(ordered);
 			const out = [];
 
+			// Depth first recursive generator (AI generated)
 			(function gen(i, acc) {
 				if (out.length >= cap) return;
 				if (i === modIDs.length) {
@@ -758,7 +766,7 @@ export class DependencyCalculator {
 			logDebug(`Trying to resolve state (queueSize=${versionQueue.length}): versions=${currentHash}, constraints=${JSON.stringify(currentState.constraints)}, markedForUninstall=${JSON.stringify(currentState.markedForUninstall)}`);
 
 			// Calculate the versions for each mod that are valid given the constraints
-			const validModVersionsResponse = await getAllValidVersionsForMods(currentState.constraints);
+			const validModVersionsResponse = await getAllValidVersionsForMods(currentState);
 			if (!validModVersionsResponse.success) {
 				logDebug(`Cannot resolve configuration: ${validModVersionsResponse.message}`);
 				iterations++;
