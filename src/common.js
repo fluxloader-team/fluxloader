@@ -625,11 +625,14 @@ export class DependencyCalculator {
 		};
 
 		/** @returns {Promise<FlResponse<{[modID: string]: string[] }>>} */
-		const getAllValidVersionsForMods = async (state) => {
+		const getAllValidVersionsForRelevantMods = async (state) => {
 			const constraints = state.constraints;
 			const result = {};
 
-			for (const modID in state.versions) {
+			// Include .versions (for existing mods) and .constraints (for new mods)
+			const relevantMods = new Set([ ...Object.keys(state.versions), ...Object.keys(constraints) ]);
+
+			for (const modID of relevantMods) {
 				// fetch all versions of the mod
 				const versionsResponse = await getModVersions(modID);
 				if (!versionsResponse.success) return versionsResponse;
@@ -766,7 +769,7 @@ export class DependencyCalculator {
 			logDebug(`Trying to resolve state (queueSize=${versionQueue.length}): versions=${currentHash}, constraints=${JSON.stringify(currentState.constraints)}, markedForUninstall=${JSON.stringify(currentState.markedForUninstall)}`);
 
 			// Calculate the versions for each mod that are valid given the constraints
-			const validModVersionsResponse = await getAllValidVersionsForMods(currentState);
+			const validModVersionsResponse = await getAllValidVersionsForRelevantMods(currentState);
 			if (!validModVersionsResponse.success) {
 				logDebug(`Cannot resolve configuration: ${validModVersionsResponse.message}`);
 				iterations++;
