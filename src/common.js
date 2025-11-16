@@ -420,7 +420,7 @@ export class DependencyCalculator {
 		 * @type {{ [modID: string]: { [version: string]: { [dependencyModID: string]: string } } }}
 		 */
 		let modVersionDependencies = {};
-		
+
 		/**
 		 * @typedef {Object} Constraint
 		 * @property {string} version
@@ -469,12 +469,12 @@ export class DependencyCalculator {
 			const versionsURL = `https://fluxloader.app/api/mods?option=versions&modid=${modID}`;
 			let versionsResData;
 			try {
-				logDebug(`Fetching available versions for mod '${modID}' from API: ${versionsURL}`);
+				// logDebug(`Fetching available versions for mod '${modID}' from API: ${versionsURL}`);
 				const versionFetchStart = Date.now();
 				const res = await fetch(versionsURL);
 				versionsResData = await res.json();
 				const versionFetchEnd = Date.now();
-				logDebug(`Fetched available versions for mod '${modID}' in ${versionFetchEnd - versionFetchStart}ms`);
+				// logDebug(`Fetched available versions for mod '${modID}' in ${versionFetchEnd - versionFetchStart}ms`);
 			} catch (e) {
 				return errorResponse(`Failed to fetch available versions for mod '${modID}' with url ${versionsURL}: ${e.stack}`, {
 					errorModID: modID,
@@ -519,12 +519,12 @@ export class DependencyCalculator {
 			const versionDataURL = `https://fluxloader.app/api/mods?option=info&modid=${modID}&version=${version}`;
 			let versionData;
 			try {
-				logDebug(`Fetching '${modID}' version '${version}' from API: ${versionDataURL}`);
+				// logDebug(`Fetching '${modID}' version '${version}' from API: ${versionDataURL}`);
 				const fetchStart = Date.now();
 				const res = await fetch(versionDataURL);
 				versionData = await res.json();
 				const fetchEnd = Date.now();
-				logDebug(`Fetched '${modID}' version '${version}' in ${fetchEnd - fetchStart}ms`);
+				// logDebug(`Fetched '${modID}' version '${version}' in ${fetchEnd - fetchStart}ms`);
 			} catch (e) {
 				return errorResponse(`Failed to fetch '${modID}' version '${version}': ${e.stack}`, {
 					errorModID: modID,
@@ -546,7 +546,7 @@ export class DependencyCalculator {
 					errorReason: "version-info-fetch",
 				});
 			}
-		
+
 			// Finally we can add it to the cache
 			if (!modVersionDependencies[modID]) modVersionDependencies[modID] = {};
 			modVersionDependencies[modID][version] = dependencies;
@@ -563,7 +563,7 @@ export class DependencyCalculator {
 					state.versions[modID] = inputState.versions[modID];
 				}
 			}
-			
+
 			state.markedForUninstall = [...inputState.markedForUninstall];
 
 			state.constraints = {};
@@ -599,9 +599,9 @@ export class DependencyCalculator {
 					}
 				}
 			}
-			
+
 			return successResponse(`Constraints created from current state`);
-		}; 
+		};
 
 		/** Returns whether a version satisfies all constraints for a mod */
 		// Modified to accept modID so it can detect uninstalls for that mod
@@ -624,11 +624,100 @@ export class DependencyCalculator {
 			return hashString;
 		};
 
+		/** @returns {Promise<FlResponse<{[modID: string]: string[] }>>} */
+		const getAllValidVersionsForMods = async (constraints) => {
+			const result = {};
+
+			// For each mod we have a constraint for
+			for (const constraintModID in constraints) {
+				const modConstraints = constraints[constraintModID];
+
+				// fetch all versions of the mod
+				const versionsResponse = await getModVersions(constraintModID);
+				if (!versionsResponse.success) return versionsResponse;
+				const versions = versionsResponse.data;
+				if (!versions || versions.length === 0) {
+					return errorResponse(`No versions available for '${constraintModID}'`, {
+						errorModID: constraintModID,
+						errorReason: "no-mod-versions"
+					}, false);
+				}
+
+				// Filter to only valid versions per the constraints
+				const validVersions = versions.filter(v => doesVersionSatisfyAllConstraints(constraintModID, v, modConstraints));
+				if (validVersions.length === 0) {
+					return errorResponse(`No valid version for mod '${constraintModID}' that satisfies: ${JSON.stringify(modConstraints)}`, {
+						errorModID: constraintModID,
+						errorReason: "constraint-unsatisfied"
+					}, false);
+				}
+
+				result[constraintModID] = validVersions;
+			}
+
+			return successResponse("Valid versions computed", result);
+		};
+
+		/**
+		 * @param {{[modID:string]: string[]}} validVersions
+		 * @param {{[modID:string]: string}} previousVersions
+		 * @returns {{[modID:string]: string[]}}
+		 */
+		const orderValidVersions = (validVersions, previousVersions) => {
+			const ordered = {};
+			const modIDs = Object.keys(validVersions).sort();
+
+			for (const modID of modIDs) {
+				const valid = validVersions[modID];
+				const list = [];
+
+				const installed = mods[modID]?.info?.version;
+				const previous = previousVersions[modID];
+
+				if (installed && valid.includes(installed)) list.push(installed);
+				if (previous && previous !== installed && valid.includes(previous)) list.push(previous);
+
+				for (const v of valid) {
+					if (!list.includes(v)) list.push(v);
+				}
+
+				list.reverse();
+				ordered[modID] = list;
+			}
+			
+			return ordered;
+		};
+
+		/**
+		 * @param {{[modID:string]: string[]}} ordered
+		 * @param {number} cap
+		 * @returns {Array<{[modID:string]:string}>}
+		 */
+		const generateVersionCombos = (ordered, cap = 2000) => {
+			const modIDs = Object.keys(ordered);
+			const out = [];
+
+			(function gen(i, acc) {
+				if (out.length >= cap) return;
+				if (i === modIDs.length) {
+					out.push({ ...acc });
+					return;
+				}
+				const modID = modIDs[i];
+				for (const v of ordered[modID]) {
+					acc[modID] = v;
+					gen(i + 1, acc);
+				}
+			})(0, {});
+
+			return out;
+		};
+
 		// ---------------------- SETUP ----------------------
 
 		// Build input state from currently installed mods and input actions
 		inputState = { versions: {}, constraints: {}, markedForUninstall: [] };
-		
+
 		for (const modID in mods) {
 			inputState.versions[modID] = mods[modID].info.version;
 		}
@@ -653,121 +742,59 @@ export class DependencyCalculator {
 		// If we hit a dead end we just exit out the entire calculation with errorResponse()
 		let isStable = false;
 		let iterations = 0;
-		let invalidVersionHashes = new Set();
-		let versionQueue = [ { versions: {}, constraints: {}, markedForUninstall: [] } ];
+		let visitedVersionHashes = new Set();
+		let queuedVersionHashes = new Set();
+		let versionQueue = [{ }];
 
 		while (!isStable && iterations < 50) {
-			// Grab the next version combination off the queue to try and resolve
+			// Get the next version combination from the queue and populate
 			const currentVersions = versionQueue.pop();
 			currentState = { versions: currentVersions, constraints: {}, markedForUninstall: [] };
 			const populateResponse = await populateState(currentState);
 			if (populateResponse.success === false) return populateResponse;
+			const currentHash = hashModVersions(currentState.versions);
+			visitedVersionHashes.add(currentHash);
 
-			logDebug(`Current state: ${JSON.stringify(currentState.versions)}`);
-			logDebug(`Current constraints: ${JSON.stringify(currentState.constraints)}`);
-			
-			let validModVersions = {};
-			let anyFailed = false;
+			logDebug(`Trying to resolve state (queueSize=${versionQueue.length}): versions=${currentHash}, constraints=${JSON.stringify(currentState.constraints)}, markedForUninstall=${JSON.stringify(currentState.markedForUninstall)}`);
 
-			// For each mod that we have constraints on
-			for (const constraintModID in currentState.constraints) {
-				const modConstraints = currentState.constraints[constraintModID];
-
-				// Get all versions of the mod
-				const modVersionsResponse = await getModVersions(constraintModID);
-				if (!modVersionsResponse.success) return modVersionsResponse;
-				const modVersions = modVersionsResponse.data;
-				logDebug(`Found ${modVersions.length} versions for mod '${constraintModID}'`);
-				if (!modVersions || modVersions.length === 0) {
-					logError(`No versions found for mod '${constraintModID}'`);
-					anyFailed = true;
-					break;
-				}
-
-				// Find which of these versions are valid against the constraints
-				let validVersions = [];
-				for (const version of modVersions) {
-					if (doesVersionSatisfyAllConstraints(constraintModID, version, modConstraints)) {
-						validVersions.push(version);
-					}
-				}
-
-				// Now finally we can check if we found a valid version and if so add it to the next state
-				if (validVersions.length === 0) {
-					logError(`No version found for mod '${constraintModID}' that satisfies all constraints: ${JSON.stringify(modConstraints)}`);
-					anyFailed = true;
-					break;
-				}
-	
-				logDebug(`Found ${validVersions} versions for mod '${constraintModID}' that satisfies all constraints`);
-				validModVersions[constraintModID] = validVersions;
-			}
-
-			if (anyFailed) {
-				logDebug(`Current version combination failed, trying next in queue`);
+			// Calculate the versions for each mod that are valid given the constraints
+			const validModVersionsResponse = await getAllValidVersionsForMods(currentState.constraints);
+			if (!validModVersionsResponse.success) {
+				logDebug(`Cannot resolve configuration: ${validModVersionsResponse.message}`);
 				iterations++;
 				continue;
 			}
 
-			// Generate all combinations of all the valid versions
-			// We want to prioritise installed versions, then previously selected versions, then the rest
-			const modIDs = Object.keys(validModVersions).sort();
-			const orderedValidModVersions = {};
-			for (const modID of modIDs) {
-				const validVersions = validModVersions[modID];
-				const ordered = [];
-				const installedVersion = mods[modID] && mods[modID].info && mods[modID].info.version;
-				const previousVersion = currentVersions[modID];
-				if (installedVersion && validVersions.includes(installedVersion)) ordered.push(installedVersion);
-				if (previousVersion && previousVersion !== installedVersion && validVersions.includes(previousVersion)) ordered.push(previousVersion);
-				for (const v of validVersions) {
-					if (!ordered.includes(v)) ordered.push(v);
-				}
-				orderedValidModVersions[modID] = ordered;
-			}
+			const validModVersions = validModVersionsResponse.data;
 
-			// Generate cartesian product of all ordered versions (with a safety cap)
-			const combos = [];
-			const orderedModIDs = Object.keys(orderedValidModVersions);
-			const MAX_COMBOS = 2000;
-			(function gen(idx, acc) {
-				if (combos.length >= MAX_COMBOS) return;
-				if (idx === orderedModIDs.length) {
-					combos.push(Object.assign({}, acc));
-					return;
-				}
-				const m = orderedModIDs[idx];
-				for (const v of orderedValidModVersions[m]) {
-					acc[m] = v;
-					gen(idx + 1, acc);
-				}
-			})(0, {});
+			// Order the valid versions so we try installed / previous versions first
+			const orderedValidVersions = orderValidVersions(validModVersions, currentVersions);
 
-			// Filter out combinations we've already marked as invalid
-			const filteredCombos = combos.filter((c) => !invalidVersionHashes.has(hashModVersions(c)));
+			// generate all the combos of valid versions to try
+			const versionCombos = generateVersionCombos(orderedValidVersions, 2000);
 
-			// If any combination matches the current set of versions exactly, we've reached stability
-			const currentHash = hashModVersions(currentState.versions);
-			for (const combo of filteredCombos) {
-				if (hashModVersions(combo) === currentHash) {
+			// Go over and check if any of the generated combos are stable
+			// If not add them to the queue if we haven't already visited them
+			let newCombos = 0;
+			for (const combo of versionCombos) {
+				const comboHash = hashModVersions(combo);
+				if (comboHash === currentHash) {
 					isStable = true;
 					currentState.versions = combo;
 					break;
 				}
+				if (!visitedVersionHashes.has(comboHash) && !queuedVersionHashes.has(comboHash)) {
+					queuedVersionHashes.add(comboHash);
+					versionQueue.push(combo);
+					newCombos++;
+				}
 			}
+		
+			logDebug(`Generated ${newCombos} new version combinations`);
 
 			if (isStable) break;
 
-			// Push combinations onto the queue so the highest priority combos are tried first (pop() takes from end)
-			for (let i = filteredCombos.length - 1; i >= 0; i--) {
-				versionQueue.push(filteredCombos[i]);
-			}
-
-			// Mark the current combination as invalid so we don't try it again
-			invalidVersionHashes.add(currentHash);
-
 			iterations++;
-			logDebug(`No stable configuration yet, moving to next combination in queue (queue length: ${versionQueue.length})`);
 		}
 
 		if (!isStable) {
@@ -777,12 +804,12 @@ export class DependencyCalculator {
 		}
 
 		logDebug(`Found stable configuration of mod versions after ${iterations} iterations: ${JSON.stringify(currentState.versions)}`);
-		
+
 		// ---------------------- RESPONSE ----------------------
 
 		// Now need to convert the current state into a set of "install", "change", and "uninstall" actions
 		let actions = {};
-		
+
 		// For each mod version create "change" or "install" actions
 		for (const modID in currentState.versions) {
 			const version = currentState.versions[modID];
