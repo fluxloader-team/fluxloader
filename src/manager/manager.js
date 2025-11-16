@@ -533,7 +533,7 @@ class ModsTab {
 
 		blocks.listen(Blocks.PerformingModActions, (isPerforming) => {
 			getElement("action-queue-content").classList.toggle("performing", isPerforming);
-			this.updateActionExecutionButton();
+			this._updateActionButtons();
 		});
 
 		api.on("fl:mod-schema-updated", (_, { modID, schema }) => {
@@ -578,11 +578,15 @@ class ModsTab {
 
 		getElement("mods-load-button").addEventListener("click", this.loadMoreModsBoundFunc);
 
+		getElement("action-configure-button").addEventListener("click", async () => {
+			await this.configureQueuedActions();
+		});
+
 		getElement("action-execute-button").addEventListener("click", async () => {
 			await this.performQueuedActions();
 		});
 
-		this.updateActionExecutionButton();
+		this._updateActionButtons();
 
 		this.loadMoreModsBoundFunc = this.loadMoreMods.bind(this);
 	}
@@ -1438,7 +1442,7 @@ class ModsTab {
 			this._updateModRowWithAction(newAction, true);
 			
 			this.setActionQueueLoading(false);
-			this.updateActionExecutionButton();
+			this._updateActionButtons();
 			setStatusBar(`Failed to queue '${type}' action for mod '${res.data.errorModID || modID}'${res.data.errorReason ? ": " + res.data.errorReason : ""}`, 0, "failed");
 			
 			logWarn(`Failed to queue '${type}' action for mod '${modID}':`, JSON.stringify(res));
@@ -1453,14 +1457,14 @@ class ModsTab {
 		setStatusBar(`Queued action for mod '${modID}'`, 0, "success");
 		logDebug(`Queued main action for mod '${modID}' of type '${type}'`);
 		await this._processDelayedActionQueue();
-		this.updateActionExecutionButton();
+		this._updateActionButtons();
 		return true;
 	}
 
 	async unqueueAction(modID) {
 		if (!blocks.checkIfChangingModsOrActions("unqueue mod action")) {
 			this.delayedActionQueue.push({ what: "unqueue", modID });
-			this.updateActionExecutionButton();
+			this._updateActionButtons();
 			return;
 		}
 
@@ -1475,7 +1479,7 @@ class ModsTab {
 		blocks.set(Blocks.QueueingModAction, false);
 
 		await this._processDelayedActionQueue();
-		this.updateActionExecutionButton();
+		this._updateActionButtons();
 	}
 
 	async performQueuedActions() {
@@ -1512,9 +1516,32 @@ class ModsTab {
 		this.setActionQueueLoading(false);
 		setStatusBar("All actions performed successfully", 0, "success");
 
-		this.updateActionExecutionButton();
+		this._updateActionButtons();
 
 		this.reloadMods();
+	}
+
+	setActionQueueVisible(visible) {
+		if (visible === this.isActionQueueVisible) return logWarn("Cannot set isActionQueueVisible to the same value");
+		this.isActionQueueVisible = visible;
+		const actionQueue = getElement("action-queue");
+		actionQueue.classList.toggle("open", visible);
+		const hider = actionQueue.querySelector(".hider");
+		hider.style.display = visible ? "block" : "none";
+	}
+
+	setActionQueueLoading(loading) {
+		if (loading === this.isActionQueueLoading) return logWarn("Cannot set isActionQueueLoading to the same value");
+		this.isActionQueueLoading = loading;
+		const loadingIcon = getElement("action-queue-loading-icon");
+		loadingIcon.style.display = loading ? "block" : "none";
+	}
+
+	configureQueuedActions() {
+		setFullscreenAlert("Action Configure", "Main text", [
+			{ text: "Ok", onClick: () => { console.log("Ok"); }},
+			{ text: "Cancel", onClick: () => { console.log("Cancel"); }}
+		]);
 	}
 
 	async _calculateActionsWithBackend() {
@@ -1666,37 +1693,22 @@ class ModsTab {
 		}
 	}
 
-	setActionQueueVisible(visible) {
-		if (visible === this.isActionQueueVisible) return logWarn("Cannot set isActionQueueVisible to the same value");
-		this.isActionQueueVisible = visible;
-		const actionQueue = getElement("action-queue");
-		actionQueue.classList.toggle("open", visible);
-		const hider = actionQueue.querySelector(".hider");
-		hider.style.display = visible ? "block" : "none";
-	}
-
-	setActionQueueLoading(loading) {
-		if (loading === this.isActionQueueLoading) return logWarn("Cannot set isActionQueueLoading to the same value");
-		this.isActionQueueLoading = loading;
-		const loadingIcon = getElement("action-queue-loading-icon");
-		loadingIcon.style.display = loading ? "block" : "none";
-	}
-
-	updateActionExecutionButton() {
+	_updateActionButtons() {
+		getElement("action-configure-button").innerText = "Configure";
 		if (blocks.get(Blocks.PerformingModActions)) {
 			getElement("action-execute-button").innerText = "Executing...";
-			getElement("action-execute-button").classList.add("blocked");
-			getElement("action-execute-button").classList.add("block-cursor");
+			getElement("action-queue-footer").classList.add("blocked");
+			getElement("action-queue-footer").classList.add("block-cursor");
 		} else {
 			const anyReady = Object.keys(this.queuedActions).some((action) => this.queuedActions[action].state !== "complete" && this.queuedActions[action].state !== "failed");
 			if (anyReady) {
 				getElement("action-execute-button").innerText = "Execute";
-				getElement("action-execute-button").classList.remove("blocked");
-				getElement("action-execute-button").classList.remove("block-cursor");
+				getElement("action-queue-footer").classList.remove("blocked");
+				getElement("action-queue-footer").classList.remove("block-cursor");
 			} else {
 				getElement("action-execute-button").innerText = "No Actions...";
-				getElement("action-execute-button").classList.add("blocked");
-				getElement("action-execute-button").classList.add("block-cursor");
+				getElement("action-queue-footer").classList.add("blocked");
+				getElement("action-queue-footer").classList.add("block-cursor");
 			}
 		}
 	}
@@ -2407,7 +2419,6 @@ function setFullscreenAlert(title, text, buttons) {
 		buttonElement.addEventListener("click", () => {
 			button.onClick();
 			alertElement.style.display = "none";
-			isFullscreenAlertVisible = false;
 			blocks.set(Blocks.FullScreenAlert, false);
 		});
 		buttonContainer.appendChild(buttonElement);
