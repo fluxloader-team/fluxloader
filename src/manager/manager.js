@@ -578,9 +578,9 @@ class ModsTab {
 
 		getElement("mods-load-button").addEventListener("click", this.loadMoreModsBoundFunc);
 
-		getElement("action-configure-button").addEventListener("click", async () => {
-			await this.configureQueuedActions();
-		});
+		// getElement("action-configure-button").addEventListener("click", async () => {
+		// 	await this.configureQueuedActions();
+		// });
 
 		getElement("action-execute-button").addEventListener("click", async () => {
 			await this.performQueuedActions();
@@ -1694,7 +1694,7 @@ class ModsTab {
 	}
 
 	_updateActionButtons() {
-		getElement("action-configure-button").innerText = "Configure";
+		// getElement("action-configure-button").innerText = "Configure";
 		if (blocks.get(Blocks.PerformingModActions)) {
 			getElement("action-execute-button").innerText = "Executing...";
 			getElement("action-queue-footer").classList.add("blocked");
