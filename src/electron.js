@@ -59,7 +59,7 @@ let isGameStarted = false;
 let isManagerStarted = false;
 /** @type {ModsManager} */ let modsManager = undefined;
 /** @type {GameFilesManager} */ let gameFilesManager = undefined;
-/** @type {ManagerWindow} */ let managerWindow = undefined;
+/** @type {BrowserWindow} */ let managerWindow = undefined;
 
 // =================== LOGGING ===================
 
