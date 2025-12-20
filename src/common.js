@@ -539,6 +539,7 @@ export class DependencyCalculator {
 					errorReason: "mod-version-fetch",
 				});
 			}
+			// ERROR
 			const dependencies = versionData.mod.modData.dependencies || {};
 			if (!dependencies || typeof dependencies !== "object") {
 				return errorResponse(`Invalid response for mod info of ${modID} version ${version}`, {
@@ -765,9 +766,11 @@ export class DependencyCalculator {
 		while (!isStable && iterations < 50) {
 			// Get the next version combination from the queue and populate
 			const currentVersions = versionQueue.pop();
+			
 			currentState = { versions: currentVersions, constraints: {}, markedForUninstall: [] };
 			const populateResponse = await populateState(currentState);
 			if (populateResponse.success === false) return populateResponse;
+
 			const currentHash = hashModVersions(currentState.versions);
 			visitedVersionHashes.add(currentHash);
 

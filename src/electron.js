@@ -1760,7 +1760,13 @@ class ModsManager {
 				this.installedMods[modID].versions = modVersionInfo;
 				logDebug(`Updated mod '${modID}' version info with fetched data`);
 			} else {
-				logError(`Mod '${modID}' version info found but mod is not installed, skipping update`);
+				logWarn(`Mod '${modID}' version info found but mod is not installed, skipping update`);
+			}
+		}
+
+		for (const modID in this.installedMods) {
+			if (this.installedMods[modID].versions == null || this.installedMods[modID].versions.length == 0) {
+				this.installedMods[modID].versions = [ this.installedMods[modID].info.version ];
 			}
 		}
 

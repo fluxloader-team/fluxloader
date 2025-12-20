@@ -1199,32 +1199,31 @@ class ModsTab {
 
 	_createModRowVersions(modData) {
 		// If given a single version (or no versions) make a span
-		if (modData.versions == null || modData.versions.length === 0) {
+		if (modData.versions == null || modData.versions.length === 1) {
 			return createElement(`<span>${modData.info.version}</span>`);
 		}
 
-		// Compare local version to all versions, and if it's the latest version
-		// return just a single version text - Helps when working on mods locally
+		// Check if the installed version is newer than *all* server versions
 		let isGreatest = true;
 		for (const version of modData.versions) {
-			// If local version is lower than or equal to server version
-			// then local version is not the greatest, so continue with the dropdown
 			if (semver.compare(modData.info.version, version) < 1) {
 				isGreatest = false;
 				break;
 			}
 		}
 
-		// If local version is greater than every version on server, give just the local version
+		// If the above is true then only show the local version, to prevent accidental deletion (from the dropdown)
 		if (isGreatest) return createElement(`<span>${modData.info.version}</span>`);
 
 		// Otherwise make a dropdown with all versions
 		const versionToOption = (v) => `<option value="${v}" ${v === modData.info.version ? "selected" : ""}>${v}</option>`;
 		const dropdown = createElement(`<select>${modData.versions.reduce((acc, v) => acc + versionToOption(v), "")}</select>`);
+		
 		// Show update icon if semver shows installed version is lower than latest from db
 		const updateIcon = createElement(
 			`<img src="./assets/circle-arrow-up.png" style="width: 1.5rem; height: 1.5rem; visibility: ${api.semver.compare(modData.info.version, modData.versions[0]) < 0 ? "visible" : "hidden"}" title="Update available">`,
 		);
+
 		dropdown.addEventListener("click", (e) => e.stopPropagation());
 		dropdown.addEventListener("change", (e) => this.changeModVersion(modData.modID, e));
 		let main = createElement("<div>");
