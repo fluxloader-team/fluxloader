@@ -453,7 +453,7 @@ export class DependencyCalculator {
 				return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
 			}
 
-			// Check installed mods
+			// Check data in installed mods
 			if (mods[modID] && mods[modID].versions) {
 				modVersionsCache[modID] = mods[modID].versions;
 				return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
@@ -465,30 +465,10 @@ export class DependencyCalculator {
 				return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
 			}
 
-			// Otherwise fetch
-			const versionsURL = `https://fluxloader.app/api/mods?option=versions&modid=${modID}`;
-			let versionsResData;
-			try {
-				// logDebug(`Fetching available versions for mod '${modID}' from API: ${versionsURL}`);
-				const versionFetchStart = Date.now();
-				const res = await fetch(versionsURL);
-				versionsResData = await res.json();
-				const versionFetchEnd = Date.now();
-				// logDebug(`Fetched available versions for mod '${modID}' in ${versionFetchEnd - versionFetchStart}ms`);
-			} catch (e) {
-				return errorResponse(`Failed to fetch available versions for mod '${modID}' with url ${versionsURL}: ${e.stack}`, {
-					errorModID: modID,
-					errorReason: "mod-versions-fetch",
-				});
-			}
-			if (!versionsResData || !Object.hasOwn(versionsResData, "versions")) {
-				return errorResponse(`Invalid response for available versions of mod '${modID}' with url ${versionsURL}`, {
-					errorModID: modID,
-					errorReason: "mod-versions-fetch",
-				});
-			}
-
-			modVersionsCache[modID] = versionsResData.versions;
+			// At this point it how to be local only mod (with versions == null)
+			if (mods[modID] == null) return errorResponse(`No mod versions found for '${modID}'`);
+			const localVersions = [ mods[modID].info.version ];
+			modVersionsCache[modID] = localVersions;
 			return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
 		};
 

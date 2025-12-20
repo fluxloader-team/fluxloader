@@ -1764,12 +1764,6 @@ class ModsManager {
 			}
 		}
 
-		for (const modID in this.installedMods) {
-			if (this.installedMods[modID].versions == null || this.installedMods[modID].versions.length == 0) {
-				this.installedMods[modID].versions = [ this.installedMods[modID].info.version ];
-			}
-		}
-
 		return successResponse(`Fetched versions for ${this.loadOrder.length} installed mods`, modVersions.versions);
 	}
 
