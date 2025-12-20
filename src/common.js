@@ -742,10 +742,14 @@ export class DependencyCalculator {
 			const action = inputActions[actionModID];
 			if (action.type === "install") {
 				inputState.constraints[actionModID] = [{ version: action.version, parent: null }];
+
+				// We need to overwrite the existing version so it is not considered
 				inputState.versions[actionModID] = action.version;
-			} else if (action.type === "uninstall") {
+			}
+			else if (action.type === "uninstall") {
 				inputState.markedForUninstall.push(actionModID);
-			} else {
+			}
+			else {
 				return errorResponse(`Invalid action type '${action.type}' for mod '${actionModID}'`, {
 					errorModID: actionModID,
 					errorReason: "invalid-action-type",
