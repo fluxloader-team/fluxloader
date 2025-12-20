@@ -742,6 +742,7 @@ export class DependencyCalculator {
 			const action = inputActions[actionModID];
 			if (action.type === "install") {
 				inputState.constraints[actionModID] = [{ version: action.version, parent: null }];
+				inputState.versions[actionModID] = action.version;
 			} else if (action.type === "uninstall") {
 				inputState.markedForUninstall.push(actionModID);
 			} else {
