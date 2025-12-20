@@ -465,7 +465,25 @@ export class DependencyCalculator {
 				return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
 			}
 
-			// At this point it how to be local only mod (with versions == null)
+			// Now try and fetch incase it is a remote mod
+			const versionsURL = `https://fluxloader.app/api/mods?option=versions&modid=${modID}`;
+			let versionsResData;
+			try {
+				const res = await fetch(versionsURL);
+				versionsResData = await res.json();
+			} catch (e) {
+				return errorResponse(`Failed to fetch available versions for mod '${modID}' with url ${versionsURL}: ${e.stack}`, {
+					errorModID: modID,
+					errorReason: "mod-versions-fetch",
+				});
+			}
+			
+			if (versionsResData && Object.hasOwn(versionsResData, "versions")) {
+				modVersionsCache[modID] = versionsResData.versions;
+				return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
+			}
+
+			// At this point it has to be a local only mod (with versions == null)
 			if (mods[modID] == null) return errorResponse(`No mod versions found for '${modID}'`);
 			const localVersions = [ mods[modID].info.version ];
 			modVersionsCache[modID] = localVersions;
@@ -597,6 +615,7 @@ export class DependencyCalculator {
 		};
 
 		const hashModVersions = (versions) => {
+			if (versions.length == 0) return "";
 			const sortedKeys = Object.keys(versions).sort();
 			let hashString = "";
 			for (const key of sortedKeys) {
