@@ -762,7 +762,7 @@ export class DependencyCalculator {
 		let queuedVersionHashes = new Set();
 		let versionQueue = [{ }];
 
-		while (!isStable && iterations < 50) {
+		while (!isStable && iterations < 50 && versionQueue.length > 0) {
 			// Get the next version combination from the queue and populate
 			const currentVersions = versionQueue.pop();
 			
