@@ -742,9 +742,6 @@ export class DependencyCalculator {
 			const action = inputActions[actionModID];
 			if (action.type === "install") {
 				inputState.constraints[actionModID] = [{ version: action.version, parent: null }];
-
-				// We need to overwrite the existing version so it is not considered
-				inputState.versions[actionModID] = action.version;
 			}
 			else if (action.type === "uninstall") {
 				inputState.markedForUninstall.push(actionModID);
@@ -755,6 +752,9 @@ export class DependencyCalculator {
 					errorReason: "invalid-action-type",
 				});
 			}
+
+			// We need to remove the existing version so it is not considered
+			delete inputState.versions[actionModID];
 		}
 
 		// ---------------------- CALCULATION ----------------------
