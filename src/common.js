@@ -696,7 +696,6 @@ export class DependencyCalculator {
 					if (!list.includes(v)) list.push(v);
 				}
 
-				list.reverse();
 				ordered[modID] = list;
 			}
 			
@@ -769,7 +768,7 @@ export class DependencyCalculator {
 
 		while (!isStable && iterations < 50 && versionQueue.length > 0) {
 			// Get the next version combination from the queue and populate
-			const currentVersions = versionQueue.pop();
+			const currentVersions = versionQueue.shift();
 			
 			currentState = { versions: currentVersions, constraints: {}, markedForUninstall: [] };
 			const populateResponse = await populateState(currentState);
