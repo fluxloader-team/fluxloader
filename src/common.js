@@ -692,7 +692,8 @@ export class DependencyCalculator {
 				if (previous && previous !== installed && valid.includes(previous)) list.push(previous);
 				if (installed && valid.includes(installed)) list.push(installed);
 
-				for (const v of valid) {
+				for (let i = valid.length - 1; i >= 0; i--) {
+					const v = valid[i];
 					if (!list.includes(v)) list.push(v);
 				}
 
