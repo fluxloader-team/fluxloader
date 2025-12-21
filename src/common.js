@@ -17,7 +17,7 @@
  * @property {boolean} isEnabled
  * @property {boolean} isLoaded
  * @property {string[]|undefined} [versions]
- * 
+ *
  * @typedef {{ [modID: string]: Mod }} Mods
  */
 
@@ -28,7 +28,7 @@
  * @property {string|null} [version]
  * @property {string[]|null} [parents]
  * @property {"loading"|"queued"|"failed"|"complete"|null} [state]
- * 
+ *
  * @typedef {{ [modID: string]: Action }} Actions
  */
 
@@ -67,7 +67,7 @@
  * @property {string} [uploadTime]
  * @property {string} [renderedDescription]
  * @property {any} [votes]
- * 
+ *
  * @typedef {{ [modID: string]: FetchedMod }} FetchedModCache
  */
 
@@ -477,7 +477,7 @@ export class DependencyCalculator {
 					errorReason: "mod-versions-fetch",
 				});
 			}
-			
+
 			if (versionsResData && Object.hasOwn(versionsResData, "versions")) {
 				modVersionsCache[modID] = versionsResData.versions;
 				return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
@@ -485,7 +485,7 @@ export class DependencyCalculator {
 
 			// At this point it has to be a local only mod (with versions == null)
 			if (mods[modID] == null) return errorResponse(`No mod versions found for '${modID}'`);
-			const localVersions = [ mods[modID].info.version ];
+			const localVersions = [mods[modID].info.version];
 			modVersionsCache[modID] = localVersions;
 			return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
 		};
@@ -629,12 +629,12 @@ export class DependencyCalculator {
 			const result = {};
 
 			// Include .versions (for existing mods) and .constraints (for new mods)
-			const relevantMods = new Set([ ...Object.keys(state.versions), ...Object.keys(state.constraints) ]);
+			const relevantMods = new Set([...Object.keys(state.versions), ...Object.keys(state.constraints)]);
 
 			for (const modID of relevantMods) {
 				// If the mod is marked for uninstall, skip it
 				if (state.markedForUninstall.includes(modID)) {
-					if (modID in state.versions) result[modID] = [ state.versions[modID] ];
+					if (modID in state.versions) result[modID] = [state.versions[modID]];
 					continue;
 				}
 
@@ -643,10 +643,14 @@ export class DependencyCalculator {
 				if (!versionsResponse.success) return versionsResponse;
 				const versions = versionsResponse.data;
 				if (!versions || versions.length === 0) {
-					return errorResponse(`No versions available for '${modID}'`, {
-						errorModID: modID,
-						errorReason: "no-mod-versions"
-					}, false);
+					return errorResponse(
+						`No versions available for '${modID}'`,
+						{
+							errorModID: modID,
+							errorReason: "no-mod-versions",
+						},
+						false,
+					);
 				}
 
 				const modConstraints = state.constraints[modID];
@@ -657,12 +661,16 @@ export class DependencyCalculator {
 				}
 
 				// Otherwise filter to only valid versions per the constraints
-				const validVersions = versions.filter(v => doesVersionSatisfyAllConstraints(modID, v, modConstraints));
+				const validVersions = versions.filter((v) => doesVersionSatisfyAllConstraints(modID, v, modConstraints));
 				if (validVersions.length === 0) {
-					return errorResponse(`No valid version for mod '${modID}' that satisfies: ${JSON.stringify(modConstraints)}`, {
-						errorModID: modID,
-						errorReason: "constraint-unsatisfied"
-					}, false);
+					return errorResponse(
+						`No valid version for mod '${modID}' that satisfies: ${JSON.stringify(modConstraints)}`,
+						{
+							errorModID: modID,
+							errorReason: "constraint-unsatisfied",
+						},
+						false,
+					);
 				}
 
 				result[modID] = validVersions;
@@ -699,7 +707,7 @@ export class DependencyCalculator {
 
 				ordered[modID] = list;
 			}
-			
+
 			return ordered;
 		};
 
@@ -742,11 +750,9 @@ export class DependencyCalculator {
 			const action = inputActions[actionModID];
 			if (action.type === "install") {
 				inputState.constraints[actionModID] = [{ version: action.version, parent: null }];
-			}
-			else if (action.type === "uninstall") {
+			} else if (action.type === "uninstall") {
 				inputState.markedForUninstall.push(actionModID);
-			}
-			else {
+			} else {
 				return errorResponse(`Invalid action type '${action.type}' for mod '${actionModID}'`, {
 					errorModID: actionModID,
 					errorReason: "invalid-action-type",
@@ -765,12 +771,12 @@ export class DependencyCalculator {
 		let iterations = 0;
 		let visitedVersionHashes = new Set();
 		let queuedVersionHashes = new Set();
-		let versionQueue = [{ }];
+		let versionQueue = [{}];
 
 		while (!isStable && iterations < 50 && versionQueue.length > 0) {
 			// Get the next version combination from the queue and populate
 			const currentVersions = versionQueue.shift();
-			
+
 			currentState = { versions: currentVersions, constraints: {}, markedForUninstall: [] };
 			const populateResponse = await populateState(currentState);
 			if (populateResponse.success === false) return populateResponse;
@@ -812,7 +818,7 @@ export class DependencyCalculator {
 					newCombos++;
 				}
 			}
-		
+
 			logDebug(`Generated ${newCombos} new version combinations`);
 
 			if (isStable) break;
@@ -903,7 +909,7 @@ export class DependencyCalculator {
 	}
 }
 
-/** 
+/**
  * @template T
  * @param {string} message
  * @param {T|null} [data=null]
@@ -913,7 +919,7 @@ export function successResponse(message, data = null) {
 	return { success: true, message, data };
 }
 
-/** 
+/**
  * @template T
  * @param {string} message
  * @param {T|null} [data=null]

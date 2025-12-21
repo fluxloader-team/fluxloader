@@ -1218,7 +1218,7 @@ class ModsTab {
 		// Otherwise make a dropdown with all versions
 		const versionToOption = (v) => `<option value="${v}" ${v === modData.info.version ? "selected" : ""}>${v}</option>`;
 		const dropdown = createElement(`<select>${modData.versions.reduce((acc, v) => acc + versionToOption(v), "")}</select>`);
-		
+
 		// Show update icon if semver shows installed version is lower than latest from db
 		const updateIcon = createElement(
 			`<img src="./assets/circle-arrow-up.png" style="width: 1.5rem; height: 1.5rem; visibility: ${api.semver.compare(modData.info.version, modData.versions[0]) < 0 ? "visible" : "hidden"}" title="Update available">`,
@@ -1439,11 +1439,11 @@ class ModsTab {
 			newAction.element.classList.toggle("loading", false);
 			newAction.element.classList.toggle("failed", true);
 			this._updateModRowWithAction(newAction, true);
-			
+
 			this.setActionQueueLoading(false);
 			this._updateActionButtons();
 			setStatusBar(`Failed to queue '${type}' action for mod '${res.data.errorModID || modID}'${res.data.errorReason ? ": " + res.data.errorReason : ""}`, 0, "failed");
-			
+
 			logWarn(`Failed to queue '${type}' action for mod '${modID}':`, JSON.stringify(res));
 			blocks.set(Blocks.QueueingModAction, false);
 			return false;
@@ -1538,8 +1538,18 @@ class ModsTab {
 
 	configureQueuedActions() {
 		setFullscreenAlert("Action Configure", "Main text", [
-			{ text: "Ok", onClick: () => { console.log("Ok"); }},
-			{ text: "Cancel", onClick: () => { console.log("Cancel"); }}
+			{
+				text: "Ok",
+				onClick: () => {
+					console.log("Ok");
+				},
+			},
+			{
+				text: "Cancel",
+				onClick: () => {
+					console.log("Cancel");
+				},
+			},
 		]);
 	}
 
@@ -2603,8 +2613,7 @@ async function handleClickPlayButton(unmodded = false) {
 		blocks.set(Blocks.Playing, res.success);
 		blocks.set(Blocks.PlayButtonLoading, false);
 		updatePlayButton();
-	}
-	else {
+	} else {
 		await api.invoke(`fl:close-game`);
 		setStatusBar("Game stopped", 0, "success");
 		getElement("play-button").classList.toggle("active", false);

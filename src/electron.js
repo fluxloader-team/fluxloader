@@ -65,7 +65,7 @@ let isManagerStarted = false;
 
 function setupLogFile() {
 	if (!configLoaded) return;
-	
+
 	if (latestLogFilePath) return;
 
 	latestLogFilePath = resolvePathRelativeToExecutable(config.logging.latestLogFilePath);
@@ -1894,7 +1894,7 @@ function findValidGamePath() {
 					foundAny = true;
 					break;
 				}
-			} catch (e) { }
+			} catch (e) {}
 		}
 		if (!foundAny) return null;
 
