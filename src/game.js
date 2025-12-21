@@ -2,7 +2,7 @@ import { EventBus, Logging } from "./common.js";
 
 // =================== VARIABLES ===================
 
-globalThis.fluxloaderVersion = "2.4.0";
+globalThis.fluxloaderVersion = "2.4.1";
 globalThis.fluxloaderAPI = undefined;
 
 let loadedMods = [];
@@ -15,10 +15,10 @@ globalThis.log = function (level, tag, message) {
 	forwardLogToManager({ source: "game", timestamp, level, tag, message });
 };
 
-const logDebug = (...args) => log("debug", "", args.join(" "));
-const logInfo = (...args) => log("info", "", args.join(" "));
-const logWarn = (...args) => log("warn", "", args.join(" "));
-const logError = (...args) => log("error", "", args.join(" "));
+globalThis.logDebug = (...args) => log("debug", "", args.join(" "));
+globalThis.logInfo = (...args) => log("info", "", args.join(" "));
+globalThis.logWarn = (...args) => log("warn", "", args.join(" "));
+globalThis.logError = (...args) => log("error", "", args.join(" "));
 
 function forwardLogToManager(log) {
 	window.electron.invoke("fl:forward-log-to-manager", log);
