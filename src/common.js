@@ -1,3 +1,76 @@
+/**
+ * @typedef {Object} ModInfo
+ * @property {string} modID
+ * @property {string} name
+ * @property {string} version
+ * @property {string} [author]
+ * @property {Object.<string,string>} [dependencies]
+ * @property {Object} [configSchema]
+ * @property {string} [description]
+ */
+
+/**
+ * @typedef {Object} Mod
+ * @property {ModInfo} info
+ * @property {string} path
+ * @property {boolean} isInstalled
+ * @property {boolean} isEnabled
+ * @property {boolean} isLoaded
+ * @property {string[]|undefined} [versions]
+ *
+ * @typedef {{ [modID: string]: Mod }} Mods
+ */
+
+/**
+ * @typedef {Object} Action
+ * @property {"install"|"change"|"uninstall"} type
+ * @property {string} modID
+ * @property {string|null} [version]
+ * @property {string[]|null} [parents]
+ * @property {"loading"|"queued"|"failed"|"complete"|null} [state]
+ *
+ * @typedef {{ [modID: string]: Action }} Actions
+ */
+
+/**
+ * @template T
+ * @typedef {Object} FlResponse
+ * @property {boolean} success
+ * @property {string} message
+ * @property {T|null} data
+ */
+
+/**
+ * @typedef {Object} VerifyIssue
+ * @property {"missing"|"disabled"|"version"} type
+ * @property {string} modID
+ * @property {string} dependencyModID
+ * @property {string} dependency
+ * @property {string} [dependencyVersion]
+ */
+
+/**
+ * @typedef {Object} VerifyModsResponse
+ * @property {boolean} success
+ * @property {VerifyIssue[]} issues
+ */
+
+/**
+ * @typedef {Object} CalculateModsResponse
+ */
+
+/**
+ * @typedef {Object} FetchedMod
+ * @property {string} modID
+ * @property {ModInfo} [modData]
+ * @property {string[]} [versionNumbers]
+ * @property {string} [uploadTime]
+ * @property {string} [renderedDescription]
+ * @property {any} [votes]
+ *
+ * @typedef {{ [modID: string]: FetchedMod }} FetchedModCache
+ */
+
 export class EventBus {
 	logging = true;
 	events = {};
@@ -7,14 +80,14 @@ export class EventBus {
 	}
 
 	registerEvent(event, toLog = true) {
-		if (toLog && this.logging) log("debug", "", `Registering new event '${event}'`);
+		if (toLog && this.logging) logDebug(`Registering new event '${event}'`);
 		if (this.events[event]) throw new Error(`Event already registered: ${event}`);
 		this.events[event] = [];
 	}
 
 	async trigger(event, data, toLog = true) {
 		// When triggering an event generally if the source is inactive we error, but if the listener is inactive we ignore it
-		if (toLog && this.logging) log("debug", "", `Triggering event '${event}'`);
+		if (toLog && this.logging) logDebug(`Triggering event '${event}'`);
 		if (!this.events.hasOwnProperty(event)) throw new Error(`Cannot trigger non-existent event: ${event}`);
 		for (let i = this.events[event].length - 1; i >= 0; i--) {
 			await this.events[event][i](data);
@@ -23,7 +96,7 @@ export class EventBus {
 
 	async tryTrigger(event, data, toLog = true) {
 		// This is here in cases for when we cant be sure if the event is registered or not
-		if (toLog && this.logging) log("debug", "", `Trying to trigger event '${event}'`);
+		if (toLog && this.logging) logDebug(`Trying to trigger event '${event}'`);
 		if (!this.events.hasOwnProperty(event)) return;
 		for (let i = this.events[event].length - 1; i >= 0; i--) {
 			await this.events[event][i](data);
@@ -31,13 +104,13 @@ export class EventBus {
 	}
 
 	on(event, func, toLog = true) {
-		if (toLog && this.logging) log("debug", "", `Adding event listener for '${event}'`);
+		if (toLog && this.logging) logDebug(`Adding event listener for '${event}'`);
 		if (!this.events[event]) throw new Error(`Cannot add listener to non-existent event: ${event}`);
 		this.events[event].push(func);
 	}
 
 	off(event, func, toLog = true) {
-		if (toLog && this.logging) log("debug", "", `Removing event listener for '${event}'`);
+		if (toLog && this.logging) logDebug(`Removing event listener for '${event}'`);
 		if (!this.events[event]) throw new Error(`Cannot remove listener from non-existent event: ${event}`);
 		const index = this.events[event].indexOf(func);
 		if (index === -1) throw new Error(`Listener not found for event: ${event}`);
@@ -45,7 +118,7 @@ export class EventBus {
 	}
 
 	clear(toLog = true) {
-		if (toLog && this.logging) log("debug", "", "Clearing EventBus");
+		if (toLog && this.logging) logDebug("Clearing EventBus");
 		for (const event in this.events) {
 			delete this.events[event];
 		}
@@ -59,7 +132,7 @@ export class EventBus {
 			outputString += `  |  |   ${event}: ${this.events[event].length} listeners\n`;
 		}
 
-		log("debug", "", outputString);
+		logDebug(outputString);
 	}
 }
 
@@ -111,9 +184,9 @@ export class SchemaValidation {
 			let nextPath = path.concat(configKey);
 			if (schema[configKey] === undefined) {
 				if (!config.unknownKeyMethod || config.unknownKeyMethod === "ignore") {
-					log("warn", "", `Target warning: Key '${nextPath.join(".")}' is not in the schema, ignoring...`);
+					logWarn(`Target warning: Key '${nextPath.join(".")}' is not in the schema, ignoring...`);
 				} else if (config.unknownKeyMethod === "delete") {
-					log("warn", "", `Target warning: Key '${nextPath.join(".")}' is not in the schema, deleting...`);
+					logWarn(`Target warning: Key '${nextPath.join(".")}' is not in the schema, deleting...`);
 					delete target[configKey];
 				} else if (config.unknownKeyMethod === "error") {
 					return {
@@ -164,7 +237,7 @@ export class SchemaValidation {
 							source: "target",
 						};
 					}
-					log("debug", "", `Key '${nextPath.join(".")}' has no value. Using default: ${JSON.stringify(schemaValue.default)}`);
+					logDebug(`Key '${nextPath.join(".")}' has no value. Using default: ${JSON.stringify(schemaValue.default)}`);
 					target[schemaKey] = schemaValue.default;
 				}
 				let res = this.validateValue(target[schemaKey], schemaValue);
@@ -327,4 +400,544 @@ export class Logging {
 		};
 		return `${COLOUR_MAP[colour]}${text}\x1b[0m`;
 	}
+}
+
+export class DependencyCalculator {
+	/** @returns {CalculateModsResponse} */
+	static async calculate(/** @type {Mods} */ mods, /** @type {Actions} */ inputActions, /** @type {FetchedModCache} */ fetchedModCache) {
+		logDebug(`Calculating all mod actions for ${Object.keys(inputActions).length} main action(s)`);
+
+		/**
+		 * Cache for mods available versions
+		 * @type {{ [modID: string]: string[] }}
+		 */
+		let modVersionsCache = {};
+
+		/**
+		 * Cache for mod version dependencies
+		 * - 2 layered map of modID -> version -> {dependencies}
+		 * - Dependencies are a map of dependencyModID -> dependencyVersion
+		 * @type {{ [modID: string]: { [version: string]: { [dependencyModID: string]: string } } }}
+		 */
+		let modVersionDependencies = {};
+
+		/**
+		 * @typedef {Object} Constraint
+		 * @property {string} version
+		 * @property {string|null} parent
+		 */
+
+		/**
+		 * Holds the mutable sets used during calculation
+		 * @typedef {Object} CalculationState
+		 * @property {{ [modID: string]: string }} versions
+		 * @property {{ [modID: string]: Constraint[] }} constraints
+		 * @property {string[]} markedForUninstall
+		 */
+
+		/** @type {CalculationState} */
+		let inputState;
+
+		/** @type {CalculationState} */
+		let currentState;
+
+		// ---------------------- UTILITY ----------------------
+
+		/** @returns {FlResponse<string[]>} */
+		const getModVersions = async (modID) => {
+			// Retrieve all available versions for a mod from the API
+			// First check if it is installed, then check memoized fetched mod cache, then fetch from API
+
+			// Already cached
+			if (modVersionsCache[modID]) {
+				return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
+			}
+
+			// Check data in installed mods
+			if (mods[modID] && mods[modID].versions) {
+				modVersionsCache[modID] = mods[modID].versions;
+				return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
+			}
+
+			// Check remote mod cache
+			if (fetchedModCache[modID] && fetchedModCache[modID].versionNumbers) {
+				modVersionsCache[modID] = fetchedModCache[modID].versionNumbers;
+				return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
+			}
+
+			// Now try and fetch incase it is a remote mod
+			const versionsURL = `https://fluxloader.app/api/mods?option=versions&modid=${modID}`;
+			let versionsResData;
+			try {
+				const res = await fetch(versionsURL);
+				versionsResData = await res.json();
+			} catch (e) {
+				return errorResponse(`Failed to fetch available versions for mod '${modID}' with url ${versionsURL}: ${e.stack}`, {
+					errorModID: modID,
+					errorReason: "mod-versions-fetch",
+				});
+			}
+
+			if (versionsResData && Object.hasOwn(versionsResData, "versions")) {
+				modVersionsCache[modID] = versionsResData.versions;
+				return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
+			}
+
+			// At this point it has to be a local only mod (with versions == null)
+			if (mods[modID] == null) return errorResponse(`No mod versions found for '${modID}'`);
+			const localVersions = [mods[modID].info.version];
+			modVersionsCache[modID] = localVersions;
+			return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
+		};
+
+		/** @returns {FlResponse<{ [dependencyModID: string]: string }>} */
+		const getModVersionDependencies = async (modID, version) => {
+			// Already cached
+			if (modVersionDependencies[modID]) {
+				if (modVersionDependencies[modID][version]) {
+					return successResponse(`Mod version dependencies found for '${modID}' version '${version}'`, modVersionDependencies[modID][version]);
+				}
+			} else {
+				modVersionDependencies[modID] = {};
+			}
+
+			// Check installed mods
+			if (mods[modID] && mods[modID].info && mods[modID].info.version === version) {
+				modVersionDependencies[modID][version] = mods[modID].info.dependencies || {};
+				return successResponse(`Mod version dependencies found for '${modID}' version '${version}'`, modVersionDependencies[modID][version]);
+			}
+
+			// Check remote mod cache
+			if (fetchedModCache[modID] && fetchedModCache[modID].modData && fetchedModCache[modID].modData.version === version) {
+				modVersionDependencies[modID][version] = fetchedModCache[modID].modData.dependencies || {};
+				return successResponse(`Mod version dependencies found for '${modID}' version '${version}'`, modVersionDependencies[modID][version]);
+			}
+
+			// Otherwise fetch
+			const versionDataURL = `https://fluxloader.app/api/mods?option=info&modid=${modID}&version=${version}`;
+			let versionData;
+			try {
+				// logDebug(`Fetching '${modID}' version '${version}' from API: ${versionDataURL}`);
+				const fetchStart = Date.now();
+				const res = await fetch(versionDataURL);
+				versionData = await res.json();
+				const fetchEnd = Date.now();
+				// logDebug(`Fetched '${modID}' version '${version}' in ${fetchEnd - fetchStart}ms`);
+			} catch (e) {
+				return errorResponse(`Failed to fetch '${modID}' version '${version}': ${e.stack}`, {
+					errorModID: modID,
+					errorReason: "mod-version-fetch",
+				});
+			}
+
+			// Check the response is valid
+			if (!versionData || !Object.hasOwn(versionData, "mod") || !Object.hasOwn(versionData.mod, "modData")) {
+				return errorResponse(`Invalid response for mod info of ${modID} version ${version}`, {
+					errorModID: modID,
+					errorReason: "mod-version-fetch",
+				});
+			}
+			// ERROR
+			const dependencies = versionData.mod.modData.dependencies || {};
+			if (!dependencies || typeof dependencies !== "object") {
+				return errorResponse(`Invalid response for mod info of ${modID} version ${version}`, {
+					errorModID: modID,
+					errorReason: "version-info-fetch",
+				});
+			}
+
+			// Finally we can add it to the cache
+			if (!modVersionDependencies[modID]) modVersionDependencies[modID] = {};
+			modVersionDependencies[modID][version] = dependencies;
+			return successResponse(`Mod version dependencies found for '${modID}' version '${version}'`, dependencies);
+		};
+
+		/** @returns {FlResponse<{ [modID: string]: Constraint[] }>} */
+		const populateState = async (state) => {
+			if (!state) return errorResponse("Current state not initialised");
+
+			// Reset current state and copy everything from input state
+			for (const modID in inputState.versions) {
+				if (!state.versions[modID]) {
+					state.versions[modID] = inputState.versions[modID];
+				}
+			}
+
+			state.markedForUninstall = [...inputState.markedForUninstall];
+
+			state.constraints = {};
+			for (const modID in inputState.constraints) {
+				state.constraints[modID] = inputState.constraints[modID].slice();
+			}
+
+			// Now populate constraints with dependencies from the current states mod versions
+			for (const modID in state.versions) {
+				const modDependenciesResponse = await getModVersionDependencies(modID, state.versions[modID]);
+				if (!modDependenciesResponse.success) return modDependenciesResponse;
+				const modDependencies = modDependenciesResponse.data;
+
+				for (const depModID in modDependencies) {
+					if (!state.constraints[depModID]) state.constraints[depModID] = [];
+					state.constraints[depModID].push({ version: modDependencies[depModID], parent: modID });
+				}
+			}
+
+			// Propogate uninstalls up the dependency tree
+			let uninstallsToPropogate = [...state.markedForUninstall];
+			while (uninstallsToPropogate.length > 0) {
+				const modID = uninstallsToPropogate.pop();
+
+				if (state.constraints[modID]) {
+					for (const constraint of state.constraints[modID]) {
+						const parentModID = constraint.parent;
+
+						if (parentModID && !state.markedForUninstall.includes(parentModID)) {
+							state.markedForUninstall.push(parentModID);
+							uninstallsToPropogate.push(parentModID);
+						}
+					}
+				}
+			}
+
+			return successResponse(`Constraints created from current state`);
+		};
+
+		/** Returns whether a version satisfies all constraints for a mod */
+		// Modified to accept modID so it can detect uninstalls for that mod
+		const doesVersionSatisfyAllConstraints = (modID, version, modConstraints) => {
+			if (currentState.markedForUninstall.includes(modID)) return false;
+			for (const constraint of modConstraints) {
+				if (!FluxloaderSemver.doesVersionSatisfyDependency(version, constraint.version)) {
+					return false;
+				}
+			}
+			return true;
+		};
+
+		const hashModVersions = (versions) => {
+			if (versions.length == 0) return "";
+			const sortedKeys = Object.keys(versions).sort();
+			let hashString = "";
+			for (const key of sortedKeys) {
+				hashString += `${key}:${versions[key]};`;
+			}
+			return hashString;
+		};
+
+		/** @returns {Promise<FlResponse<{[modID: string]: string[] }>>} */
+		const getAllValidVersionsForRelevantMods = async (state) => {
+			const result = {};
+
+			// Include .versions (for existing mods) and .constraints (for new mods)
+			const relevantMods = new Set([...Object.keys(state.versions), ...Object.keys(state.constraints)]);
+
+			for (const modID of relevantMods) {
+				// If the mod is marked for uninstall, skip it
+				if (state.markedForUninstall.includes(modID)) {
+					if (modID in state.versions) result[modID] = [state.versions[modID]];
+					continue;
+				}
+
+				// fetch all versions of the mod
+				const versionsResponse = await getModVersions(modID);
+				if (!versionsResponse.success) return versionsResponse;
+				const versions = versionsResponse.data;
+				if (!versions || versions.length === 0) {
+					return errorResponse(
+						`No versions available for '${modID}'`,
+						{
+							errorModID: modID,
+							errorReason: "no-mod-versions",
+						},
+						false,
+					);
+				}
+
+				const modConstraints = state.constraints[modID];
+				if (!modConstraints || modConstraints.length === 0) {
+					// No constraints, all versions are valid
+					result[modID] = versions;
+					continue;
+				}
+
+				// Otherwise filter to only valid versions per the constraints
+				const validVersions = versions.filter((v) => doesVersionSatisfyAllConstraints(modID, v, modConstraints));
+				if (validVersions.length === 0) {
+					return errorResponse(
+						`No valid version for mod '${modID}' that satisfies: ${JSON.stringify(modConstraints)}`,
+						{
+							errorModID: modID,
+							errorReason: "constraint-unsatisfied",
+						},
+						false,
+					);
+				}
+
+				result[modID] = validVersions;
+			}
+
+			return successResponse("Valid versions computed", result);
+		};
+
+		/**
+		 * @param {{[modID:string]: string[]}} validVersions
+		 * @param {{[modID:string]: string}} previousVersions
+		 * @returns {{[modID:string]: string[]}}
+		 */
+		const orderValidVersions = (validVersions, previousVersions) => {
+			const ordered = {};
+			const modIDs = Object.keys(validVersions).sort();
+
+			for (const modID of modIDs) {
+				const valid = validVersions[modID];
+				const list = [];
+
+				const installed = mods[modID]?.info?.version;
+				const previous = previousVersions[modID];
+
+				// Prioritize previous version, then installed version, then the rest
+				// We want previous prioritized as that is what generated this version list in the first place
+				if (previous && previous !== installed && valid.includes(previous)) list.push(previous);
+				if (installed && valid.includes(installed)) list.push(installed);
+
+				for (let i = valid.length - 1; i >= 0; i--) {
+					const v = valid[i];
+					if (!list.includes(v)) list.push(v);
+				}
+
+				ordered[modID] = list;
+			}
+
+			return ordered;
+		};
+
+		/**
+		 * @param {{[modID:string]: string[]}} ordered
+		 * @param {number} cap
+		 * @returns {Array<{[modID:string]:string}>}
+		 */
+		const generateVersionCombos = (ordered, cap = 2000) => {
+			const modIDs = Object.keys(ordered);
+			const out = [];
+
+			// Depth first recursive generator (AI generated)
+			(function gen(i, acc) {
+				if (out.length >= cap) return;
+				if (i === modIDs.length) {
+					out.push({ ...acc });
+					return;
+				}
+				const modID = modIDs[i];
+				for (const v of ordered[modID]) {
+					acc[modID] = v;
+					gen(i + 1, acc);
+				}
+			})(0, {});
+
+			return out;
+		};
+
+		// ---------------------- SETUP ----------------------
+
+		// Build input state from currently installed mods and input actions
+		inputState = { versions: {}, constraints: {}, markedForUninstall: [] };
+
+		for (const modID in mods) {
+			inputState.versions[modID] = mods[modID].info.version;
+		}
+
+		for (const actionModID in inputActions) {
+			const action = inputActions[actionModID];
+			if (action.type === "install") {
+				inputState.constraints[actionModID] = [{ version: action.version, parent: null }];
+			} else if (action.type === "uninstall") {
+				inputState.markedForUninstall.push(actionModID);
+			} else {
+				return errorResponse(`Invalid action type '${action.type}' for mod '${actionModID}'`, {
+					errorModID: actionModID,
+					errorReason: "invalid-action-type",
+				});
+			}
+
+			// We need to remove the existing version so it is not considered
+			delete inputState.versions[actionModID];
+		}
+
+		// ---------------------- CALCULATION ----------------------
+
+		// Loop until we have found a stable configuration of mod versions
+		// If we hit a dead end we just exit out the entire calculation with errorResponse()
+		let isStable = false;
+		let iterations = 0;
+		let visitedVersionHashes = new Set();
+		let queuedVersionHashes = new Set();
+		let versionQueue = [{}];
+
+		while (!isStable && iterations < 50 && versionQueue.length > 0) {
+			// Get the next version combination from the queue and populate
+			const currentVersions = versionQueue.shift();
+
+			currentState = { versions: currentVersions, constraints: {}, markedForUninstall: [] };
+			const populateResponse = await populateState(currentState);
+			if (populateResponse.success === false) return populateResponse;
+
+			const currentHash = hashModVersions(currentState.versions);
+			visitedVersionHashes.add(currentHash);
+
+			logDebug(`Trying to resolve state (queueSize=${versionQueue.length}): versions=${currentHash}, constraints=${JSON.stringify(currentState.constraints)}, markedForUninstall=${JSON.stringify(currentState.markedForUninstall)}`);
+
+			// Calculate the versions for each mod that are valid given the constraints
+			const validModVersionsResponse = await getAllValidVersionsForRelevantMods(currentState);
+			if (!validModVersionsResponse.success) {
+				logDebug(`Cannot resolve configuration: ${validModVersionsResponse.message}`);
+				iterations++;
+				continue;
+			}
+
+			const validModVersions = validModVersionsResponse.data;
+
+			// Order the valid versions so we try installed / previous versions first
+			const orderedValidVersions = orderValidVersions(validModVersions, currentVersions);
+
+			// generate all the combos of valid versions to try
+			const versionCombos = generateVersionCombos(orderedValidVersions, 2000);
+
+			// Go over and check if any of the generated combos are stable
+			// If not add them to the queue if we haven't already visited them
+			let newCombos = 0;
+			for (const combo of versionCombos) {
+				const comboHash = hashModVersions(combo);
+				if (comboHash === currentHash) {
+					isStable = true;
+					currentState.versions = combo;
+					break;
+				}
+				if (!visitedVersionHashes.has(comboHash) && !queuedVersionHashes.has(comboHash)) {
+					queuedVersionHashes.add(comboHash);
+					versionQueue.push(combo);
+					newCombos++;
+				}
+			}
+
+			logDebug(`Generated ${newCombos} new version combinations`);
+
+			if (isStable) break;
+
+			iterations++;
+		}
+
+		if (!isStable) {
+			return errorResponse(`Failed to find a stable configuration of mod versions after ${iterations} iterations`, {
+				errorReason: "unstable-configuration",
+			});
+		}
+
+		logDebug(`Found stable configuration of mod versions after ${iterations} iterations: ${JSON.stringify(currentState.versions)}`);
+
+		// ---------------------- RESPONSE ----------------------
+
+		// Now need to convert the current state into a set of "install", "change", and "uninstall" actions
+		let actions = {};
+
+		// For each mod version create "change" or "install" actions
+		for (const modID in currentState.versions) {
+			const version = currentState.versions[modID];
+			if (actions[modID]) {
+				return errorResponse(`Mod '${modID}' already has an action defined, cannot redefine it`, {
+					errorModID: modID,
+					errorReason: "action-duplicate",
+				});
+			}
+			if (mods[modID]) {
+				if (mods[modID].info.version === version) {
+					logDebug(`Mod '${modID}' is already installed with version '${version}', no action needed`);
+					continue;
+				}
+				actions[modID] = { type: "change", modID, version };
+			} else {
+				actions[modID] = { type: "install", modID, version };
+			}
+		}
+
+		// For each mod marked for uninstall in the current state create "uninstall" actions
+		for (const modID of currentState.markedForUninstall) {
+			if (!actions[modID]) {
+				actions[modID] = { type: "uninstall", modID };
+			}
+		}
+
+		logDebug(`Calculated actions: ${JSON.stringify(actions)}`);
+		return successResponse(`Found stable configuration of mod versions`, actions);
+	}
+
+	/** @returns {VerifyModsResponse} */
+	static verify(/** @type {Mods} */ mods) {
+		let issues = {};
+
+		for (const modID in mods) {
+			const mod = mods[modID];
+
+			if (mod.isEnabled && mod.info.dependencies) {
+				for (const depModID in mod.info.dependencies) {
+					const dep = mod.info.dependencies[depModID];
+					const depMod = mods[depModID];
+
+					if (depMod === undefined) {
+						if (!issues[modID]) issues[modID] = [];
+						issues[modID].push({ type: "missing", modID, dependencyModID: depModID, dependency: dep });
+						continue;
+					}
+
+					if (!depMod.isEnabled) {
+						if (!issues[modID]) issues[modID] = [];
+						issues[modID].push({ type: "disabled", modID, dependencyModID: depModID, dependency: dep });
+						continue;
+					}
+
+					const depVersion = depMod.info.version;
+					if (!FluxloaderSemver.doesVersionSatisfyDependency(depVersion, dep)) {
+						if (!issues[modID]) issues[modID] = [];
+						issues[modID].push({ type: "version", modID, dependencyModID: depModID, dependency: dep, dependencyVersion: depVersion });
+						continue;
+					}
+				}
+			}
+		}
+
+		// Return shape expected by callers in electron.js
+		return { success: Object.keys(issues).length === 0, issues };
+	}
+}
+
+/**
+ * @template T
+ * @param {string} message
+ * @param {T|null} [data=null]
+ * @returns {FlResponse<T>}
+ */
+export function successResponse(message, data = null) {
+	return { success: true, message, data };
+}
+
+/**
+ * @template T
+ * @param {string} message
+ * @param {T|null} [data=null]
+ * @param {boolean} [log=true]
+ * @returns {FlResponse<T>}
+ */
+export function errorResponse(message, data = null, log = true) {
+	if (log) logError(message);
+	return { success: false, message, data };
+}
+
+/**
+ * @template T
+ * @param {FlResponse<T>} response
+ * @returns {FlResponse<T>}
+ */
+export function responseAsError(response) {
+	if (!response) throw new Error("Response is undefined");
+	if (!response.success) throw new Error(response.message);
+	return response;
 }
