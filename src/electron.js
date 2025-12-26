@@ -2226,15 +2226,15 @@ globalThis.attachDebuggerToGameWindow = function (window) {
 						if (queryParams.length > 1) {
 							queryParams = queryParams[1];
 							if (queryParams.includes("new_game")) {
-								fluxloaderAPI.events.trigger("fl:pre-scene-loaded", "intro");
+								await fluxloaderAPI.events.trigger("fl:pre-scene-loaded", "intro");
 							} else if (queryParams.includes("db_load")) {
-								fluxloaderAPI.events.trigger("fl:pre-scene-loaded", "game");
+								await fluxloaderAPI.events.trigger("fl:pre-scene-loaded", "game");
 							} else {
-								fluxloaderAPI.events.trigger("fl:pre-scene-loaded", "mainmenu");
+								await fluxloaderAPI.events.trigger("fl:pre-scene-loaded", "mainmenu");
 							}
 						} else {
 							// Loading menu if no query parameters are present
-							fluxloaderAPI.events.trigger("fl:pre-scene-loaded", "mainmenu");
+							await fluxloaderAPI.events.trigger("fl:pre-scene-loaded", "mainmenu");
 						}
 					}
 					gameFilesManager.ensureFilePatchesUpToDate(relativePath);
