@@ -1213,21 +1213,21 @@ input[type="checkbox"]:checked::before {
 
 #config-tab-content {
 	background: var(--color-bg-medium);
-	/* padding: 0 0; */
 }
 
 #config-tab-content .main {
-	/* max-width: 50rem;
-	min-width: 20rem;
-	margin: auto; */
+	position: relative;
 	height: 100%;
 	display: flex;
 	padding: 0;
+	width: fit-content;
+	margin: auto;
 }
 
 #config-tab-content .main .mod-list {
-	position: relative;
+	position: absolute;
 	width: 20rem;
+	right: 100%;
 	overflow-y: auto;
 	min-width: 10rem;
 	max-width: 30rem;
