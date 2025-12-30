@@ -10,7 +10,16 @@ const DELAY_LOAD_REMOTE_MS = 150;
 const DELAY_RELOAD_MS = 150;
 const FLUXLOADER_RELEASES_URL = "https://api.github.com/repos/fluxloader-team/fluxloader/releases";
 
-globalThis.tabs = { mods: null, config: null, logs: null };
+/**
+ * @type {{
+ *  mods?: ModsTab,
+ *  config?: ConfigTab,
+ *  logs?: LogsTab,
+ *  loadOrder?: LoadOrderTab,
+ *  createMod?: CreateModTab
+ * }}
+ */
+globalThis.tabs = {};
 let selectedTab = null;
 let getElementMemoization = {};
 let config = {};
@@ -791,7 +800,6 @@ class ModsTab {
 			if (modData.isInstalled) {
 				buttons.push({ icon: "assets/queueup.png", text: "Uninstall", onClick: () => this.clickSelectedModMainButton(modData.modID) });
 				if (modData.info.configSchema && Object.keys(modData.info.configSchema).length > 0) {
-					// TEMP MARKER
 					buttons.push({
 						icon: "assets/config.png",
 						onClick: async () => {
@@ -1833,7 +1841,6 @@ class ConfigTab {
 	}
 
 	forceSetSchema(id, schema) {
-		// tbh I'm not sure if this is still useful, but I'll keep it just in case
 		if (id !== "fluxloader" && this.installedMods.hasOwnProperty(id)) {
 			this.installedMods[id].info.configSchema = schema;
 		}
