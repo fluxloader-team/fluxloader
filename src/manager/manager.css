@@ -1235,6 +1235,10 @@ input[type="checkbox"]:checked::before {
 	color: var(--color-text-primary);
 }
 
+#config-tab-content .main .mod-list #mod-config-entries {
+	margin-top: 1rem;
+}
+
 #config-tab-content .main .mod-list .config-entry {
 	padding: 0.6rem 0.6rem;
 	background: var(--color-bg-light);
