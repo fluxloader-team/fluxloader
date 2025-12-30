@@ -1222,6 +1222,7 @@ input[type="checkbox"]:checked::before {
 	padding: 0;
 	width: fit-content;
 	margin: auto;
+	min-width: 50rem;
 }
 
 #config-tab-content .main .mod-list {
@@ -1259,10 +1260,8 @@ input[type="checkbox"]:checked::before {
 #config-tab-content .main .config-container {
 	background: var(--color-bg-light);
 	display: flex;
-	/* overflow-y: auto; */
 	flex-direction: column;
 	flex: 1;
-	max-width: 50rem;
 	padding: 0;
 	margin-right: 1.2rem;
 }
