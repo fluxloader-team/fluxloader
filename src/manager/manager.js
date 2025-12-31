@@ -148,7 +148,6 @@ function convertUploadTimeToString(uploadTime) {
 }
 
 class ConfigSchemaElement {
-	parentElement = null;
 	containerElement = null;
 	contentElement = null;
 	config = null;
@@ -160,9 +159,8 @@ class ConfigSchemaElement {
 	inputErrors = new Map();
 	inputs = new Map();
 
-	constructor(parentElement, config, schema, onChange, extraValidation = null) {
+	constructor(config, schema, onChange, extraValidation = null) {
 		// Initialize variables
-		this.parentElement = parentElement;
 		this.containerElement = null;
 		this.contentElement = null;
 		this.config = JSON.parse(JSON.stringify(config));
@@ -175,7 +173,6 @@ class ConfigSchemaElement {
 		// Setup elements
 		this.containerElement = document.createElement("div");
 		this.containerElement.classList.add("config-schema-container");
-		this.parentElement.appendChild(this.containerElement);
 		this.contentElement = document.createElement("div");
 		this.contentElement.classList.add("config-schema-content");
 		this.statusElements.wrapper = document.createElement("div");
@@ -192,6 +189,10 @@ class ConfigSchemaElement {
 		this.containerElement.appendChild(this.statusElements.wrapper);
 
 		this.rerender();
+	}
+
+	attachTo(/** @type {HTMLElement} */ parent) {
+		parent.appendChild(this.containerElement);
 	}
 
 	forceSetConfig(config) {
@@ -1745,8 +1746,9 @@ class ModsTab {
 }
 
 class ConfigTab {
-	activeRenderer = null;
 	activeID = null;
+	/** @type Object.<string, ConfigSchemaElement> */
+	activeRenderers = {};
 	activeEntries = {
 		fluxloader: getElement("fluxloader-config-entry"),
 	};
@@ -1789,46 +1791,46 @@ class ConfigTab {
 		}
 	}
 
+	getConfigRenderer(id, config, schema) {
+		if (this.activeRenderers.hasOwnProperty(id)) {
+			this.activeRenderers[id].forceSetConfig(config);
+			this.activeRenderers[id].forceSetSchema(schema);
+			return this.activeRenderers[id];
+		}
+		let correctedID = id === "fluxloader" ? "fluxloader" : `mod '${id}'`;
+		let capFirst = (text) => text.charAt(0).toUpperCase() + text.slice(1);
+		this.activeRenderers[id] = new ConfigSchemaElement(config, schema, async (newConfig) => {
+			logDebug(`${capFirst(correctedID)} config changed, notifying electron...`);
+			const success = id === "fluxloader" ? await api.invoke("fl:set-fluxloader-config", newConfig) : await api.invoke("fl:mod-config-set", id, newConfig);
+			if (!success) {
+				logError(`Failed to set config for ${correctedID}`);
+				setStatusBar(`Failed to set ${correctedID} config`, 0, "error");
+			} else {
+				logDebug(`${capFirst(correctedID)} config set successfully`);
+				if (id === "fluxloader") {
+					events.trigger("config-changed", newConfig);
+				} else {
+					this.modRows[id].modData.info.config = newConfig;
+				}
+				setStatusBar(`${capFirst(correctedID)} config updated successfully`, 0, "success");
+			}
+		});
+		return this.activeRenderers[id];
+	}
+
 	async selectConfig(id) {
 		if (id === this.activeID) return;
 		this.activeEntries[this.activeID]?.classList.remove("selected");
 		this.activeEntries[id]?.classList.add("selected");
 		this.activeID = id;
 		getElement("config-title").textContent = `${id === "fluxloader" ? "Fluxloader" : this.installedMods[id].name} Config`;
+		// Load config and schema
+		const config = id === "fluxloader" ? await api.invoke("fl:get-fluxloader-config") : await api.invoke("fl:mod-config-get", id);
+		const schema = id === "fluxloader" ? await api.invoke("fl:get-fluxloader-config-schema") : this.installedMods[id].configSchema;
+		let renderer = this.getConfigRenderer(id, config, schema);
 		let configContainer = getElement("config-container");
 		configContainer.innerHTML = "";
-		// Load config and schema
-		if (id === "fluxloader") {
-			const config = await api.invoke("fl:get-fluxloader-config");
-			const configSchema = await api.invoke("fl:get-fluxloader-config-schema");
-			this.activeRenderer = new ConfigSchemaElement(configContainer, config, configSchema, async (newConfig) => {
-				logDebug("Config changed, notifying electron...");
-				const success = await api.invoke("fl:set-fluxloader-config", newConfig);
-				if (!success) {
-					logError("Failed to set config");
-					setStatusBar("Failed to set config", 0, "error");
-				} else {
-					logDebug("Config set successfully.");
-					events.trigger("config-changed", newConfig);
-					setStatusBar("Config updated successfully", 0, "success");
-				}
-			});
-		} else {
-			const config = await api.invoke("fl:mod-config-get", id);
-			const configSchema = this.installedMods[id].configSchema;
-			this.activeRenderer = new ConfigSchemaElement(configContainer, config, configSchema, async (newConfig) => {
-				logDebug(`Mod ${id} config changed, notifying electron...`);
-				const success = await api.invoke("fl:mod-config-set", id, newConfig);
-				if (!success) {
-					logError(`Failed to set config for mod ${id}`);
-					setStatusBar("Failed to set mod config", 0, "error");
-				} else {
-					logDebug(`Config for mod ${id} set successfully`);
-					this.modRows[id].modData.info.config = newConfig;
-					setStatusBar("Mod config updated successfully", 0, "success");
-				}
-			});
-		}
+		renderer.attachTo(configContainer);
 	}
 
 	async selectTab() {
@@ -2221,6 +2223,7 @@ class CreateModTab {
 		},
 	};
 
+	/** @type {ConfigSchemaElement?} */
 	renderer = null;
 	modCreateRequestData = {};
 
@@ -2233,12 +2236,12 @@ class CreateModTab {
 
 		const container = getElement("create-mod-schema-container");
 		this.renderer = new ConfigSchemaElement(
-			container,
 			this.modCreateRequestData,
 			CreateModTab.modCreateRequestSchema,
 			(newConfig) => (this.modCreateRequestData = newConfig),
 			(value, schemaValue) => this.extraValidation(value, schemaValue),
 		);
+		this.renderer.attachTo(container);
 	}
 
 	async selectTab() {
