@@ -178,8 +178,8 @@ function formatMarkdown(text, modname) {
 class ElectronFluxloaderAPI {
 	static allEvents = ["fl:mod-loaded", "fl:mod-unloaded", "fl:all-mods-loaded", "fl:game-started", "fl:game-closed", "fl:file-requested", "fl:config-changed", "fl:mod-config-changed", "fl:pre-scene-loaded"];
 	environment = "electron";
-	events = undefined;
-	modConfig = undefined;
+	/** @type {EventBus?} */ events = undefined;
+	/** @type {ElectronModConfigAPI?} */ modConfig = undefined;
 
 	constructor() {
 		this.events = new EventBus();
@@ -359,10 +359,10 @@ class ElectronModConfigAPI {
 }
 
 class GameFilesManager {
-	gameBasePath = undefined;
-	gameAsarPath = undefined;
-	tempBasePath = undefined;
-	tempExtractedPath = undefined;
+	/** @type {string?} */ gameBasePath = undefined;
+	/** @type {string?} */ gameAsarPath = undefined;
+	/** @type {string?} */ tempBasePath = undefined;
+	/** @type {string?} */ tempExtractedPath = undefined;
 	fileData = {};
 	isTempInitialized = false;
 	isGameExtracted = false;
@@ -870,7 +870,7 @@ class GameFilesManager {
 }
 
 class ModsManager {
-	baseModsPath = undefined;
+	/** @type {string?} */ baseModsPath = undefined;
 	modInfoSchema = undefined;
 	/** @type {Mods} */ installedMods = {};
 	loadOrder = [];
