@@ -102,9 +102,17 @@ function handleResizer(resizer) {
 		});
 	}
 
+	if (resizer.classList.contains("config-tab")) {
+		// 20rem for default width of the mod-list
+		document.body.style.setProperty("--config-container-margin", `20rem`);
+	}
+
 	function onMouseMove(e) {
 		const newWidth = startWidth + (e.pageX - startX) * (isLeft ? -1 : 1);
 		parent.style.width = newWidth + "px";
+		if (resizer.classList.contains("config-tab")) {
+			document.body.style.setProperty("--config-container-margin", `${parent.clientWidth}px`);
+		}
 	}
 
 	function onMouseUp() {
@@ -1760,6 +1768,11 @@ class ConfigTab {
 			this.forceSetConfig("fluxloader", config);
 		});
 
+		api.on("fl:mod-config-changed", (_, { modID, config }) => {
+			logDebug(`Received config update for mod '${modID}'`);
+			this.forceSetConfig(modID, config);
+		});
+
 		api.on("fl:mod-schema-updated", (_, { modID, schema }) => {
 			logDebug(`Received schema update for mod '${modID}'`);
 			this.forceSetSchema(modID, schema);
@@ -1839,7 +1852,7 @@ class ConfigTab {
 
 	forceSetConfig(id, config) {
 		if (id !== this.activeID) return;
-		this.activeRenderer.forceSetConfig(config);
+		this.activeRenderers[id].forceSetConfig(config);
 	}
 
 	forceSetSchema(id, schema) {
@@ -1847,7 +1860,7 @@ class ConfigTab {
 			this.installedMods[id].info.configSchema = schema;
 		}
 		if (id !== this.activeID) return;
-		this.activeRenderer.forceSetSchema(schema);
+		this.activeRenderers[id].forceSetSchema(schema);
 	}
 }
 
