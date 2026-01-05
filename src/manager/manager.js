@@ -2633,7 +2633,7 @@ async function handleClickPlayButton(unmodded = false) {
 		}
 		getElement("play-button").classList.toggle("active", res.success);
 		getElement("footer-dropdown").classList.toggle("active", res.success);
-		blocks.set(Blocks.Playing, res.success);
+		if (res.success) blocks.set(Blocks.Playing, true); // If we set Blocks.Playing to false here, it will error (as the block goes false -> false, which is not allowed)
 		blocks.set(Blocks.PlayButtonLoading, false);
 		updatePlayButton();
 	} else {

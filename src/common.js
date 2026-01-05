@@ -872,7 +872,7 @@ export class DependencyCalculator {
 
 	/** @returns {VerifyModsResponse} */
 	static verify(/** @type {Mods} */ mods) {
-		let issues = {};
+		let issues = [];
 
 		for (const modID in mods) {
 			const mod = mods[modID];
@@ -883,21 +883,18 @@ export class DependencyCalculator {
 					const depMod = mods[depModID];
 
 					if (depMod === undefined) {
-						if (!issues[modID]) issues[modID] = [];
-						issues[modID].push({ type: "missing", modID, dependencyModID: depModID, dependency: dep });
+						issues.push({ type: "missing", modID, dependencyModID: depModID, dependency: dep });
 						continue;
 					}
 
 					if (!depMod.isEnabled) {
-						if (!issues[modID]) issues[modID] = [];
-						issues[modID].push({ type: "disabled", modID, dependencyModID: depModID, dependency: dep });
+						issues.push({ type: "disabled", modID, dependencyModID: depModID, dependency: dep });
 						continue;
 					}
 
 					const depVersion = depMod.info.version;
 					if (!FluxloaderSemver.doesVersionSatisfyDependency(depVersion, dep)) {
-						if (!issues[modID]) issues[modID] = [];
-						issues[modID].push({ type: "version", modID, dependencyModID: depModID, dependency: dep, dependencyVersion: depVersion });
+						issues.push({ type: "version", modID, dependencyModID: depModID, dependency: dep, dependencyVersion: depVersion });
 						continue;
 					}
 				}
@@ -905,7 +902,7 @@ export class DependencyCalculator {
 		}
 
 		// Return shape expected by callers in electron.js
-		return { success: Object.keys(issues).length === 0, issues };
+		return { success: issues.length === 0, issues };
 	}
 }
 
