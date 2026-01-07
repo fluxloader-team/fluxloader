@@ -14,6 +14,7 @@ globalThis.tabs = { mods: null, config: null, logs: null };
 let selectedTab = null;
 let getElementMemoization = {};
 let config = {};
+let fluxloaderVersion;
 let connectionState = "offline";
 let newVersionRelease;
 /** @type {Blocks} */ let blocks;
@@ -777,16 +778,26 @@ class ModsTab {
 			// Show dependencies
 			const dependenciesList = getElement("mod-info-dependency-list");
 			dependenciesList.innerHTML = "";
-			if (modData.info.dependencies && Object.keys(modData.info.dependencies).length > 0) {
+			let hasDependencies = modData.info.dependencies && Object.keys(modData.info.dependencies).length > 0;
+			const addDepElement = (id, version) => {
+				const depElement = createElement(`<div class="dependency-list-row">
+					<img class="dependency-img" src="assets/sublist.png" />
+					<span class="dependency-mod-id">${id}</span>
+					<span class="dependency-mod-version">${version}</span>
+				</div>`);
+				// Only mods get the click event
+				if (id !== "Fluxloader") depElement.addEventListener("click", (e) => this.onClickDependency(e, id));
+				dependenciesList.appendChild(depElement);
+			};
+			if (modData.info.fluxloaderVersion || hasDependencies) {
 				dependenciesList.classList.remove("empty");
-				for (const [depModID, depVersion] of Object.entries(modData.info.dependencies)) {
-					const depElement = createElement(`<div class="dependency-list-row">
-						<img class="dependency-img" src="assets/sublist.png" />
-						<span class="dependency-mod-id">${depModID}</span>
-						<span class="dependency-mod-version">${depVersion}</span>
-					</div>`);
-					depElement.addEventListener("click", (e) => this.onClickDependency(e, depModID));
-					dependenciesList.appendChild(depElement);
+				if (modData.info.fluxloaderVersion) {
+					addDepElement("Fluxloader", modData.info.fluxloaderVersion);
+				}
+				if (hasDependencies) {
+					for (const [depModID, depVersion] of Object.entries(modData.info.dependencies)) {
+						addDepElement(depModID, depVersion);
+					}
 				}
 			} else {
 				dependenciesList.classList.add("empty");
@@ -809,7 +820,7 @@ class ModsTab {
 
 	async onClickDependency(e, modID) {
 		e.preventDefault();
-		if (blocks.checkIfDoingAnything("click dependency")) return;
+		if (!blocks.checkIfDoingAnything("click dependency")) return;
 		await this.fetchAndSelectMod(modID);
 	}
 
@@ -2489,7 +2500,7 @@ async function checkFluxloaderUpdates() {
 			throw new Error("Release count returned was 0");
 		}
 
-		const installedVersion = await api.invoke("fl:get-fluxloader-version");
+		const installedVersion = fluxloaderVersion;
 		let latestVersion = releases[0].tag_name;
 		if (!semver.valid(latestVersion)) {
 			throw new Error("Latest version is not valid semver: " + latestVersion);
@@ -2647,6 +2658,7 @@ function updatePlayButton() {
 
 	// Grab config before anything else
 	config = await api.invoke("fl:get-fluxloader-config");
+	fluxloaderVersion = await api.invoke("fl:get-fluxloader-version");
 
 	// Setup events
 	globalThis.events = new EventBus();
