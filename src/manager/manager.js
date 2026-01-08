@@ -751,6 +751,9 @@ class ModsTab {
 			getElement("mod-info-author").innerText = modData.info.author;
 			getElement("mod-info-version").innerText = modData.info.version;
 			getElement("mod-info-last-updated").innerText = modData.lastUpdated;
+
+			getElement("mod-info-fluxloader-version").innerText = modData.info.fluxloaderVersion || "Any";
+
 			if (modData.info.tags) {
 				getElement("mod-info-tags").classList.toggle("empty", modData.info.tags.length === 0);
 				if (modData.info.tags.length === 0) {
@@ -778,26 +781,16 @@ class ModsTab {
 			// Show dependencies
 			const dependenciesList = getElement("mod-info-dependency-list");
 			dependenciesList.innerHTML = "";
-			let hasDependencies = modData.info.dependencies && Object.keys(modData.info.dependencies).length > 0;
-			const addDepElement = (id, version) => {
-				const depElement = createElement(`<div class="dependency-list-row">
-					<img class="dependency-img" src="assets/sublist.png" />
-					<span class="dependency-mod-id">${id}</span>
-					<span class="dependency-mod-version">${version}</span>
-				</div>`);
-				// Only mods get the click event
-				if (id !== "Fluxloader") depElement.addEventListener("click", (e) => this.onClickDependency(e, id));
-				dependenciesList.appendChild(depElement);
-			};
-			if (modData.info.fluxloaderVersion || hasDependencies) {
+			if (modData.info.dependencies && Object.keys(modData.info.dependencies).length > 0) {
 				dependenciesList.classList.remove("empty");
-				if (modData.info.fluxloaderVersion) {
-					addDepElement("Fluxloader", modData.info.fluxloaderVersion);
-				}
-				if (hasDependencies) {
-					for (const [depModID, depVersion] of Object.entries(modData.info.dependencies)) {
-						addDepElement(depModID, depVersion);
-					}
+				for (const [depModID, depVersion] of Object.entries(modData.info.dependencies)) {
+					const depElement = createElement(`<div class="dependency-list-row">
+						<img class="dependency-img" src="assets/sublist.png" />
+						<span class="dependency-mod-id">${depModID}</span>
+						<span class="dependency-mod-version">${depVersion}</span>
+					</div>`);
+					depElement.addEventListener("click", (e) => this.onClickDependency(e, depModID));
+					dependenciesList.appendChild(depElement);
 				}
 			} else {
 				dependenciesList.classList.add("empty");
