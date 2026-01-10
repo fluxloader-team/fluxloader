@@ -349,6 +349,7 @@ class ElectronModConfigAPI {
 		fs.writeFileSync(modConfigPath, JSON.stringify(_config, null, 4), "utf8");
 
 		fluxloaderAPI.events?.tryTrigger("fl:mod-config-changed", { modID, config: _config });
+		trySendManagerEvent("fl:mod-config-changed", { modID, config: _config });
 
 		return true;
 	}

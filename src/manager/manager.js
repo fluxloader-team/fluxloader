@@ -10,7 +10,16 @@ const DELAY_LOAD_REMOTE_MS = 150;
 const DELAY_RELOAD_MS = 150;
 const FLUXLOADER_RELEASES_URL = "https://api.github.com/repos/fluxloader-team/fluxloader/releases";
 
-globalThis.tabs = { mods: null, config: null, logs: null };
+/**
+ * @type {{
+ *  mods?: ModsTab,
+ *  config?: ConfigTab,
+ *  logs?: LogsTab,
+ *  loadOrder?: LoadOrderTab,
+ *  createMod?: CreateModTab
+ * }}
+ */
+globalThis.tabs = {};
 let selectedTab = null;
 let getElementMemoization = {};
 let config = {};
@@ -94,9 +103,17 @@ function handleResizer(resizer) {
 		});
 	}
 
+	if (resizer.classList.contains("config-tab")) {
+		// 20rem for default width of the mod-list
+		document.body.style.setProperty("--config-container-margin", `20rem`);
+	}
+
 	function onMouseMove(e) {
 		const newWidth = startWidth + (e.pageX - startX) * (isLeft ? -1 : 1);
 		parent.style.width = newWidth + "px";
+		if (resizer.classList.contains("config-tab")) {
+			document.body.style.setProperty("--config-container-margin", `${parent.clientWidth}px`);
+		}
 	}
 
 	function onMouseUp() {
@@ -140,7 +157,6 @@ function convertUploadTimeToString(uploadTime) {
 }
 
 class ConfigSchemaElement {
-	parentElement = null;
 	containerElement = null;
 	contentElement = null;
 	config = null;
@@ -152,9 +168,8 @@ class ConfigSchemaElement {
 	inputErrors = new Map();
 	inputs = new Map();
 
-	constructor(parentElement, config, schema, onChange, extraValidation = null) {
+	constructor(config, schema, onChange, extraValidation = null) {
 		// Initialize variables
-		this.parentElement = parentElement;
 		this.containerElement = null;
 		this.contentElement = null;
 		this.config = JSON.parse(JSON.stringify(config));
@@ -167,7 +182,6 @@ class ConfigSchemaElement {
 		// Setup elements
 		this.containerElement = document.createElement("div");
 		this.containerElement.classList.add("config-schema-container");
-		this.parentElement.appendChild(this.containerElement);
 		this.contentElement = document.createElement("div");
 		this.contentElement.classList.add("config-schema-content");
 		this.statusElements.wrapper = document.createElement("div");
@@ -184,6 +198,10 @@ class ConfigSchemaElement {
 		this.containerElement.appendChild(this.statusElements.wrapper);
 
 		this.rerender();
+	}
+
+	attachTo(/** @type {HTMLElement} */ parent) {
+		parent.appendChild(this.containerElement);
 	}
 
 	forceSetConfig(config) {
@@ -537,11 +555,6 @@ class ModsTab {
 			this._updateActionButtons();
 		});
 
-		api.on("fl:mod-schema-updated", (_, { modID, schema }) => {
-			logDebug(`Received schema update for mod '${modID}'`);
-			this.forceSetModSchema(modID, schema);
-		});
-
 		getElement("mods-tab-table")
 			.querySelectorAll("th")
 			.forEach((element) => {
@@ -713,8 +726,6 @@ class ModsTab {
 	}
 
 	async selectMod(modID) {
-		await this.setViewingModConfig(false);
-
 		// Deselect a mod and remove all mod info
 		if (this.selectedMod !== null) {
 			if (this.modRows[this.selectedMod] != null) {
@@ -802,7 +813,13 @@ class ModsTab {
 			if (modData.isInstalled) {
 				buttons.push({ icon: "assets/queueup.png", text: "Uninstall", onClick: () => this.clickSelectedModMainButton(modData.modID) });
 				if (modData.info.configSchema && Object.keys(modData.info.configSchema).length > 0) {
-					buttons.push({ icon: "assets/config.png", onClick: () => this.setViewingModConfig(!this.isViewingModConfig), toggle: true });
+					buttons.push({
+						icon: "assets/config.png",
+						onClick: async () => {
+							await selectTab("config");
+							tabs.config.selectConfig(modData.info.modID);
+						},
+					});
 				}
 			} else {
 				buttons.push({ icon: "assets/queueup.png", text: "Install", onClick: () => this.clickSelectedModMainButton(modData.modID) });
@@ -927,15 +944,6 @@ class ModsTab {
 			await this.queueAction(modID, "uninstall");
 		} else {
 			await this.queueAction(modID, "install");
-		}
-	}
-
-	forceSetModSchema(modID, schema) {
-		if (this.modRows[modID] == null) return;
-		this.modRows[modID].modData.info.configSchema = schema;
-		if (this.isViewingModConfig && this.selectedMod === modID) {
-			logDebug(`Forcing set schema for mod '${modID}'`);
-			this.configRenderer.forceSetSchema(schema);
 		}
 	}
 
@@ -1305,47 +1313,6 @@ class ModsTab {
 
 			getElement("mod-buttons").appendChild(buttonElement);
 		}
-	}
-
-	async setViewingModConfig(enabled) {
-		if (this.isViewingModConfig === enabled) return;
-		this.isViewingModConfig = enabled;
-		const configContainer = getElement("mod-config-container");
-		const modInfoContainer = getElement("mod-info-container");
-
-		if (!enabled || this.selectedMod == null || this.modRows[this.selectedMod] == null) {
-			this.configRenderer = null;
-			configContainer.innerHTML = "";
-			configContainer.style.display = "none";
-			modInfoContainer.style.display = "block";
-			return;
-		}
-
-		const modData = this.modRows[this.selectedMod].modData;
-		if (!modData.info.configSchema) {
-			logWarn(`Mod ${this.selectedMod} does not have a config schema, cannot show config.`);
-			return;
-		}
-
-		configContainer.style.display = "block";
-		modInfoContainer.style.display = "none";
-		configContainer.innerHTML = "";
-
-		const config = await api.invoke("fl:mod-config-get", this.selectedMod);
-		const schema = modData.info.configSchema;
-
-		this.configRenderer = new ConfigSchemaElement(configContainer, config, schema, async (newConfig) => {
-			logDebug(`Mod ${this.selectedMod} config changed, notifying electron...`);
-			const success = await api.invoke("fl:mod-config-set", this.selectedMod, newConfig);
-			if (!success) {
-				logError(`Failed to set config for mod ${this.selectedMod}`);
-				setStatusBar("Failed to set mod config", 0, "error");
-			} else {
-				logDebug(`Config for mod ${this.selectedMod} set successfully`);
-				this.modRows[this.selectedMod].modData.info.config = newConfig;
-				setStatusBar("Mod config updated successfully", 0, "success");
-			}
-		});
 	}
 
 	getBaseModData() {
@@ -1791,45 +1758,113 @@ class ModsTab {
 }
 
 class ConfigTab {
-	renderer = null;
+	activeID = null;
+	/** @type Object.<string, ConfigSchemaElement> */
+	activeRenderers = {};
+	activeEntries = {
+		fluxloader: getElement("fluxloader-config-entry"),
+	};
+	installedMods = {};
 
 	async setup() {
 		api.on("fl:fluxloader-config-updated", (_, config) => {
 			logDebug("Received config update for FluxLoader");
-			this.forceSetConfig(config);
+			this.forceSetConfig("fluxloader", config);
 		});
 
-		// Load config and schema
-		const config = await api.invoke("fl:get-fluxloader-config");
-		const configSchema = await api.invoke("fl:get-fluxloader-config-schema");
+		api.on("fl:mod-config-changed", (_, { modID, config }) => {
+			logDebug(`Received config update for mod '${modID}'`);
+			this.forceSetConfig(modID, config);
+		});
 
-		// Setup the config schema element
-		const mainElement = getElement("config-tab-content").querySelector(".main");
-		this.renderer = new ConfigSchemaElement(mainElement, config, configSchema, async (newConfig) => {
-			logDebug("Config changed, notifying electron...");
-			const success = await api.invoke("fl:set-fluxloader-config", newConfig);
+		api.on("fl:mod-schema-updated", (_, { modID, schema }) => {
+			logDebug(`Received schema update for mod '${modID}'`);
+			this.forceSetSchema(modID, schema);
+		});
+
+		getElement("fluxloader-config-entry").onclick = async () => {
+			await this.selectConfig("fluxloader");
+		};
+
+		// Setup the config schema element to default to the fluxloader config
+		await this.selectConfig("fluxloader");
+	}
+
+	async updateMods() {
+		// Convert the list of mods to a map of {id: info} for easier lookup
+		this.installedMods = Object.fromEntries((await api.invoke("fl:get-installed-mods")).filter((mod) => Object.keys(mod.info.configSchema).length > 0).map((mod) => [mod.info.modID, mod.info]));
+		let entries = getElement("mod-config-entries");
+		entries.innerHTML = "";
+		this.activeEntries = {
+			fluxloader: getElement("fluxloader-config-entry"),
+		};
+		for (const modID of Object.keys(this.installedMods)) {
+			const entry = createElement(`<div class="config-entry${this.activeID === modID ? " selected" : ""}">${this.installedMods[modID].name}</div>`);
+			entry.onclick = async () => {
+				await this.selectConfig(modID);
+			};
+			this.activeEntries[modID] = entry;
+			entries.appendChild(entry);
+		}
+	}
+
+	getConfigRenderer(id, config, schema) {
+		if (this.activeRenderers.hasOwnProperty(id)) {
+			this.activeRenderers[id].forceSetConfig(config);
+			this.activeRenderers[id].forceSetSchema(schema);
+			return this.activeRenderers[id];
+		}
+		let correctedID = id === "fluxloader" ? "fluxloader" : `mod '${id}'`;
+		let capFirst = (text) => text.charAt(0).toUpperCase() + text.slice(1);
+		this.activeRenderers[id] = new ConfigSchemaElement(config, schema, async (newConfig) => {
+			logDebug(`${capFirst(correctedID)} config changed, notifying electron...`);
+			const success = id === "fluxloader" ? await api.invoke("fl:set-fluxloader-config", newConfig) : await api.invoke("fl:mod-config-set", id, newConfig);
 			if (!success) {
-				logError("Failed to set config");
-				setStatusBar("Failed to set config", 0, "error");
+				logError(`Failed to set config for ${correctedID}`);
+				setStatusBar(`Failed to set ${correctedID} config`, 0, "error");
 			} else {
-				logDebug("Config set successfully.");
-				events.trigger("config-changed", newConfig);
-				setStatusBar("Config updated successfully", 0, "success");
+				logDebug(`${capFirst(correctedID)} config set successfully`);
+				if (id === "fluxloader") {
+					events.trigger("config-changed", newConfig);
+				} else {
+					this.modRows[id].modData.info.config = newConfig;
+				}
+				setStatusBar(`${capFirst(correctedID)} config updated successfully`, 0, "success");
 			}
 		});
+		return this.activeRenderers[id];
+	}
+
+	async selectConfig(id) {
+		if (id === this.activeID) return;
+		this.activeEntries[this.activeID]?.classList.remove("selected");
+		this.activeEntries[id]?.classList.add("selected");
+		this.activeID = id;
+		getElement("config-title").textContent = `${id === "fluxloader" ? "Fluxloader" : this.installedMods[id].name} Config`;
+		// Load config and schema
+		const config = id === "fluxloader" ? await api.invoke("fl:get-fluxloader-config") : await api.invoke("fl:mod-config-get", id);
+		const schema = id === "fluxloader" ? await api.invoke("fl:get-fluxloader-config-schema") : this.installedMods[id].configSchema;
+		let renderer = this.getConfigRenderer(id, config, schema);
+		let configContainer = getElement("config-container");
+		configContainer.innerHTML = "";
+		renderer.attachTo(configContainer);
 	}
 
 	async selectTab() {
-		const config = await api.invoke("fl:get-fluxloader-config");
-		this.renderer.forceSetConfig(config);
+		await this.updateMods();
 	}
 
-	forceSetConfig(config) {
-		this.renderer.forceSetConfig(config);
+	forceSetConfig(id, config) {
+		if (id !== this.activeID) return;
+		this.activeRenderers[id].forceSetConfig(config);
 	}
 
-	forceSetSchema(schema) {
-		this.renderer.forceSetSchema(schema);
+	forceSetSchema(id, schema) {
+		if (id !== "fluxloader" && this.installedMods.hasOwnProperty(id)) {
+			this.installedMods[id].info.configSchema = schema;
+		}
+		if (id !== this.activeID) return;
+		this.activeRenderers[id].forceSetSchema(schema);
 	}
 }
 
@@ -2205,6 +2240,7 @@ class CreateModTab {
 		},
 	};
 
+	/** @type {ConfigSchemaElement?} */
 	renderer = null;
 	modCreateRequestData = {};
 
@@ -2217,12 +2253,12 @@ class CreateModTab {
 
 		const container = getElement("create-mod-schema-container");
 		this.renderer = new ConfigSchemaElement(
-			container,
 			this.modCreateRequestData,
 			CreateModTab.modCreateRequestSchema,
 			(newConfig) => (this.modCreateRequestData = newConfig),
 			(value, schemaValue) => this.extraValidation(value, schemaValue),
 		);
+		this.renderer.attachTo(container);
 	}
 
 	async selectTab() {
