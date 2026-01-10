@@ -1428,6 +1428,8 @@ class ModsManager {
 					logWarn(`Mod '${issue.modID}' has dependency '${issue.dependencyModID}' which is disabled`);
 				} else if (issue.type === "version") {
 					logWarn(`Mod '${issue.modID}' has dependency '${issue.dependencyModID}' which does not satisfy version constraint '${issue.dependency}' (installed version: '${issue.dependencyVersion}')`);
+				} else if (issue.type === "fluxloader-version") {
+					logWarn(`Mod '${issue.modID}' has Fluxloader dependency which does not satisfy version constraint '${issue.dependency}' (installed version: '${issue.dependencyVersion}')`);
 				}
 			}
 
