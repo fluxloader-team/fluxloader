@@ -461,16 +461,28 @@ export class DependencyCalculator {
 				return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
 			}
 
+			// Take known remote versions and add local version if it's not included
+			const cacheVersions = (/** @type {Mod} */ modData) => {
+				let versions = JSON.parse(JSON.stringify(modData.versions || []));
+				if (modData.info && modData.info.version && !versions.includes(modData.info.version)) {
+					// Add local to the end (yes it's most likely the latest, but we sort anyway)
+					versions.push(modData.info.version);
+					// Local version is most likely the latest, but we make sure here
+					// Sorted highest -> lowest
+					versions.sort((a, b) => -semver.compare(a, b));
+				}
+				modVersionsCache[modID] = versions;
+				return successResponse(`Mod versions found for '${modID}'`, versions);
+			};
+
 			// Check data in installed mods
 			if (mods[modID] && mods[modID].versions) {
-				modVersionsCache[modID] = mods[modID].versions;
-				return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
+				return cacheVersions(mods[modID]);
 			}
 
 			// Check remote mod cache
 			if (fetchedModCache[modID] && fetchedModCache[modID].versionNumbers) {
-				modVersionsCache[modID] = fetchedModCache[modID].versionNumbers;
-				return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
+				return cacheVersions({ versions: fetchedModCache[modID].versionNumbers });
 			}
 
 			// Now try and fetch incase it is a remote mod
@@ -487,15 +499,12 @@ export class DependencyCalculator {
 			}
 
 			if (versionsResData && Object.hasOwn(versionsResData, "versions")) {
-				modVersionsCache[modID] = versionsResData.versions;
-				return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
+				return cacheVersions(versionsResData);
 			}
 
 			// At this point it has to be a local only mod (with versions == null)
 			if (mods[modID] == null) return errorResponse(`No mod versions found for '${modID}'`);
-			const localVersions = [mods[modID].info.version];
-			modVersionsCache[modID] = localVersions;
-			return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
+			return cacheVersions(mods[modID]);
 		};
 
 		/** @returns {FlResponse<{ [dependencyModID: string]: string }>} */
@@ -708,8 +717,7 @@ export class DependencyCalculator {
 				if (previous && previous !== installed && valid.includes(previous)) list.push(previous);
 				if (installed && valid.includes(installed)) list.push(installed);
 
-				for (let i = valid.length - 1; i >= 0; i--) {
-					const v = valid[i];
+				for (let v of valid) {
 					if (!list.includes(v)) list.push(v);
 				}
 
@@ -728,6 +736,7 @@ export class DependencyCalculator {
 			const modIDs = Object.keys(ordered);
 			const out = [];
 
+			// Consider changing to breadth-first for better(?) results..?
 			// Depth first recursive generator (AI generated)
 			(function gen(i, acc) {
 				if (out.length >= cap) return;
