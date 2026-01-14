@@ -736,7 +736,7 @@ input[type="checkbox"]:checked::before {
 }
 
 #mods-tab-content .mods-table .mod-row-config-button-container {
-  	position: sticky;
+	position: sticky;
 	right: 0;
 	z-index: 10;
 
@@ -762,7 +762,7 @@ input[type="checkbox"]:checked::before {
 }
 
 #mods-tab-content .mods-table .mod-row-config-button:hover img {
-	filter: brightness(1.0);
+	filter: brightness(1);
 }
 
 #mods-tab-content .mods-table-tag-list {

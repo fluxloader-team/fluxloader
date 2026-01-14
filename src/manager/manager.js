@@ -1128,17 +1128,15 @@ class ModsTab {
 					<div class="mod-row-config-button">
 						<img src="assets/config.png" />
 					</div>
-				</td>`
-			);
+				</td>`);
 			const configButton = configButtonContainer.getElementsByClassName("mod-row-config-button")[0];
 			configButton.onclick = async (e) => {
 				e.preventDefault();
 				await selectTab("config");
 				tabs.config.selectConfig(modData.info.modID);
-			}
+			};
 			element.appendChild(configButtonContainer);
 		}
-
 
 		// Add click events to each tag
 		const tagElements = element.querySelectorAll(".tag");
@@ -1801,15 +1799,12 @@ class ConfigTab {
 
 	async updateMods() {
 		// Convert the list of mods to a map of {id: info} for easier lookup
-		this.configurableMods = Object
-			.fromEntries((await api.invoke("fl:get-installed-mods"))
-			.filter((mod) => Object.keys(mod.info.configSchema).length > 0)
-			.map((mod) => [mod.info.modID, mod.info]));
+		this.configurableMods = Object.fromEntries((await api.invoke("fl:get-installed-mods")).filter((mod) => Object.keys(mod.info.configSchema).length > 0).map((mod) => [mod.info.modID, mod.info]));
 
 		this.configurableModTabs = { fluxloader: getElement("fluxloader-mod-config-tab") };
 		let tabs = getElement("mod-config-tabs-list");
 		tabs.innerHTML = "";
-		
+
 		for (const modID of Object.keys(this.configurableMods)) {
 			const tab = createElement(`<div class="mod-config-tab${this.activeID === modID ? " selected" : ""}">${this.configurableMods[modID].name}</div>`);
 			tab.onclick = async () => await this.selectConfig(modID);
@@ -1831,7 +1826,7 @@ class ConfigTab {
 		const config = id === "fluxloader" ? await api.invoke("fl:get-fluxloader-config") : await api.invoke("fl:mod-config-get", id);
 		const schema = id === "fluxloader" ? await api.invoke("fl:get-fluxloader-config-schema") : this.configurableMods[id].configSchema;
 		let renderer = this.getOrCreateConfigRenderer(id, config, schema);
-		
+
 		let configContainer = getElement("config-renderer-container");
 		configContainer.innerHTML = "";
 		renderer.attachTo(configContainer);
@@ -1843,16 +1838,14 @@ class ConfigTab {
 			this.configRenderers[id].forceSetSchema(schema);
 			return this.configRenderers[id];
 		}
-		
+
 		let correctedID = id === "fluxloader" ? "fluxloader" : `mod '${id}'`;
 		let capitaliseString = (text) => text.charAt(0).toUpperCase() + text.slice(1);
-		
+
 		this.configRenderers[id] = new ConfigSchemaElement(config, schema, async (newConfig) => {
 			logDebug(`${capitaliseString(correctedID)} config changed, notifying electron...`);
-			
-			const success = id === "fluxloader" ?
-				await api.invoke("fl:set-fluxloader-config", newConfig) :
-				await api.invoke("fl:mod-config-set", id, newConfig);
+
+			const success = id === "fluxloader" ? await api.invoke("fl:set-fluxloader-config", newConfig) : await api.invoke("fl:mod-config-set", id, newConfig);
 
 			if (!success) {
 				logError(`Failed to set config for ${correctedID}`);
