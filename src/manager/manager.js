@@ -2525,6 +2525,12 @@ async function checkFluxloaderUpdates() {
 		setStatusBar("Checking for Fluxloader updates...", 0, "loading");
 
 		const releases = await (await fetch(FLUXLOADER_RELEASES_URL)).json();
+
+		if (Object.hasOwn(releases, "message") && releases.message.startsWith("API rate limit exceeded")) {
+			logWarn("Hit rate limit of GitHub API for fetching fluxloader versions");
+			return;
+		}
+
 		logDebug(`${releases.length} fluxloader versions received`);
 		setStatusBar(`${releases.length} fluxloader versions received...`, 33, "loading");
 
@@ -2731,7 +2737,9 @@ function updatePlayButton() {
 
 	// Clear and setup the manager
 	setStatusBar("", 0);
+
 	if (config.manager.autoConnect) await toggleConnection();
+
 	await selectTab("mods");
 
 	logDebug("FluxLoader Manager started");
