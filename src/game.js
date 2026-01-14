@@ -72,7 +72,7 @@ class GameModConfigAPI {
 	}
 
 	async set(modName, config) {
-		return await window.electron.invoke("fl:mod-config-set", modName, config);
+		return await window.electron.invoke("fl:set-mod-config", modName, config);
 	}
 }
 

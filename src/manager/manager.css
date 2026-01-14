@@ -1211,36 +1211,38 @@ input[type="checkbox"]:checked::before {
 
 /* -------------------- TAB/CONFIG -------------------- */
 
-#config-tab-content {
-	background: var(--color-bg-medium);
-}
-
 #config-tab-content .main {
-	position: relative;
-	height: 100%;
+	background: var(--color-bg-medium);
 	display: flex;
-	padding: 0;
-	width: fit-content;
-	margin: auto;
-	min-width: 50rem;
+	height: 100%;
 }
 
-#config-tab-content .main .mod-list {
-	position: absolute;
-	width: 20rem;
-	right: 100%;
+#config-tab-content .config-column {
+	flex: 1;
+	height: 100%;
+}
+
+#config-tab-content .config-column.tabs-column {
+	display: flex;
+	justify-content: end;
+	overflow: hidden;
+}
+
+#config-tab-content .config-tabs-container {
+	position: relative;
 	overflow-y: auto;
-	min-width: 10rem;
-	max-width: 30rem;
 	padding: 0.6rem 0.6rem;
 	color: var(--color-text-primary);
+	width: 20rem;
+	height: 100%;
+	min-width: 5rem;
 }
 
-#config-tab-content .main .mod-list #mod-config-entries {
+#config-tab-content .config-tabs-container #mod-config-tabs-list {
 	margin-top: 1rem;
 }
 
-#config-tab-content .main .mod-list .config-entry {
+#config-tab-content .config-tabs-container .mod-config-tab {
 	padding: 0.6rem 0.6rem;
 	background: var(--color-bg-light);
 	text-overflow: ellipsis;
@@ -1248,25 +1250,24 @@ input[type="checkbox"]:checked::before {
 	white-space: nowrap;
 }
 
-#config-tab-content .main .mod-list .config-entry:hover {
+#config-tab-content .config-tabs-container .mod-config-tab:hover {
 	background: var(--color-bg-light-hover-lighter);
 	cursor: pointer;
 }
 
-#config-tab-content .main .mod-list .config-entry.selected {
+#config-tab-content .config-tabs-container .mod-config-tab.selected {
 	background: var(--color-bg-light-active-lighter);
 }
 
-#config-tab-content .main .config-container {
+#config-tab-content .config-renderer-container {
 	background: var(--color-bg-light);
 	display: flex;
 	flex-direction: column;
-	flex: 1;
-	padding: 0;
-	margin-right: 1.2rem;
+	width: 40rem;
+	height: 100%;
 }
 
-#config-tab-content .main .config-container .title {
+#config-tab-content .config-renderer-container .title {
 	text-align: center;
 	font-size: 1.6rem;
 	padding: 1.2rem 0 0.6rem 0;

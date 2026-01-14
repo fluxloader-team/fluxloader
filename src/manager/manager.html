@@ -169,25 +169,35 @@
 					</div>
 				</div>
 			</div>
+
 			<div class="tab-content" id="config-tab-content">
 				<div class="main">
-					<div class="mod-list">
-						<div class="config-entry selected" id="fluxloader-config-entry">Fluxloader</div>
-						<div id="mod-config-entries"></div>
-						<div class="resizer left"></div>
+					<div class="config-column tabs-column">
+						<div class="config-tabs-container">
+							<div class="mod-config-tab selected" id="fluxloader-mod-config-tab">Fluxloader</div>
+							<div id="mod-config-tabs-list"></div>
+							<div class="resizer left"></div>
+						</div>
 					</div>
-					<div class="config-container">
-						<p class="title" id="config-title">Fluxloader Config</p>
-						<div id="config-container" style="overflow: auto"></div>
+					
+					<div class="config-column">
+						<div class="config-renderer-container">
+							<p class="title" id="config-title">Fluxloader Config</p>
+							<div id="config-renderer-container" style="overflow: auto"></div>
+						</div>
 					</div>
+					
+					<div class="config-column"></div>
 				</div>
 			</div>
+
 			<div class="tab-content" id="logs-tab-content">
 				<div class="logs-container">
 					<div class="logs-tab-list"></div>
 					<div class="logs-content-scroll"></div>
 				</div>
 			</div>
+
 			<div class="tab-content" id="load-order-tab-content">
 				<div class="main">
 					<p class="title">Load Order</p>
@@ -201,6 +211,7 @@
 					<div class="load-order-container" id="load-order-container"></div>
 				</div>
 			</div>
+
 			<div class="tab-content" id="create-mod-tab-content">
 				<div class="main">
 					<p class="title">Create New Mod</p>

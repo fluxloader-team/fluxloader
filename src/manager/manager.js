@@ -105,14 +105,14 @@ function handleResizer(resizer) {
 
 	if (resizer.classList.contains("config-tab")) {
 		// 20rem for default width of the mod-list
-		document.body.style.setProperty("--config-container-margin", `20rem`);
+		document.body.style.setProperty("--config-renderer-container-margin", `20rem`);
 	}
 
 	function onMouseMove(e) {
 		const newWidth = startWidth + (e.pageX - startX) * (isLeft ? -1 : 1);
 		parent.style.width = newWidth + "px";
 		if (resizer.classList.contains("config-tab")) {
-			document.body.style.setProperty("--config-container-margin", `${parent.clientWidth}px`);
+			document.body.style.setProperty("--config-renderer-container-margin", `${parent.clientWidth}px`);
 		}
 	}
 
@@ -1761,9 +1761,7 @@ class ConfigTab {
 	activeID = null;
 	/** @type Object.<string, ConfigSchemaElement> */
 	activeRenderers = {};
-	activeEntries = {
-		fluxloader: getElement("fluxloader-config-entry"),
-	};
+	loadedTabs = { fluxloader: getElement("fluxloader-mod-config-tab") };
 	installedMods = {};
 
 	async setup() {
@@ -1782,7 +1780,7 @@ class ConfigTab {
 			this.forceSetSchema(modID, schema);
 		});
 
-		getElement("fluxloader-config-entry").onclick = async () => {
+		getElement("fluxloader-mod-config-tab").onclick = async () => {
 			await this.selectConfig("fluxloader");
 		};
 
@@ -1792,62 +1790,74 @@ class ConfigTab {
 
 	async updateMods() {
 		// Convert the list of mods to a map of {id: info} for easier lookup
-		this.installedMods = Object.fromEntries((await api.invoke("fl:get-installed-mods")).filter((mod) => Object.keys(mod.info.configSchema).length > 0).map((mod) => [mod.info.modID, mod.info]));
-		let entries = getElement("mod-config-entries");
-		entries.innerHTML = "";
-		this.activeEntries = {
-			fluxloader: getElement("fluxloader-config-entry"),
-		};
+		this.installedMods = Object
+			.fromEntries((await api.invoke("fl:get-installed-mods"))
+			.filter((mod) => Object.keys(mod.info.configSchema).length > 0)
+			.map((mod) => [mod.info.modID, mod.info]));
+
+		this.loadedTabs = { fluxloader: getElement("fluxloader-mod-config-tab") };
+		let tabs = getElement("mod-config-tabs-list");
+		tabs.innerHTML = "";
+		
 		for (const modID of Object.keys(this.installedMods)) {
-			const entry = createElement(`<div class="config-entry${this.activeID === modID ? " selected" : ""}">${this.installedMods[modID].name}</div>`);
-			entry.onclick = async () => {
-				await this.selectConfig(modID);
-			};
-			this.activeEntries[modID] = entry;
-			entries.appendChild(entry);
+			const tab = createElement(`<div class="mod-config-tab${this.activeID === modID ? " selected" : ""}">${this.installedMods[modID].name}</div>`);
+			tab.onclick = async () => await this.selectConfig(modID);
+			this.loadedTabs[modID] = tab;
+			tabs.appendChild(tab);
 		}
 	}
 
-	getConfigRenderer(id, config, schema) {
+	async selectConfig(id) {
+		if (id === this.activeID) return;
+
+		this.loadedTabs[this.activeID]?.classList.remove("selected");
+		this.loadedTabs[id]?.classList.add("selected");
+		this.activeID = id;
+
+		getElement("config-title").textContent = `${id === "fluxloader" ? "Fluxloader" : this.installedMods[id].name} Config`;
+
+		// Load config and schema
+		const config = id === "fluxloader" ? await api.invoke("fl:get-fluxloader-config") : await api.invoke("fl:mod-config-get", id);
+		const schema = id === "fluxloader" ? await api.invoke("fl:get-fluxloader-config-schema") : this.installedMods[id].configSchema;
+		let renderer = this.getOrCreateConfigRenderer(id, config, schema);
+		
+		let configContainer = getElement("config-renderer-container");
+		configContainer.innerHTML = "";
+		renderer.attachTo(configContainer);
+	}
+
+	getOrCreateConfigRenderer(id, config, schema) {
 		if (this.activeRenderers.hasOwnProperty(id)) {
 			this.activeRenderers[id].forceSetConfig(config);
 			this.activeRenderers[id].forceSetSchema(schema);
 			return this.activeRenderers[id];
 		}
+		
 		let correctedID = id === "fluxloader" ? "fluxloader" : `mod '${id}'`;
-		let capFirst = (text) => text.charAt(0).toUpperCase() + text.slice(1);
+		let capitaliseString = (text) => text.charAt(0).toUpperCase() + text.slice(1);
+		
 		this.activeRenderers[id] = new ConfigSchemaElement(config, schema, async (newConfig) => {
-			logDebug(`${capFirst(correctedID)} config changed, notifying electron...`);
-			const success = id === "fluxloader" ? await api.invoke("fl:set-fluxloader-config", newConfig) : await api.invoke("fl:mod-config-set", id, newConfig);
+			logDebug(`${capitaliseString(correctedID)} config changed, notifying electron...`);
+			
+			const success = id === "fluxloader" ?
+				await api.invoke("fl:set-fluxloader-config", newConfig) :
+				await api.invoke("fl:mod-config-set", id, newConfig);
+
 			if (!success) {
 				logError(`Failed to set config for ${correctedID}`);
 				setStatusBar(`Failed to set ${correctedID} config`, 0, "error");
 			} else {
-				logDebug(`${capFirst(correctedID)} config set successfully`);
+				logDebug(`${capitaliseString(correctedID)} config set successfully`);
 				if (id === "fluxloader") {
 					events.trigger("config-changed", newConfig);
 				} else {
 					this.modRows[id].modData.info.config = newConfig;
 				}
-				setStatusBar(`${capFirst(correctedID)} config updated successfully`, 0, "success");
+				setStatusBar(`${capitaliseString(correctedID)} config updated successfully`, 0, "success");
 			}
 		});
-		return this.activeRenderers[id];
-	}
 
-	async selectConfig(id) {
-		if (id === this.activeID) return;
-		this.activeEntries[this.activeID]?.classList.remove("selected");
-		this.activeEntries[id]?.classList.add("selected");
-		this.activeID = id;
-		getElement("config-title").textContent = `${id === "fluxloader" ? "Fluxloader" : this.installedMods[id].name} Config`;
-		// Load config and schema
-		const config = id === "fluxloader" ? await api.invoke("fl:get-fluxloader-config") : await api.invoke("fl:mod-config-get", id);
-		const schema = id === "fluxloader" ? await api.invoke("fl:get-fluxloader-config-schema") : this.installedMods[id].configSchema;
-		let renderer = this.getConfigRenderer(id, config, schema);
-		let configContainer = getElement("config-container");
-		configContainer.innerHTML = "";
-		renderer.attachTo(configContainer);
+		return this.activeRenderers[id];
 	}
 
 	async selectTab() {
