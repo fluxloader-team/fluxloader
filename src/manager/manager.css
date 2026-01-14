@@ -539,7 +539,7 @@ input[type="checkbox"]:checked::before {
 #mods-tab-content .main-center .button-bar {
 	position: absolute;
 	right: 1.4rem;
-	bottom: 2rem;
+	bottom: 1.65rem;
 	z-index: 100;
 	background: var(--color-bg-medium2);
 	display: flex;
