@@ -20,7 +20,7 @@ const FLUXLOADER_RELEASES_URL = "https://api.github.com/repos/fluxloader-team/fl
  * }}
  */
 globalThis.tabs = {};
-let selectedTab = null;
+let selectedTab = "mods";
 let getElementMemoization = {};
 let config = {};
 let fluxloaderVersion;
