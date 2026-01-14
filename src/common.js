@@ -150,6 +150,14 @@ export class FluxloaderSemver {
 		return semver.coerce(dependency) != null || semver.validRange(dependency) != null;
 	}
 
+	static isOptional(dependency) {
+		return dependency.startsWith("optional:");
+	}
+
+	static isConflict(dependency) {
+		return dependency.startsWith("conflict:");
+	}
+
 	static doesVersionSatisfyDependency(version, dependency) {
 		// If it is `param:version` then we use custom logic
 		// `optional:version` means the version should satisfy the dependency if it exists
@@ -888,13 +896,18 @@ export class DependencyCalculator {
 					}
 
 					if (!depMod.isEnabled) {
-						issues.push({ type: "disabled", modID, dependencyModID: depModID, dependency: dep });
+						if (!FluxloaderSemver.isOptional(dep)) issues.push({ type: "disabled", modID, dependencyModID: depModID, dependency: dep });
 						continue;
 					}
 
 					const depVersion = depMod.info.version;
 					if (!FluxloaderSemver.doesVersionSatisfyDependency(depVersion, dep)) {
 						issues.push({ type: "version", modID, dependencyModID: depModID, dependency: dep, dependencyVersion: depVersion });
+						continue;
+					}
+
+					if (!FluxloaderSemver.doesVersionSatisfyDependency(fluxloaderVersion, mod.info.fluxloaderVersion)) {
+						issues.push({ type: "fluxloader-version", modID, dependencyModID: "fluxloader", dependency: mod.info.fluxloaderVersion, dependencyVersion: fluxloaderVersion });
 						continue;
 					}
 				}

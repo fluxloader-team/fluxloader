@@ -23,6 +23,7 @@ globalThis.tabs = {};
 let selectedTab = null;
 let getElementMemoization = {};
 let config = {};
+let fluxloaderVersion;
 let connectionState = "offline";
 let newVersionRelease;
 /** @type {Blocks} */ let blocks;
@@ -761,6 +762,9 @@ class ModsTab {
 			getElement("mod-info-author").innerText = modData.info.author;
 			getElement("mod-info-version").innerText = modData.info.version;
 			getElement("mod-info-last-updated").innerText = modData.lastUpdated;
+
+			getElement("mod-info-fluxloader-version").innerText = modData.info.fluxloaderVersion || "Any";
+
 			if (modData.info.tags) {
 				getElement("mod-info-tags").classList.toggle("empty", modData.info.tags.length === 0);
 				if (modData.info.tags.length === 0) {
@@ -826,7 +830,7 @@ class ModsTab {
 
 	async onClickDependency(e, modID) {
 		e.preventDefault();
-		if (blocks.checkIfDoingAnything("click dependency")) return;
+		if (!blocks.checkIfDoingAnything("click dependency")) return;
 		await this.fetchAndSelectMod(modID);
 	}
 
@@ -2525,7 +2529,7 @@ async function checkFluxloaderUpdates() {
 			throw new Error("Release count returned was 0");
 		}
 
-		const installedVersion = await api.invoke("fl:get-fluxloader-version");
+		const installedVersion = fluxloaderVersion;
 		let latestVersion = releases[0].tag_name;
 		if (!semver.valid(latestVersion)) {
 			throw new Error("Latest version is not valid semver: " + latestVersion);
@@ -2683,6 +2687,7 @@ function updatePlayButton() {
 
 	// Grab config before anything else
 	config = await api.invoke("fl:get-fluxloader-config");
+	fluxloaderVersion = await api.invoke("fl:get-fluxloader-version");
 
 	// Setup events
 	globalThis.events = new EventBus();
