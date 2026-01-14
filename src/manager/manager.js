@@ -1112,7 +1112,7 @@ class ModsTab {
 		let tagsList = "";
 		if (modData.info.tags) tagsList = modData.info.tags.reduce((acc, tag) => acc + `<span class="tag">${tag}</span>`, "");
 
-		const element = createElement(`<tr>
+		const element = createElement(`<tr class="mod-row">
 			<td class="mod-row-status"></td>
 			<td>${modData.info.name}</td>
 			<td>${modData.info.author}</td>
@@ -1121,6 +1121,24 @@ class ModsTab {
 			<td>${modData.lastUpdated}</td>
 			<td class="mods-table-tag-list">${tagsList}</td>
 		</tr>`);
+
+		if (modData.info.configSchema && Object.keys(modData.info.configSchema).length > 0) {
+			const configButtonContainer = createElement(`
+				<td class="mod-row-config-button-container">
+					<div class="mod-row-config-button">
+						<img src="assets/config.png" />
+					</div>
+				</td>`
+			);
+			const configButton = configButtonContainer.getElementsByClassName("mod-row-config-button")[0];
+			configButton.onclick = async (e) => {
+				e.preventDefault();
+				await selectTab("config");
+				tabs.config.selectConfig(modData.info.modID);
+			}
+			element.appendChild(configButtonContainer);
+		}
+
 
 		// Add click events to each tag
 		const tagElements = element.querySelectorAll(".tag");

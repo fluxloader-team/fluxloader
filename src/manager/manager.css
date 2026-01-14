@@ -593,7 +593,6 @@ input[type="checkbox"]:checked::before {
 	position: relative;
 	border-collapse: collapse;
 	table-layout: fixed;
-	overflow: hidden;
 }
 
 #mods-tab-content .mods-table tr {
@@ -734,6 +733,36 @@ input[type="checkbox"]:checked::before {
 	width: 0.7rem;
 	height: 0.7rem;
 	filter: brightness(0.8);
+}
+
+#mods-tab-content .mods-table .mod-row-config-button-container {
+  	position: sticky;
+	right: 0;
+	z-index: 10;
+
+	display: flex;
+	justify-content: end;
+	align-items: center;
+	min-width: fit-content;
+}
+
+#mods-tab-content .mods-table .mod-row-config-button {
+	width: fit-content;
+	height: fit-content;
+	padding: 0.4rem;
+	background-color: var(--color-bg-light);
+	border-radius: var(--br-medium);
+}
+
+#mods-tab-content .mods-table .mod-row-config-button img {
+	width: 1.2rem;
+	height: 1.2rem;
+	object-fit: contain;
+	filter: brightness(0.8);
+}
+
+#mods-tab-content .mods-table .mod-row-config-button:hover img {
+	filter: brightness(1.0);
 }
 
 #mods-tab-content .mods-table-tag-list {
