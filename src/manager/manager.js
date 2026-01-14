@@ -1122,7 +1122,7 @@ class ModsTab {
 			<td class="mods-table-tag-list">${tagsList}</td>
 		</tr>`);
 
-		if (modData.info.configSchema && Object.keys(modData.info.configSchema).length > 0) {
+		if (modData.isInstalled && modData.info.configSchema && Object.keys(modData.info.configSchema).length > 0) {
 			const configButtonContainer = createElement(`
 				<td class="mod-row-config-button-container">
 					<div class="mod-row-config-button">

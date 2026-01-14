@@ -1274,7 +1274,7 @@ input[type="checkbox"]:checked::before {
 #config-tab-content .config-tabs-container {
 	position: relative;
 	overflow-y: auto;
-	padding: 0.6rem 0.6rem;
+	padding: 0.6rem 0.8rem;
 	color: var(--color-text-primary);
 	width: 15rem;
 	height: 100%;
@@ -1283,7 +1283,7 @@ input[type="checkbox"]:checked::before {
 }
 
 #config-tab-content .config-tabs-container .config-tabs-divider {
-	margin: 0.5rem 0;
+	margin: 0.8rem 0;
 	width: 100%;
 	height: 0.15rem;
 	background-color: var(--color-bg-medium);
