@@ -1884,7 +1884,7 @@ class ConfigTab {
 	}
 
 	forceSetSchema(id, schema) {
-		if (id !== "fluxloader" && this.configurableMods.hasOwnProperty(id) && this.configurableMods[id].hasOwnProperty(info)) {
+		if (id !== "fluxloader" && this.configurableMods.hasOwnProperty(id) && this.configurableMods[id].hasOwnProperty("info")) {
 			this.configurableMods[id].info.configSchema = schema;
 		}
 		if (id !== this.activeID) return;

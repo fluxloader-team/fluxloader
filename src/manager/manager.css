@@ -746,13 +746,17 @@ input[type="checkbox"]:checked::before {
 
 #mods-tab-content .mods-table .mod-row-config-button-container {
 	position: sticky;
-	right: 0;
+	right: 0.3rem;
+	transform: translateY(0.3rem);
 	z-index: 10;
 
 	display: flex;
 	justify-content: end;
 	align-items: center;
 	min-width: fit-content;
+
+	padding: 0;
+	top: 5px;
 }
 
 #mods-tab-content .mods-table .mod-row-config-button {
@@ -1326,7 +1330,7 @@ input[type="checkbox"]:checked::before {
 	background: var(--color-bg-light);
 	display: flex;
 	flex-direction: column;
-	width: 45rem;
+	width: 55rem;
 	min-width: 20rem;
 	height: 100%;
 }
