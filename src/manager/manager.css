@@ -36,6 +36,7 @@
 	--color-bg-dark-hover-lighter: #2a2e3a;
 	--color-bg-dark-hover-darker: #20232d;
 	--color-bg-dark-active-lighter: #4c505d;
+	--color-bg-dark-hover-transparent: #2a2e3a77;
 	--color-bg-medium-hover-darker: #272a33;
 	--color-bg-medium-active-darker: #24262f;
 	--color-bg-medium-hover-lighter: #333640;
@@ -199,11 +200,15 @@ body {
 
 /* ---------------------------- MAIN ---------------------------- */
 
+.tab-contents {
+	overflow: hidden;
+	height: 100%;
+	background-color: var(--color-bg-medium);
+}
+
 .tab-content {
 	display: none;
-	height: 100%;
 	overflow: hidden;
-	background: var(--color-bg-light);
 }
 
 .resizer {
@@ -219,6 +224,10 @@ body {
 
 .resizer.left {
 	left: 0;
+}
+
+.resizer:hover {
+	background: var(--color-bg-dark-hover-transparent);
 }
 
 ::-webkit-scrollbar {
@@ -530,7 +539,7 @@ input[type="checkbox"]:checked::before {
 #mods-tab-content .main-center .button-bar {
 	position: absolute;
 	right: 1.4rem;
-	bottom: 2rem;
+	bottom: 1.65rem;
 	z-index: 100;
 	background: var(--color-bg-medium2);
 	display: flex;
@@ -584,7 +593,6 @@ input[type="checkbox"]:checked::before {
 	position: relative;
 	border-collapse: collapse;
 	table-layout: fixed;
-	overflow: hidden;
 }
 
 #mods-tab-content .mods-table tr {
@@ -620,7 +628,7 @@ input[type="checkbox"]:checked::before {
 }
 
 #mods-tab-content .mods-table th:hover .resizer {
-	background: var(--color-bg-dark-hover-lighter);
+	background: var(--color-bg-dark-hover-transparent);
 }
 
 #mods-tab-content .mods-table th.ascending::after {
@@ -725,6 +733,36 @@ input[type="checkbox"]:checked::before {
 	width: 0.7rem;
 	height: 0.7rem;
 	filter: brightness(0.8);
+}
+
+#mods-tab-content .mods-table .mod-row-config-button-container {
+	position: sticky;
+	right: 0;
+	z-index: 10;
+
+	display: flex;
+	justify-content: end;
+	align-items: center;
+	min-width: fit-content;
+}
+
+#mods-tab-content .mods-table .mod-row-config-button {
+	width: fit-content;
+	height: fit-content;
+	padding: 0.4rem;
+	background-color: var(--color-bg-light);
+	border-radius: var(--br-medium);
+}
+
+#mods-tab-content .mods-table .mod-row-config-button img {
+	width: 1.2rem;
+	height: 1.2rem;
+	object-fit: contain;
+	filter: brightness(0.8);
+}
+
+#mods-tab-content .mods-table .mod-row-config-button:hover img {
+	filter: brightness(1);
 }
 
 #mods-tab-content .mods-table-tag-list {
@@ -902,10 +940,6 @@ input[type="checkbox"]:checked::before {
 	overflow: hidden;
 	white-space: nowrap;
 	color: var(--color-text-secondary);
-}
-
-#mods-tab-content .main-rightbar .mod-config-container .config-schema-content {
-	margin-top: 0;
 }
 
 #mods-tab-content .rightbar-bottom {
@@ -1215,22 +1249,80 @@ input[type="checkbox"]:checked::before {
 
 /* -------------------- TAB/CONFIG -------------------- */
 
-#config-tab-content {
+#config-tab-content .main {
 	background: var(--color-bg-medium);
-	padding: 0 2.5rem;
+	display: flex;
+	height: 100%;
 }
 
-#config-tab-content .main {
-	background: var(--color-bg-light);
-	max-width: 50rem;
-	min-width: 20rem;
+#config-tab-content .config-column {
+	flex: 1;
 	height: 100%;
-	margin: auto;
+	width: fit-content;
+}
+
+#config-tab-content .renderer-column {
+	max-width: fit-content;
+}
+
+#config-tab-content .config-column.tabs-column {
+	display: flex;
+	justify-content: end;
+	overflow: hidden;
+}
+
+#config-tab-content .config-tabs-container {
+	position: relative;
+	overflow-y: auto;
+	padding: 0.6rem 0.8rem;
+	color: var(--color-text-primary);
+	width: 15rem;
+	height: 100%;
+	min-width: 5rem;
+	background-color: var(--color-bg-dark);
+}
+
+#config-tab-content .config-tabs-container .config-tabs-divider {
+	margin: 0.8rem 0;
+	width: 100%;
+	height: 0.15rem;
+	background-color: var(--color-bg-medium);
+}
+
+#config-tab-content .config-tabs-container #mod-config-tabs-list {
 	display: flex;
 	flex-direction: column;
+	gap: 0.3rem;
 }
 
-#config-tab-content .main .title {
+#config-tab-content .config-tabs-container .mod-config-tab {
+	padding: 0.6rem 0.6rem;
+	background: var(--color-bg-light);
+	text-overflow: ellipsis;
+	overflow: hidden;
+	white-space: nowrap;
+}
+
+#config-tab-content .config-tabs-container .mod-config-tab:hover {
+	background: var(--color-bg-light-hover-lighter);
+	cursor: pointer;
+}
+
+#config-tab-content .config-tabs-container .mod-config-tab.selected {
+	background: var(--color-bg-light-active-lighter);
+}
+
+#config-tab-content .config-renderer-container {
+	position: relative;
+	background: var(--color-bg-light);
+	display: flex;
+	flex-direction: column;
+	width: 45rem;
+	min-width: 20rem;
+	height: 100%;
+}
+
+#config-tab-content .config-renderer-container .title {
 	text-align: center;
 	font-size: 1.6rem;
 	padding: 1.2rem 0 0.6rem 0;
@@ -1667,18 +1759,15 @@ input[type="checkbox"]:checked::before {
 	display: flex;
 	flex-direction: column;
 	flex: 1;
-	overflow: hidden;
+	overflow: auto;
 }
 
 .config-schema-content {
 	flex: 1;
-	overflow: hidden;
-	overflow-y: auto;
 	display: flex;
 	flex-direction: column;
 	gap: 1.2rem;
 	padding: 1.2rem;
-	overflow: auto;
 }
 
 .config-schema-container .config-schema-validated {
