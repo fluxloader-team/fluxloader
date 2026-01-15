@@ -1001,7 +1001,6 @@ class ModsManager {
 		this.areAnyModsLoaded = false;
 		this.modContext = undefined;
 		this.loadedModCount = 0;
-		this.modScriptsImport = {};
 		this.modElectronModules = {};
 
 		// Mods also have side effects on game files, IPC handlers, and events
@@ -1612,7 +1611,6 @@ class ModsManager {
 	async _unloadMod(mod) {
 		if (!mod.isLoaded) logWarn(`Mod '${mod.info.modID}' is not loaded, cannot unload it`);
 		logDebug(`Unloading mod: ${mod.info.modID}`);
-		delete this.modScriptsImport[mod.info.modID];
 		await fluxloaderAPI.events.trigger("fl:mod-unloaded", mod);
 		mod.isLoaded = false;
 		this.loadedModCount--;
