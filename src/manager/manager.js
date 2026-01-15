@@ -897,8 +897,6 @@ class ModsTab {
 	}
 
 	async clickRowActionStatus(modID, e) {
-		if (!blocks.checkIfChangingModsOrActions("change mod actions")) return;
-
 		e.stopPropagation();
 
 		this._clearCompletedActions();
@@ -1225,8 +1223,18 @@ class ModsTab {
 
 		// Show update icon if semver shows installed version is lower than latest from db
 		const updateIcon = createElement(
-			`<img src="./assets/circle-arrow-up.png" style="width: 1.5rem; height: 1.5rem; visibility: ${api.semver.compare(modData.info.version, modData.versions[0]) < 0 ? "visible" : "hidden"}" title="Update available">`,
+			`<img class="mod-row-version-update"
+				src="./assets/circle-arrow-up.png"
+				style="width: 1.5rem; height: 1.5rem;
+					visibility: ${api.semver.compare(modData.info.version, modData.versions[0]) < 0 ? "visible" : "hidden"}"
+				title="Update available"
+			>`
 		);
+		updateIcon.onclick = async (e) => {
+			console.log("HelloWorld");
+			await this.changeModVersion(modData.modID, { target: { value: modData.versions[0] }, preventDefault: () => {}});
+			await this.queueAction(modData.modID, "install");
+		}
 
 		dropdown.addEventListener("click", (e) => e.stopPropagation());
 		dropdown.addEventListener("change", (e) => this.changeModVersion(modData.modID, e));
@@ -1401,6 +1409,9 @@ class ModsTab {
 	// ------------ ACTIONS ------------
 
 	async queueAction(modID, type) {
+		const modRow = this.modRows[modID];
+		if (modRow && modRow.modData && modRow.modData.isInstalled && type == "install") return false;
+
 		if (!blocks.checkIfChangingModsOrActions("queue mod actions")) {
 			this.delayedActionQueue.push({ what: "queue", modID, type });
 			return false;
@@ -1430,7 +1441,6 @@ class ModsTab {
 		setStatusBar(`Queueing action for mod '${modID}'...`, 0, "loading");
 
 		// Make the new action loading
-		const modRow = this.modRows[modID];
 		const newAction = { modID, version: modRow.modData.info.version, type, state: "loading" };
 		this.queuedActions[modID] = newAction;
 		this._addActionRowElement(newAction);

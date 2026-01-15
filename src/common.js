@@ -468,10 +468,8 @@ export class DependencyCalculator {
 			const cacheVersions = (/** @type {Mod} */ modData) => {
 				let versions = JSON.parse(JSON.stringify(modData.versions || []));
 				if (modData.info && modData.info.version && !versions.includes(modData.info.version)) {
-					// Add local to the end (yes it's most likely the latest, but we sort anyway)
+					// Add local to the end and sort highest -> lowest just to be sure
 					versions.push(modData.info.version);
-					// Local version is most likely the latest, but we make sure here
-					// Sorted highest -> lowest
 					versions.sort((a, b) => -semver.compare(a, b));
 				}
 				modVersionsCache[modID] = versions;
@@ -767,7 +765,6 @@ export class DependencyCalculator {
 			const modIDs = Object.keys(ordered);
 			const out = [];
 
-			// Consider changing to breadth-first for better(?) results..?
 			// Depth first recursive generator (AI generated)
 			(function gen(i, acc) {
 				if (out.length >= cap) return;

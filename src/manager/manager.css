@@ -683,6 +683,15 @@ input[type="checkbox"]:checked::before {
 	color: var(--color-text-primary);
 }
 
+#mods-tab-content .mods-table td.mod-row-versions .mod-row-version-update {
+	filter: saturate(0.8) brightness(0.8);
+	cursor: pointer;
+}
+
+#mods-tab-content .mods-table td.mod-row-versions .mod-row-version-update:hover {
+	filter: saturate(0.8) brightness(1.0);
+}
+
 #mods-tab-content .mods-table td.mod-row-status .main-img {
 	position: relative;
 	width: 0.9rem;
