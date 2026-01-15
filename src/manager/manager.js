@@ -1228,13 +1228,13 @@ class ModsTab {
 				style="width: 1.5rem; height: 1.5rem;
 					visibility: ${api.semver.compare(modData.info.version, modData.versions[0]) < 0 ? "visible" : "hidden"}"
 				title="Update available"
-			>`
+			>`,
 		);
 		updateIcon.onclick = async (e) => {
 			console.log("HelloWorld");
-			await this.changeModVersion(modData.modID, { target: { value: modData.versions[0] }, preventDefault: () => {}});
+			await this.changeModVersion(modData.modID, { target: { value: modData.versions[0] }, preventDefault: () => {} });
 			await this.queueAction(modData.modID, "install");
-		}
+		};
 
 		dropdown.addEventListener("click", (e) => e.stopPropagation());
 		dropdown.addEventListener("change", (e) => this.changeModVersion(modData.modID, e));
