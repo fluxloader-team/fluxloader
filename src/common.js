@@ -3,10 +3,13 @@
  * @property {string} modID
  * @property {string} name
  * @property {string} version
+ * @property {string} [fluxloaderVersion]
  * @property {string} [author]
  * @property {Object.<string,string>} [dependencies]
  * @property {Object} [configSchema]
+ * @property {Object} [configSchemaBase]
  * @property {string} [description]
+ * @property {string} [shortDescription]
  */
 
 /**
@@ -461,16 +464,26 @@ export class DependencyCalculator {
 				return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
 			}
 
+			// Take known remote versions and add local version if it's not included
+			const cacheVersions = (/** @type {Mod} */ modData) => {
+				let versions = JSON.parse(JSON.stringify(modData.versions || []));
+				if (modData.info && modData.info.version && !versions.includes(modData.info.version)) {
+					// Add local to the end and sort highest -> lowest just to be sure
+					versions.push(modData.info.version);
+					versions.sort((a, b) => -semver.compare(a, b));
+				}
+				modVersionsCache[modID] = versions;
+				return successResponse(`Mod versions found for '${modID}'`, versions);
+			};
+
 			// Check data in installed mods
 			if (mods[modID] && mods[modID].versions) {
-				modVersionsCache[modID] = mods[modID].versions;
-				return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
+				return cacheVersions(mods[modID]);
 			}
 
 			// Check remote mod cache
 			if (fetchedModCache[modID] && fetchedModCache[modID].versionNumbers) {
-				modVersionsCache[modID] = fetchedModCache[modID].versionNumbers;
-				return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
+				return cacheVersions({ versions: fetchedModCache[modID].versionNumbers });
 			}
 
 			// Now try and fetch incase it is a remote mod
@@ -487,18 +500,15 @@ export class DependencyCalculator {
 			}
 
 			if (versionsResData && Object.hasOwn(versionsResData, "versions")) {
-				modVersionsCache[modID] = versionsResData.versions;
-				return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
+				return cacheVersions(versionsResData);
 			}
 
 			// At this point it has to be a local only mod (with versions == null)
 			if (mods[modID] == null) return errorResponse(`No mod versions found for '${modID}'`);
-			const localVersions = [mods[modID].info.version];
-			modVersionsCache[modID] = localVersions;
-			return successResponse(`Mod versions found for '${modID}'`, modVersionsCache[modID]);
+			return cacheVersions(mods[modID]);
 		};
 
-		/** @returns {FlResponse<{ [dependencyModID: string]: string }>} */
+		/** @returns {FlResponse<{ mods: {[dependencyModID: string]: string }, fluxloader: string?}>} */
 		const getModVersionDependencies = async (modID, version) => {
 			// Already cached
 			if (modVersionDependencies[modID]) {
@@ -509,16 +519,22 @@ export class DependencyCalculator {
 				modVersionDependencies[modID] = {};
 			}
 
+			const cacheDependencies = (/** @type {ModInfo} */ modInfo) => {
+				modVersionDependencies[modID][version] = {
+					mods: modInfo.dependencies || {},
+					fluxloader: modInfo.fluxloaderVersion,
+				};
+				return successResponse(`Mod version dependencies found for '${modID}' version '${version}'`, modVersionDependencies[modID][version]);
+			};
+
 			// Check installed mods
 			if (mods[modID] && mods[modID].info && mods[modID].info.version === version) {
-				modVersionDependencies[modID][version] = mods[modID].info.dependencies || {};
-				return successResponse(`Mod version dependencies found for '${modID}' version '${version}'`, modVersionDependencies[modID][version]);
+				return cacheDependencies(mods[modID].info);
 			}
 
 			// Check remote mod cache
 			if (fetchedModCache[modID] && fetchedModCache[modID].modData && fetchedModCache[modID].modData.version === version) {
-				modVersionDependencies[modID][version] = fetchedModCache[modID].modData.dependencies || {};
-				return successResponse(`Mod version dependencies found for '${modID}' version '${version}'`, modVersionDependencies[modID][version]);
+				return cacheDependencies(fetchedModCache[modID].modData);
 			}
 
 			// Otherwise fetch
@@ -547,7 +563,8 @@ export class DependencyCalculator {
 			}
 			// ERROR
 			const dependencies = versionData.mod.modData.dependencies || {};
-			if (!dependencies || typeof dependencies !== "object") {
+			const fluxloaderVersion = versionData.mod.modData.fluxloaderVersion || {};
+			if (!dependencies || typeof dependencies !== "object" || !fluxloaderVersion || typeof fluxloaderVersion !== "string") {
 				return errorResponse(`Invalid response for mod info of ${modID} version ${version}`, {
 					errorModID: modID,
 					errorReason: "version-info-fetch",
@@ -555,9 +572,7 @@ export class DependencyCalculator {
 			}
 
 			// Finally we can add it to the cache
-			if (!modVersionDependencies[modID]) modVersionDependencies[modID] = {};
-			modVersionDependencies[modID][version] = dependencies;
-			return successResponse(`Mod version dependencies found for '${modID}' version '${version}'`, dependencies);
+			return cacheDependencies(versionData.mod.modData);
 		};
 
 		/** @returns {FlResponse<{ [modID: string]: Constraint[] }>} */
@@ -584,9 +599,9 @@ export class DependencyCalculator {
 				if (!modDependenciesResponse.success) return modDependenciesResponse;
 				const modDependencies = modDependenciesResponse.data;
 
-				for (const depModID in modDependencies) {
+				for (const depModID in modDependencies.mods) {
 					if (!state.constraints[depModID]) state.constraints[depModID] = [];
-					state.constraints[depModID].push({ version: modDependencies[depModID], parent: modID });
+					state.constraints[depModID].push({ version: modDependencies.mods[depModID], parent: modID });
 				}
 			}
 
@@ -669,13 +684,36 @@ export class DependencyCalculator {
 				}
 
 				// Otherwise filter to only valid versions per the constraints
-				const validVersions = versions.filter((v) => doesVersionSatisfyAllConstraints(modID, v, modConstraints));
+				let validVersions = versions.filter((v) => doesVersionSatisfyAllConstraints(modID, v, modConstraints));
 				if (validVersions.length === 0) {
 					return errorResponse(
 						`No valid version for mod '${modID}' that satisfies: ${JSON.stringify(modConstraints)}`,
 						{
 							errorModID: modID,
 							errorReason: "constraint-unsatisfied",
+						},
+						false,
+					);
+				}
+
+				let fluxloaderDeps = {};
+				for (const v of validVersions) {
+					const dependenciesResponse = await getModVersionDependencies(modID, v);
+					if (!dependenciesResponse.success) return dependenciesResponse;
+					fluxloaderDeps[v] = dependenciesResponse.data.fluxloader;
+				}
+
+				validVersions = validVersions.filter((v) => {
+					if (!fluxloaderDeps[v]) return true;
+					return FluxloaderSemver.doesVersionSatisfyDependency(fluxloaderVersion, fluxloaderDeps[v]);
+				});
+
+				if (validVersions.length === 0) {
+					return errorResponse(
+						`No valid version for mod '${modID}' that satisfies fluxloader version: v${fluxloaderVersion}`,
+						{
+							errorModID: modID,
+							errorReason: "fluxloader-version-unsatisfied",
 						},
 						false,
 					);
@@ -708,8 +746,7 @@ export class DependencyCalculator {
 				if (previous && previous !== installed && valid.includes(previous)) list.push(previous);
 				if (installed && valid.includes(installed)) list.push(installed);
 
-				for (let i = valid.length - 1; i >= 0; i--) {
-					const v = valid[i];
+				for (let v of valid) {
 					if (!list.includes(v)) list.push(v);
 				}
 
