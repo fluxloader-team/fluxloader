@@ -54,6 +54,7 @@ let previousLogFilePath = undefined;
 let config = undefined;
 let configSchema = undefined;
 let configLoaded = false;
+let logTempQueue = [];
 let logsForManager = [];
 let isGameStarted = false;
 let isManagerStarted = false;
@@ -86,28 +87,7 @@ function setupLogFile() {
 globalThis.log = function (level, tag, message) {
 	if (!logLevels.includes(level)) throw new Error(`Invalid log level: ${level}`);
 	const timestamp = new Date();
-	const header = Logging.logHead(timestamp, level, tag);
-	const headerColoured = Logging.logHead(timestamp, level, tag, true);
-	const levelIndex = logLevels.indexOf(level);
-
-	// Only log to file if defined by the config and level is allowed
-	if (configLoaded && config.logging.logToFile) {
-		if (levelIndex >= logLevels.indexOf(config.logging.fileLogLevel)) {
-			if (!latestLogFilePath) setupLogFile();
-			fs.appendFileSync(latestLogFilePath, `${header} ${message}\n`);
-		}
-	}
-
-	// If config is not loaded then use the pre-config log level as the filter
-	// Otherwise only log to console based on config level and console log flag
-	let consoleLevelLimit = preConfigLogLevel;
-	if (configLoaded) consoleLevelLimit = config.logging.consoleLogLevel;
-	if (!configLoaded || config.logging.logToConsole) {
-		if (levelIndex >= logLevels.indexOf(consoleLevelLimit)) {
-			console.log(`${headerColoured} ${message}`);
-			forwardLogToManager({ source: "electron", timestamp, level, tag, message });
-		}
-	}
+	forwardLog({ source: "electron", timestamp, level, tag, message });
 };
 
 globalThis.logDebug = (...args) => log("debug", "", args.join(" "));
@@ -115,9 +95,46 @@ globalThis.logInfo = (...args) => log("info", "", args.join(" "));
 globalThis.logWarn = (...args) => log("warn", "", args.join(" "));
 globalThis.logError = (...args) => log("error", "", args.join(" "));
 
-function forwardLogToManager(log) {
-	logsForManager.push(log);
-	trySendManagerEvent("fl:forward-log", log);
+// Receiving (intercepting..) log from the game / manager
+function forwardLog(log) {
+	let source = log.source;
+	if (["game", "electron"].includes(source)) {
+		// Forward non-manager logs to the manager
+		logsForManager.push(log);
+		trySendManagerEvent("fl:forward-log", log);
+	}
+
+	const headerColoured = Logging.logHead(log.timestamp, log.source, log.level, log.tag, true);
+	const levelIndex = logLevels.indexOf(log.level);
+	let consoleLevelLimit = preConfigLogLevel;
+	if (configLoaded) consoleLevelLimit = config.logging.consoleLogLevel;
+	if (!configLoaded || config.logging.logToConsole) {
+		if (levelIndex >= logLevels.indexOf(consoleLevelLimit)) {
+			console.log(`${headerColoured} ${log.message}`);
+		}
+	}
+
+	function pushFileLog(log) {
+		const levelIndex = logLevels.indexOf(log.level);
+		const header = Logging.logHead(log.timestamp, log.source, log.level, log.tag);
+
+		if (levelIndex >= logLevels.indexOf(config.logging.fileLogLevel)) {
+			if (!latestLogFilePath) setupLogFile();
+			fs.appendFileSync(latestLogFilePath, `${header} ${log.message}\n`);
+		}
+	}
+
+	// Only log to file if defined by the config and level is allowed
+	if (configLoaded && config.logging.logToFile) {
+		while (logTempQueue.length !== 0) {
+			pushFileLog(logTempQueue.shift());
+		}
+		pushFileLog(log);
+	} else if (!configLoaded) {
+		// If config isn't loaded, we want to save logs to queue
+		// so they can be written to the file when its ready
+		logTempQueue.push(log);
+	}
 }
 
 // =================== UTILTY ===================
@@ -2447,7 +2464,7 @@ function setupElectronIPC() {
 		"fl:get-fluxloader-config-schema": (_) => configSchema,
 		"fl:get-fluxloader-version": (_) => fluxloaderVersion,
 		"fl:download-update": async (args) => await downloadUpdate(args),
-		"fl:forward-log-to-manager": (args) => forwardLogToManager(args),
+		"fl:forward-log": (args) => forwardLog(args),
 		"fl:request-manager-logs": (_) => logsForManager,
 		"fl:open-mod-folder": (args) => openModFolderNative(args),
 		"fl:open-mods-folder": (_) => openModsFolderNative(),
@@ -2458,7 +2475,7 @@ function setupElectronIPC() {
 
 	for (const [endpoint, handler] of Object.entries(simpleEndpoints)) {
 		ipcMain.handle(endpoint, (_, args) => {
-			if (!["fl:forward-log-to-manager"].includes(endpoint)) {
+			if (!["fl:forward-log"].includes(endpoint)) {
 				logDebug(`Received '${endpoint}'`);
 			}
 			try {

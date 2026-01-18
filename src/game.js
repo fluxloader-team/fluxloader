@@ -11,7 +11,7 @@ let loadedMods = [];
 
 globalThis.log = function (level, tag, message) {
 	const timestamp = new Date();
-	console.log(`${Logging.logHead(timestamp, level, tag)} ${message}`);
+	console.log(`${Logging.logHead(timestamp, "game", level, tag)} ${message}`);
 	forwardLogToManager({ source: "game", timestamp, level, tag, message });
 };
 
@@ -21,7 +21,7 @@ globalThis.logWarn = (...args) => log("warn", "", args.join(" "));
 globalThis.logError = (...args) => log("error", "", args.join(" "));
 
 function forwardLogToManager(log) {
-	window.electron.invoke("fl:forward-log-to-manager", log);
+	window.electron.invoke("fl:forward-log", log);
 }
 
 // =================== MAIN ===================

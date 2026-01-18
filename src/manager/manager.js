@@ -32,7 +32,7 @@ let newVersionRelease;
 
 globalThis.log = function (level, tag, message) {
 	const timestamp = new Date();
-	console.log(`${Logging.logHead(timestamp, level, tag)} ${message}`);
+	console.log(`${Logging.logHead(timestamp, "manager", level, tag)} ${message}`);
 	forwardManagerLog({ source: "manager", timestamp, level, tag, message });
 };
 
@@ -42,6 +42,7 @@ globalThis.logWarn = (...args) => log("warn", "", args.join(" "));
 globalThis.logError = (...args) => log("error", "", args.join(" "));
 
 function forwardManagerLog(log) {
+	api.invoke("fl:forward-log", log);
 	tabs.logs.addLog(log);
 }
 
@@ -1893,10 +1894,11 @@ class ConfigTab {
 }
 
 class LogsTab {
-	static SOURCE_LOG_LIMIT = 400;
+	static SOURCE_LOG_LIMIT = 1000;
 	sources = { manager: {}, electron: {}, game: {} };
 	selectedLogSource = null;
 	remoteLogIndex = 0;
+	remoteReady = false;
 	isSetup = false;
 	errorNotificationElement = null;
 	errorNotificationCount = 0;
@@ -1905,6 +1907,7 @@ class LogsTab {
 
 	async setup() {
 		api.on("fl:forward-log", (_, log) => {
+			if (!this.remoteReady) return; // Still loading log history
 			this.receiveLogFromRemote(log);
 		});
 
@@ -1944,11 +1947,13 @@ class LogsTab {
 		// Select the default log source
 		this.selectLogSource("manager");
 
-		this.isSetup = true;
+		this.isSetup = true; // Ready for local logs
 
 		// Request the logs that have made up to this point
 		const managerLogs = await api.invoke("fl:request-manager-logs");
 		for (let i = this.remoteLogIndex; i < managerLogs.length; i++) this.receiveLogFromRemote(managerLogs[i], false);
+
+		this.remoteReady = true; // Ready for remote logs
 	}
 
 	selectTab() {
