@@ -389,11 +389,11 @@ export class Logging {
 		const sourceText = source.toUpperCase();
 		const levelText = level.toUpperCase();
 		if (!coloured) {
-			return `[ ${sourceText} ] ${levelText} ${timestampText}${tag ? ` ${tag}` : ""}`;
+			return `${sourceText} | ${levelText} ${timestampText}${tag ? ` ${tag}` : ""}`;
 		} else {
 			const sourceColour = Logging.sourceColours[source] || "white";
 			const levelColour = Logging.levelColours[level] || "white";
-			return Logging.colourText(`[ ${sourceText} ] `, sourceColour) + Logging.colourText(`${levelText} ${timestampText}`, levelColour) + Logging.colourText(tag ? ` ${tag}` : "", "magenta");
+			return Logging.colourText(`${sourceText} | `, sourceColour) + Logging.colourText(`${levelText} ${timestampText}`, levelColour) + Logging.colourText(tag ? ` ${tag}` : "", "magenta");
 		}
 	}
 
