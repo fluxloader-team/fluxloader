@@ -38,7 +38,7 @@ import Module from "module";
 
 // =================== VARIABLES ===================
 
-globalThis.fluxloaderVersion = "2.5.1";
+globalThis.fluxloaderVersion = "2.5.2";
 globalThis.gameElectronFuncs = undefined;
 globalThis.semver = semver;
 /** @type {GameWindow} */ globalThis.gameWindow = undefined;
