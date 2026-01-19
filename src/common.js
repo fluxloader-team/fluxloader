@@ -378,14 +378,22 @@ export class Logging {
 		error: "red",
 	};
 
-	static logHead(timestamp, level, tag, coloured = false) {
+	static sourceColours = {
+		electron: "yellow",
+		game: "brightGreen",
+		manager: "brightMagenta",
+	};
+
+	static logHead(timestamp, source, level, tag, coloured = false) {
 		let timestampText = timestamp.toISOString().split("T")[1].split("Z")[0];
+		const sourceText = source.toUpperCase();
 		const levelText = level.toUpperCase();
 		if (!coloured) {
-			return `${levelText} ${timestampText}${tag ? ` ${tag}` : ""}`;
+			return `${sourceText} | ${levelText} ${timestampText}${tag ? ` ${tag}` : ""}`;
 		} else {
+			const sourceColour = Logging.sourceColours[source] || "white";
 			const levelColour = Logging.levelColours[level] || "white";
-			return Logging.colourText(`${levelText} ${timestampText}`, levelColour) + Logging.colourText(tag ? ` ${tag}` : "", "magenta");
+			return Logging.colourText(`${sourceText} | `, sourceColour) + Logging.colourText(`${levelText} ${timestampText}`, levelColour) + Logging.colourText(tag ? ` ${tag}` : "", "magenta");
 		}
 	}
 
