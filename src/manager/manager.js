@@ -2660,7 +2660,7 @@ async function toggleConnection(e) {
 }
 
 async function handleClickPlayButton(unmodded = false) {
-	if (!blocks.checkIfDoingAnything()) return;
+	if (!blocks.requireFree([Blocks.PlayButtonLoading, Blocks.LoadingMods, Blocks.PerformingModActions], "click play button")) return;
 	blocks.set(Blocks.PlayButtonLoading, true);
 
 	updatePlayButton();
@@ -2689,12 +2689,13 @@ async function handleClickPlayButton(unmodded = false) {
 		blocks.set(Blocks.PlayButtonLoading, false);
 		updatePlayButton();
 	} else {
+		// Set Playing to false first so the game-closed listener does nothing
+		blocks.set(Blocks.Playing, false);
 		await api.invoke(`fl:close-game`);
 		setStatusBar("Game stopped", 0, "success");
 		getElement("play-button").classList.toggle("active", false);
 		getElement("footer-dropdown").classList.toggle("active", false);
 		blocks.set(Blocks.PlayButtonLoading, false);
-		blocks.set(Blocks.Playing, false);
 		updatePlayButton();
 	}
 }
@@ -2733,10 +2734,10 @@ function updatePlayButton() {
 	api.on(`fl:game-closed`, () => {
 		if (!blocks.get(Blocks.Playing)) return logWarn("Received game closed event but playing is false, ignoring.");
 		setStatusBar("Game closed", 0, "success");
-		blocks.set(Blocks.Playing, false);
-		updatePlayButton();
 		getElement("play-button").classList.toggle("active", false);
 		getElement("footer-dropdown").classList.toggle("active", false);
+		blocks.set(Blocks.Playing, false);
+		updatePlayButton();
 	});
 
 	// Hookup UI to their functions
@@ -2751,7 +2752,7 @@ function updatePlayButton() {
 
 	getElement("footer-dropdown").addEventListener("click", (e) => {
 		e.stopPropagation();
-		if (!blocks.get(Blocks.Playing)) return;
+		if (blocks.get(Blocks.Playing)) return;
 		getElement("footer-dropdown-menu").style.display = getElement("footer-dropdown-menu").style.display === "none" ? "block" : "none";
 	});
 
