@@ -1,6 +1,6 @@
 // =================== VARIABLES ===================
 
-globalThis.fluxloaderVersion = "2.5.2";
+globalThis.fluxloaderVersion = "2.5.3";
 globalThis.fluxloaderAPI = undefined;
 
 // =================== UTILITY ===================
