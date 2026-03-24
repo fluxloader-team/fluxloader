@@ -70,7 +70,7 @@ globalThis.fluxloaderPreloadBundle = async () => {
 	await loadAllMods();
 };
 
-globalThis.fluxloaderOnWorkerInitialized = (gameInstanceState) => {
+globalThis.fluxloaderOnWorkerInitialized = async (gameInstanceState) => {
 	// This is called after the workers Init event has been called
 	// We have to wait otherwise the game-worker communication will not work
 	fluxloaderAPI.gameInstanceState = gameInstanceState;
@@ -82,7 +82,7 @@ globalThis.fluxloaderOnWorkerInitialized = (gameInstanceState) => {
 		logError(`Worker fluxloader ${fluxloaderVersion} initialized, type=Unknown, context=${gameInstanceState.environment.context}`);
 	}
 
-	fluxloaderAPI.events.trigger("fl:worker-initialized");
+	await fluxloaderAPI.events.trigger("fl:worker-initialized");
 };
 
 globalThis.fluxloaderOnWorkerMessage = (m) => {
