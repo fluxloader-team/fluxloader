@@ -116,12 +116,12 @@ globalThis.fluxloaderOnGameInstanceCreated = (s) => {
 	fluxloaderAPI.gameInstance = s;
 };
 
-globalThis.fluxloaderOnGameInitialized = async () => {
+globalThis.fluxloaderOnGameInitialized = () => {
 	// Called after all the setup, but right before simulation.init()
 	const scene = fluxloaderAPI.gameInstance.state.store.scene.active;
 	const sceneLookup = { 1: "mainmenu", 2: "newgame", 3: "loadgame" };
 	logInfo(`Game instance loaded with scene ${scene}`);
-	await fluxloaderAPI.events.trigger("fl:scene-loaded", sceneLookup[scene]);
+	fluxloaderAPI.events.trigger("fl:scene-loaded", sceneLookup[scene]);
 };
 
 globalThis.fluxloaderOnWorkerMessage = (m) => {
