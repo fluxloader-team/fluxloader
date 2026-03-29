@@ -229,7 +229,7 @@ class ElectronFluxloaderAPI {
 
 	patchExists(file, tag) {
 		if (!gameFilesManager) throw new Error("Cannot check patch before file manager is initialized");
-		gameFilesManager.patchExists(file, tag);
+		return gameFilesManager.patchExists(file, tag);
 	}
 
 	removePatch(file, tag) {

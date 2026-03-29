@@ -610,7 +610,7 @@ class ModsTab {
 	// ------------ MAIN ------------
 
 	async reloadMods() {
-		if (!blocks.checkIfDoingAnything("reload mods")) return;
+		if (!blocks.requireFree([Blocks.LoadingMods, Blocks.PerformingModActions], "reload mods", false)) return;
 
 		blocks.set(Blocks.LoadingMods, true);
 		this.setModLoadButtonClickable(true);
