@@ -161,6 +161,10 @@ export class FluxloaderSemver {
 		return dependency.startsWith("conflict:");
 	}
 
+	static isStandard(dependency) {
+		return !this.isOptional(dependency) && !this.isConflict(dependency);
+	}
+
 	static doesVersionSatisfyDependency(version, dependency) {
 		// If it is `param:version` then we use custom logic
 		// `optional:version` means the version should satisfy the dependency if it exists
@@ -622,7 +626,9 @@ export class DependencyCalculator {
 					for (const constraint of state.constraints[modID]) {
 						const parentModID = constraint.parent;
 
-						if (parentModID && !state.markedForUninstall.includes(parentModID)) {
+						if (parentModID
+							&& !state.markedForUninstall.includes(parentModID)
+							&& FluxloaderSemver.isStandard(constraint.version)) {
 							state.markedForUninstall.push(parentModID);
 							uninstallsToPropogate.push(parentModID);
 						}
@@ -663,11 +669,18 @@ export class DependencyCalculator {
 			const relevantMods = new Set([...Object.keys(state.versions), ...Object.keys(state.constraints)]);
 
 			for (const modID of relevantMods) {
+				// If we the mod is only a constraint, and we only have optional: and conflict: constraints, then skip it
+				if (!state.versions[modID] && state.constraints[modID] && state.constraints[modID].every((c) => !FluxloaderSemver.isStandard(c.version))) {
+					continue;
+				}
+
 				// If the mod is marked for uninstall, skip it
 				if (state.markedForUninstall.includes(modID)) {
 					if (modID in state.versions) result[modID] = [state.versions[modID]];
 					continue;
 				}
+
+				const modConstraints = state.constraints[modID];
 
 				// fetch all versions of the mod
 				const versionsResponse = await getModVersions(modID);
@@ -684,9 +697,8 @@ export class DependencyCalculator {
 					);
 				}
 
-				const modConstraints = state.constraints[modID];
+				// No constraints, all versions are valid
 				if (!modConstraints || modConstraints.length === 0) {
-					// No constraints, all versions are valid
 					result[modID] = versions;
 					continue;
 				}
@@ -929,19 +941,21 @@ export class DependencyCalculator {
 
 		for (const modID in mods) {
 			const mod = mods[modID];
-
 			if (mod.isEnabled && mod.info.dependencies) {
+
 				for (const depModID in mod.info.dependencies) {
 					const dep = mod.info.dependencies[depModID];
 					const depMod = mods[depModID];
 
+					const isStandard = FluxloaderSemver.isStandard(dep);
+
 					if (depMod === undefined) {
-						issues.push({ type: "missing", modID, dependencyModID: depModID, dependency: dep });
+						if (isStandard) issues.push({ type: "missing", modID, dependencyModID: depModID, dependency: dep });
 						continue;
 					}
 
 					if (!depMod.isEnabled) {
-						if (!FluxloaderSemver.isOptional(dep)) issues.push({ type: "disabled", modID, dependencyModID: depModID, dependency: dep });
+						if (isStandard) issues.push({ type: "disabled", modID, dependencyModID: depModID, dependency: dep });
 						continue;
 					}
 
