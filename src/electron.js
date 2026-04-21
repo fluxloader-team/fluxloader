@@ -44,8 +44,10 @@ globalThis.semver = semver;
 /** @type {GameWindow} */ globalThis.gameWindow = undefined;
 /** @type {ElectronFluxloaderAPI} */ globalThis.fluxloaderAPI = undefined;
 
-let logLevels = ["debug", "info", "warn", "error"];
-let preConfigLogLevel = "debug";
+const SITE_URL = "http://fluxloader.app";
+const LOG_LEVELS = ["debug", "info", "warn", "error"];
+const PRE_CONFIG_LOG_LEVEL = "debug";
+
 let configPath = "fluxloader-config.json";
 let configSchemaPath = "schema.fluxloader-config.json";
 let modInfoSchemaPath = "schema.mod-info.json";
@@ -85,7 +87,7 @@ function setupLogFile() {
 }
 
 globalThis.log = function (level, tag, message) {
-	if (!logLevels.includes(level)) throw new Error(`Invalid log level: ${level}`);
+	if (!LOG_LEVELS.includes(level)) throw new Error(`Invalid log level: ${level}`);
 	const timestamp = new Date();
 	forwardLog({ source: "electron", timestamp, level, tag, message });
 };
@@ -105,20 +107,20 @@ function forwardLog(log) {
 	}
 
 	const headerColoured = Logging.logHead(log.timestamp, log.source, log.level, log.tag, true);
-	const levelIndex = logLevels.indexOf(log.level);
-	let consoleLevelLimit = preConfigLogLevel;
+	const levelIndex = LOG_LEVELS.indexOf(log.level);
+	let consoleLevelLimit = PRE_CONFIG_LOG_LEVEL;
 	if (configLoaded) consoleLevelLimit = config.logging.consoleLogLevel;
 	if (!configLoaded || config.logging.logToConsole) {
-		if (levelIndex >= logLevels.indexOf(consoleLevelLimit)) {
+		if (levelIndex >= LOG_LEVELS.indexOf(consoleLevelLimit)) {
 			console.log(`${headerColoured} ${log.message}`);
 		}
 	}
 
 	function pushFileLog(log) {
-		const levelIndex = logLevels.indexOf(log.level);
+		const levelIndex = LOG_LEVELS.indexOf(log.level);
 		const header = Logging.logHead(log.timestamp, log.source, log.level, log.tag);
 
-		if (levelIndex >= logLevels.indexOf(config.logging.fileLogLevel)) {
+		if (levelIndex >= LOG_LEVELS.indexOf(config.logging.fileLogLevel)) {
 			if (!latestLogFilePath) setupLogFile();
 			fs.appendFileSync(latestLogFilePath, `${header} ${log.message}\n`);
 		}
@@ -1043,7 +1045,7 @@ class ModsManager {
 		}
 		logDebug(`Fetching remote mods with query: ${JSON.stringify(query)}`);
 		const encodedQuery = encodeURIComponent(JSON.stringify(query));
-		const url = `https://fluxloader.app/api/mods?search=${encodedQuery}&verified=null&page=${config.page}&size=${config.pageSize}`;
+		const url = `${SITE_URL}/api/mods?search=${encodedQuery}&verified=null&page=${config.page}&size=${config.pageSize}`;
 
 		// Request the remote mods from the API
 		let responseData;
@@ -1098,7 +1100,7 @@ class ModsManager {
 			return successResponse(`Returning cached mod info for '${config.modID}'`, this.fetchedModCache[config.modID]);
 		}
 
-		const url = `https://fluxloader.app/api/mods?option=info&modid=${config.modID}`;
+		const url = `${SITE_URL}/api/mods?option=info&modid=${config.modID}`;
 		logDebug(`Fetching remote mod info from API: ${url}`);
 
 		// Request the mod info from the API
@@ -1243,7 +1245,7 @@ class ModsManager {
 	}
 
 	async calculateModActions(/** @type {Actions} */ mainActions) {
-		return await DependencyCalculator.calculate(this.installedMods, mainActions, this.fetchedModCache);
+		return await DependencyCalculator.calculate(this.installedMods, mainActions, this.fetchedModCache, SITE_URL);
 	}
 
 	async performModActions(/** @type {Actions} */ allActions) {
@@ -1269,7 +1271,7 @@ class ModsManager {
 			}
 
 			// Fetch the mod version from the API
-			const versionURL = `https://fluxloader.app/api/mods?option=download&modid=${modID}&version=${version}`;
+			const versionURL = `${SITE_URL}/api/mods?option=download&modid=${modID}&version=${version}`;
 			let versionRes;
 			try {
 				logDebug(`Fetching mod version '${version}' for '${modID}' from API: ${versionURL}`);
@@ -1759,7 +1761,7 @@ class ModsManager {
 
 		try {
 			const modIDs = this.loadOrder.join(",");
-			const url = `https://fluxloader.app/api/mods?option=versions&modids=${modIDs}`;
+			const url = `${SITE_URL}/api/mods?option=versions&modids=${modIDs}`;
 			logDebug(`Fetching mod versions from API: ${url}`);
 			const versionStart = Date.now();
 			const response = await fetch(url);
@@ -1795,7 +1797,7 @@ class ModsManager {
 		// Fetch the mod version info from the API
 		let responseData = null;
 		try {
-			const url = `https://fluxloader.app/api/mods?option=info&modid=${encodeURIComponent(args.modID)}&version=${encodeURIComponent(args.version)}`;
+			const url = `${SITE_URL}/api/mods?option=info&modid=${encodeURIComponent(args.modID)}&version=${encodeURIComponent(args.version)}`;
 			logDebug(`Fetching mod version info from API: ${url}`);
 			const versionStart = Date.now();
 			const response = await fetch(url);
@@ -2501,7 +2503,7 @@ function setupElectronIPC() {
 	ipcMain.handle("fl:ping-server", async (event, args) => {
 		logDebug(`Received 'fl:ping-server' with args: ${JSON.stringify(args)}`);
 		try {
-			const url = `https://fluxloader.app/api`;
+			const url = `${SITE_URL}/api`;
 			logDebug(`Pinging server at ${url}`);
 			const pingStart = Date.now();
 			const response = await fetch(url);

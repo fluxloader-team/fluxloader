@@ -427,7 +427,7 @@ export class Logging {
 
 export class DependencyCalculator {
 	/** @returns {CalculateModsResponse} */
-	static async calculate(/** @type {Mods} */ mods, /** @type {Actions} */ inputActions, /** @type {FetchedModCache} */ fetchedModCache) {
+	static async calculate(/** @type {Mods} */ mods, /** @type {Actions} */ inputActions, /** @type {FetchedModCache} */ fetchedModCache, /** @type {string} */ siteUrl) {
 		logDebug(`Calculating all mod actions for ${Object.keys(inputActions).length} main action(s)`);
 
 		/**
@@ -499,7 +499,7 @@ export class DependencyCalculator {
 			}
 
 			// Now try and fetch incase it is a remote mod
-			const versionsURL = `https://fluxloader.app/api/mods?option=versions&modid=${modID}`;
+			const versionsURL = `${siteUrl}/api/mods?option=versions&modid=${modID}`;
 			let versionsResData;
 			try {
 				const res = await fetch(versionsURL);
@@ -550,7 +550,7 @@ export class DependencyCalculator {
 			}
 
 			// Otherwise fetch
-			const versionDataURL = `https://fluxloader.app/api/mods?option=info&modid=${modID}&version=${version}`;
+			const versionDataURL = `${siteUrl}/api/mods?option=info&modid=${modID}&version=${version}`;
 			let versionData;
 			try {
 				// logDebug(`Fetching '${modID}' version '${version}' from API: ${versionDataURL}`);
