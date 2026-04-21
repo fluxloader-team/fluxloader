@@ -626,9 +626,7 @@ export class DependencyCalculator {
 					for (const constraint of state.constraints[modID]) {
 						const parentModID = constraint.parent;
 
-						if (parentModID
-							&& !state.markedForUninstall.includes(parentModID)
-							&& FluxloaderSemver.isStandard(constraint.version)) {
+						if (parentModID && !state.markedForUninstall.includes(parentModID) && FluxloaderSemver.isStandard(constraint.version)) {
 							state.markedForUninstall.push(parentModID);
 							uninstallsToPropogate.push(parentModID);
 						}
@@ -942,7 +940,6 @@ export class DependencyCalculator {
 		for (const modID in mods) {
 			const mod = mods[modID];
 			if (mod.isEnabled && mod.info.dependencies) {
-
 				for (const depModID in mod.info.dependencies) {
 					const dep = mod.info.dependencies[depModID];
 					const depMod = mods[depModID];
