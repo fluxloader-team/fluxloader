@@ -998,7 +998,7 @@ class ModsManager {
 			}
 		}
 
-		fluxloaderAPI.events.trigger("fl:all-mods-loaded");
+		await fluxloaderAPI.events.trigger("fl:all-mods-loaded");
 		logDebug(`All mods loaded successfully`);
 		return successResponse(`Loaded ${this.loadedModCount} mod${this.loadedModCount == 1 ? "" : "s"}`);
 	}
@@ -1623,7 +1623,7 @@ class ModsManager {
 
 		mod.isLoaded = true;
 		this.loadedModCount++;
-		fluxloaderAPI.events.trigger("fl:mod-loaded", mod);
+		await fluxloaderAPI.events.trigger("fl:mod-loaded", mod);
 		return successResponse(`Mod '${mod.info.modID}' loaded successfully`, mod);
 	}
 
@@ -2615,7 +2615,7 @@ async function startUnmoddedGame() {
 		return errorResponse(`Error starting unmodded game window`, null, false);
 	}
 
-	fluxloaderAPI.events.trigger("fl:game-started");
+	await fluxloaderAPI.events.trigger("fl:game-started");
 	logInfo(`Unmodded game window started successfully`);
 	return successResponse("Unmodded game started successfully");
 }
@@ -2650,7 +2650,7 @@ async function startGame() {
 			if (config.game.openDevTools) gameWindow.openDevTools();
 		});
 
-		fluxloaderAPI.events.trigger("fl:game-started");
+		await fluxloaderAPI.events.trigger("fl:game-started");
 		logInfo(`Game window started successfully`);
 		return successResponse("Game window started successfully");
 	} catch (e) {
@@ -2668,7 +2668,7 @@ async function closeGame() {
 		gameWindow.close();
 	}
 	gameWindow = null;
-	fluxloaderAPI.events.trigger("fl:game-closed");
+	await fluxloaderAPI.events.trigger("fl:game-closed");
 	await modsManager.unloadAllMods();
 	fluxloaderAPI.events.clear();
 	trySendManagerEvent("fl:game-closed");
