@@ -998,7 +998,7 @@ class ModsManager {
 			}
 		}
 
-		fluxloaderAPI.events.trigger("fl:all-mods-loaded");
+		await fluxloaderAPI.events.trigger("fl:all-mods-loaded");
 		logDebug(`All mods loaded successfully`);
 		return successResponse(`Loaded ${this.loadedModCount} mod${this.loadedModCount == 1 ? "" : "s"}`);
 	}
@@ -1586,16 +1586,45 @@ class ModsManager {
 
 		if (mod.info.electronEntrypoint) {
 			try {
+				// temporarily cache imports instead of globally like node does
+				const moduleCache = new Map();
 				const includeVMScript = (filePath) => {
 					// Read the provided files content (relative to the mods folder)
 					const absolutePath = path.join(mod.path, filePath);
 					if (!fs.existsSync(absolutePath)) throw new Error(`File not found: ${absolutePath}`);
 					const code = fs.readFileSync(absolutePath, "utf8");
 
+					// make support for dynamic imports
+					const linker = async (mPath, currentScript) => {
+						const currentPath = currentScript.identifier ?
+							url.fileURLToPath(currentScript.identifier) :
+							// means this isn't a module yet, so use the absolutePath from base includeVMScript
+							absolutePath;
+						const targetPath = path.resolve(path.dirname(currentPath), mPath);
+						if (moduleCache.has(targetPath)) return moduleCache.get(targetPath);
+						const moduleCode = fs.readFileSync(targetPath, "utf8");
+						// module has to be relative to itself as that's the expected nature
+						const moduleIdentifier = url.pathToFileURL(targetPath).href;
+						const Module = new vm.SourceTextModule(moduleCode, {
+							context: this.modContext,
+							identifier: moduleIdentifier
+						});
+						moduleCache.set(targetPath, Module);
+						return Module;
+					}
+
 					// Wrap the code in a top level async so it can be awaited
 					const wrappedCode = `globalThis.toplevelAsyncWrapperExport = async () => {${code}\n}`;
 					const identifier = url.pathToFileURL(absolutePath).href;
-					const script = new vm.Script(wrappedCode, { filename: identifier });
+					const script = new vm.Script(wrappedCode, {
+						filename: identifier,
+						async importModuleDynamically(mPath, currentScript) {
+							const Module = await linker(mPath, currentScript);
+							await Module.link(linker);
+							await Module.evaluate();
+							return Module;
+						}
+					});
 
 					// Give it access to this includeVMScript
 					const customRequire = Module.createRequire(absolutePath);
@@ -1623,7 +1652,7 @@ class ModsManager {
 
 		mod.isLoaded = true;
 		this.loadedModCount++;
-		fluxloaderAPI.events.trigger("fl:mod-loaded", mod);
+		await fluxloaderAPI.events.trigger("fl:mod-loaded", mod);
 		return successResponse(`Mod '${mod.info.modID}' loaded successfully`, mod);
 	}
 
@@ -2615,7 +2644,7 @@ async function startUnmoddedGame() {
 		return errorResponse(`Error starting unmodded game window`, null, false);
 	}
 
-	fluxloaderAPI.events.trigger("fl:game-started");
+	await fluxloaderAPI.events.trigger("fl:game-started");
 	logInfo(`Unmodded game window started successfully`);
 	return successResponse("Unmodded game started successfully");
 }
@@ -2650,7 +2679,7 @@ async function startGame() {
 			if (config.game.openDevTools) gameWindow.openDevTools();
 		});
 
-		fluxloaderAPI.events.trigger("fl:game-started");
+		await fluxloaderAPI.events.trigger("fl:game-started");
 		logInfo(`Game window started successfully`);
 		return successResponse("Game window started successfully");
 	} catch (e) {
@@ -2668,7 +2697,7 @@ async function closeGame() {
 		gameWindow.close();
 	}
 	gameWindow = null;
-	fluxloaderAPI.events.trigger("fl:game-closed");
+	await fluxloaderAPI.events.trigger("fl:game-closed");
 	await modsManager.unloadAllMods();
 	fluxloaderAPI.events.clear();
 	trySendManagerEvent("fl:game-closed");

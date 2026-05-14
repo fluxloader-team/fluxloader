@@ -3,6 +3,7 @@ node_modules
 package-lock.json
 .idea
 .vscode
+*.code-workspace
 
 # Runtime products
 **/fluxloader-config.json
